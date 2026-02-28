@@ -1,6 +1,8 @@
 # AGENTS.md
 
-This repository is an HCI research platform for running longitudinal experiments with an AI coach. It has three pillars:
+Parapegma is an HCI research platform for running longitudinal experiments with an AI coach. The internal codename and all code/UI branding remain "Flow." This file defines project structure and agent behavior rules.
+
+The platform has three pillars:
 
 1) A multi-bot conversation engine implemented using LangChain primitives (agents, tools, structured outputs), with stateful routing and safe persistence.
 2) A React PWA frontend with real-time chat via SSE and vendor-neutral Web Push subscription and reception.

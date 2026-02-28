@@ -1,6 +1,6 @@
 # Web Rescaffold Migration Plan
 
-## Flow-required frontend routes and features
+## Flow (internal codename) required frontend routes and features
 
 - [x] `/` landing page
 - [x] `/register` passkey registration
@@ -22,7 +22,7 @@
   - `/p/{project_id}/push/subscribe`
   - `/p/{project_id}/push/unsubscribe`
 
-## Current Flow-specific assets/config inventory
+## Current Flow-specific (internal codename) assets/config inventory
 
 - `web/public/manifest.json`
 - `web/public/sw.js`
@@ -30,7 +30,7 @@
 - `web/e2e/*.spec.ts` Playwright coverage
 - Flow product pages in `web/src/pages/*`
 
-## Upstream scaffold vs Flow-specific file classes
+## Upstream scaffold vs Flow-specific (internal codename) file classes
 
 | Class | Files |
 |---|---|

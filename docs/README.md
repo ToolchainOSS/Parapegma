@@ -1,4 +1,4 @@
-# Flow Documentation
+# Parapegma Documentation
 
 > **Start here.** This page indexes all project documentation and points you to the right place.
 

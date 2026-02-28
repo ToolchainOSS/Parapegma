@@ -1,6 +1,12 @@
-# Flow: HCI Research Platform
+# Parapegma: Operational tooling for longitudinal behavioral interventions
 
 A production-shaped prototype for HCI research combining a multi-bot conversation engine built on LangChain primitives, React PWA frontend, passkey-first authentication (via [h4ckath0n](https://github.com/BTreeMap/h4ckath0n)), SSE-based real-time chat, and vendor-neutral Web Push notifications.
+
+## Naming
+
+- The **public project name** is **Parapegma**.
+- The internal codename, all code identifiers, Docker image names (`flow`, `flow-web`), environment variables (`FLOW_*`), and the running application UI remain **"Flow"** for now.
+- This is intentional to avoid breaking deployments, code references, and existing integrations.
 
 ## Architecture Overview
 
@@ -93,7 +99,7 @@ To run real LLM responses instead of stub mode, set `OPENAI_API_KEY` (or `H4CKAT
 
 ### VAPID Web Push configuration
 
-Flow uses standard Web Push VAPID keys for push subscription and delivery.
+Parapegma uses standard Web Push VAPID keys for push subscription and delivery.
 
 Required environment variables:
 
