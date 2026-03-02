@@ -292,7 +292,11 @@ async def _handle_scheduled_nudge(db, event: OutboxEvent) -> None:
         title=topic,
         body=content,
         url=chat_url,
-        data={"notification_id": notification.id},
+        data={
+            "notification_id": notification.id,
+            "project_id": project_id,
+            "url": chat_url,
+        },
     )
 
     await db.commit()

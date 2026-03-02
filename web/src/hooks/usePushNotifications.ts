@@ -49,24 +49,43 @@ export function usePushNotifications(projectId?: string) {
   const [success, setSuccess] = useState<string | null>(null);
   const [pushNotConfigured, setPushNotConfigured] = useState(false);
 
-  // Check initial subscription status
+  // Check initial subscription status per-project via backend
   useEffect(() => {
     (async () => {
       if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
         setInitializing(false);
         return;
       }
+      if (!projectId) {
+        setInitializing(false);
+        return;
+      }
       try {
         const reg = await navigator.serviceWorker.ready;
         const sub = await reg.pushManager.getSubscription();
-        setSubscribed(!!sub);
+        if (!sub) {
+          setSubscribed(false);
+          setInitializing(false);
+          return;
+        }
+        // Check backend for per-project registration status
+        const { data } = await api.GET(
+          "/p/{project_id}/push/status",
+          {
+            params: {
+              path: { project_id: projectId },
+              query: { endpoint: sub.endpoint },
+            },
+          },
+        );
+        setSubscribed(data?.registered ?? false);
       } catch {
         // ignore
       } finally {
         setInitializing(false);
       }
     })();
-  }, []);
+  }, [projectId]);
 
   // Check if VAPID is configured on the backend
   useEffect(() => {
@@ -135,10 +154,15 @@ export function usePushNotifications(projectId?: string) {
       }
 
       const reg = await navigator.serviceWorker.ready;
-      const subscription = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey,
-      });
+
+      // Reuse existing browser subscription if available
+      let subscription = await reg.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+      }
 
       const { error: subscribeError } = await api.POST(
         "/p/{project_id}/push/subscribe",
@@ -174,14 +198,16 @@ export function usePushNotifications(projectId?: string) {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        await sub.unsubscribe();
+        // Only unregister from backend for this project — do NOT call
+        // sub.unsubscribe() which would remove the browser subscription
+        // for all projects.
         await api.POST("/p/{project_id}/push/unsubscribe", {
           params: { path: { project_id: projectId } },
           body: { endpoint: sub.endpoint },
         });
       }
       setSubscribed(false);
-      setSuccess("Notifications disabled.");
+      setSuccess("Notifications disabled for this project.");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to disable notifications",

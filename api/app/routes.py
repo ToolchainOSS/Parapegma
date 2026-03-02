@@ -227,6 +227,24 @@ class VapidPublicKeyResponse(BaseModel):
     public_key: str
 
 
+class PushStatusResponse(BaseModel):
+    registered: bool
+
+
+class UnifiedNotificationItem(BaseModel):
+    id: int
+    title: str
+    body: str
+    created_at: str
+    read_at: str | None
+    project_id: str
+    project_display_name: str | None
+
+
+class UnifiedNotificationListResponse(BaseModel):
+    notifications: list[UnifiedNotificationItem]
+
+
 class ProfileUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1505,6 +1523,31 @@ async def push_unsubscribe(
     return PushUnsubscribeResponse(ok=True)
 
 
+@router.get("/p/{project_id}/push/status", tags=["push"])
+async def push_status(
+    project_id: str,
+    endpoint: str,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> PushStatusResponse:
+    """Check whether a push subscription is registered for this membership."""
+    try:
+        membership = await _get_membership(db, project_id, user.id)
+        result = await db.execute(
+            select(PushSubscription.id).where(
+                PushSubscription.membership_id == membership.id,
+                PushSubscription.endpoint == endpoint,
+                PushSubscription.revoked_at.is_(None),
+            )
+        )
+        return PushStatusResponse(registered=result.scalar_one_or_none() is not None)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Push status check failed")
+        return PushStatusResponse(registered=False)
+
+
 # ---------------------------------------------------------------------------
 # 9. Notifications
 # ---------------------------------------------------------------------------
@@ -1596,7 +1639,135 @@ async def mark_notification_read(
     return {"ok": True}
 
 
-@router.post("/admin/projects", tags=["admin"])
+# ---------------------------------------------------------------------------
+# 9b. Unified Notifications (cross-project)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/notifications", tags=["notifications"])
+async def list_unified_notifications(
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> UnifiedNotificationListResponse:
+    """List notifications across all projects for the current user, ordered by time."""
+    try:
+        result = await db.execute(
+            select(Notification, ProjectMembership.project_id, Project.display_name)
+            .join(
+                ProjectMembership,
+                Notification.membership_id == ProjectMembership.id,
+            )
+            .join(Project, ProjectMembership.project_id == Project.id)
+            .where(ProjectMembership.user_id == user.id)
+            .order_by(Notification.created_at.desc())
+            .limit(50)
+        )
+        rows = result.all()
+        return UnifiedNotificationListResponse(
+            notifications=[
+                UnifiedNotificationItem(
+                    id=n.id,
+                    title=n.title,
+                    body=n.body,
+                    created_at=n.created_at.isoformat(),
+                    read_at=n.read_at.isoformat() if n.read_at else None,
+                    project_id=project_id,
+                    project_display_name=display_name,
+                )
+                for n, project_id, display_name in rows
+            ]
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to list unified notifications")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load notifications",
+        )
+
+
+@router.get("/notifications/unread-count", tags=["notifications"])
+async def get_unified_unread_count(
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> NotificationUnreadCountResponse:
+    """Get count of unread notifications across all projects."""
+    try:
+        result = await db.execute(
+            select(func.count(Notification.id))
+            .join(
+                ProjectMembership,
+                Notification.membership_id == ProjectMembership.id,
+            )
+            .where(
+                ProjectMembership.user_id == user.id,
+                Notification.read_at.is_(None),
+            )
+        )
+        count = result.scalar() or 0
+        return NotificationUnreadCountResponse(count=count)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to get unified unread count")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load unread count",
+        )
+
+
+@router.post("/notifications/{notification_id}/read", tags=["notifications"])
+async def mark_unified_notification_read(
+    notification_id: int,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Mark a notification as read (global, resolves project from notification)."""
+    try:
+        result = await db.execute(
+            select(Notification, ProjectMembership.project_id)
+            .join(
+                ProjectMembership,
+                Notification.membership_id == ProjectMembership.id,
+            )
+            .where(
+                Notification.id == notification_id,
+                ProjectMembership.user_id == user.id,
+            )
+        )
+        row = result.one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail="Notification not found")
+
+        notification, project_id = row
+        if not notification.read_at:
+            notification.read_at = datetime.now(UTC)
+
+            await enqueue_outbox_event(
+                db,
+                project_id=project_id,
+                membership_id=notification.membership_id,
+                event_type="notification_read_receipt",
+                payload={"notification_id": notification_id, "project_id": project_id},
+                dedupe_key=f"read_receipt:{notification_id}",
+                available_at=datetime.now(UTC),
+            )
+
+            await db.commit()
+
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to mark notification as read")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to mark notification as read",
+        )
+
+
+
 async def admin_create_project(
     body: AdminCreateProjectRequest,
     _admin_user: User = require_admin(),
@@ -2008,6 +2179,10 @@ async def admin_push_test(
             "title": body.title,
             "body": body.body,
             "url": body.url,
+            "data": {
+                "url": body.url,
+                "project_id": body.project_id,
+            },
         }
     )
 
