@@ -1594,7 +1594,9 @@ async def push_unsubscribe(
         raise
     except Exception:
         logger.exception("Push unsubscribe failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(
+            status_code=500, detail="Failed to unsubscribe from push notifications"
+        )
 
 
 @router.get("/p/{project_id}/push/status", tags=["push"])

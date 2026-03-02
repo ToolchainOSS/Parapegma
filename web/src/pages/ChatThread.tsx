@@ -83,7 +83,8 @@ export function ChatThread() {
   // Handle push notification interaction (nid param)
   useEffect(() => {
     const nid = searchParams.get("nid");
-    if (nid && projectId) {
+    const parsedNid = nid ? parseInt(nid, 10) : NaN;
+    if (!Number.isNaN(parsedNid) && projectId) {
       // Clear param immediately so we don't re-trigger
       const newParams = new URLSearchParams(searchParams);
       newParams.delete("nid");
@@ -98,7 +99,7 @@ export function ChatThread() {
               params: {
                 path: {
                   project_id: projectId,
-                  notification_id: Number(nid),
+                  notification_id: parsedNid,
                 },
               },
             },
