@@ -204,7 +204,7 @@ All proposals are logged in the `patch_audit_log` table:
 
 ## Alembic Migrations
 
-Flow uses its own Alembic environment separate from h4ckath0n:
+Parapegma uses its own Alembic environment separate from h4ckath0n:
 
 - **Migration directory:** `api/app/db_migrations/`
 - **Version table:** `flow_alembic_version`
