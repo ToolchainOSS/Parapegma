@@ -1767,7 +1767,7 @@ async def mark_unified_notification_read(
         )
 
 
-
+@router.post("/admin/projects", tags=["admin"])
 async def admin_create_project(
     body: AdminCreateProjectRequest,
     _admin_user: User = require_admin(),

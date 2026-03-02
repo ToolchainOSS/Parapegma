@@ -59,6 +59,32 @@
         "title": "AdminCreateInvitesResponse",
         "type": "object"
       },
+      "AdminCreateProjectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "study_settings": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Study Settings"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "AdminCreateProjectRequest",
+        "type": "object"
+      },
       "AdminDebugStatusResponse": {
         "properties": {
           "llm_mode": {
@@ -1935,6 +1961,54 @@
           }
         ],
         "summary": "Admin List Projects",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "operationId": "admin_create_project_admin_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminCreateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Admin Create Project Admin Projects Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Admin Create Project",
         "tags": [
           "admin"
         ]

@@ -68,7 +68,8 @@ export interface paths {
         /** Admin List Projects */
         get: operations["admin_list_projects_admin_projects_get"];
         put?: never;
-        post?: never;
+        /** Admin Create Project */
+        post: operations["admin_create_project_admin_projects_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -881,6 +882,15 @@ export interface components {
         AdminCreateInvitesResponse: {
             /** Invite Codes */
             invite_codes: string[];
+        };
+        /** AdminCreateProjectRequest */
+        AdminCreateProjectRequest: {
+            /** Display Name */
+            display_name: string;
+            /** Study Settings */
+            study_settings?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** AdminDebugStatusResponse */
         AdminDebugStatusResponse: {
@@ -1700,6 +1710,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminProjectsResponse"];
+                };
+            };
+        };
+    };
+    admin_create_project_admin_projects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminCreateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
