@@ -222,9 +222,13 @@ All project-scoped endpoints require passkey authentication.
 | `GET` | `/p/{project_id}/push/vapid-public-key` | push | Get VAPID public key for push subscription |
 | `POST` | `/p/{project_id}/push/subscribe` | push | Store a push subscription |
 | `POST` | `/p/{project_id}/push/unsubscribe` | push | Revoke a push subscription |
+| `GET` | `/p/{project_id}/push/status` | push | Check push subscription registration status |
 | `GET` | `/p/{project_id}/notifications` | notifications | List notifications |
 | `GET` | `/p/{project_id}/notifications/unread-count` | notifications | Get unread notification count |
 | `POST` | `/p/{project_id}/notifications/{notification_id}/read` | notifications | Mark notification as read |
+| `GET` | `/notifications` | notifications | List unified notifications across all projects |
+| `GET` | `/notifications/unread-count` | notifications | Get unified unread notification count |
+| `POST` | `/notifications/{notification_id}/read` | notifications | Mark notification as read (global) |
 | `GET` | `/admin/debug/status` | admin | System debug status |
 | `POST` | `/admin/debug/llm-connectivity` | admin | Test LLM connectivity |
 | `POST` | `/admin/projects` | admin | Create a new project |

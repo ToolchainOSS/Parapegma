@@ -59,6 +59,19 @@ export type UserMeUpdateRequest = components["schemas"]["UserMeUpdateRequest"];
 export type DashboardResponse = components["schemas"]["DashboardResponse"];
 export type MembershipInfo = components["schemas"]["MembershipInfo"];
 
+// ── Notification types ────────────────────────────────────────────────
+
+export type NotificationItem = components["schemas"]["NotificationItem"];
+export type NotificationListResponse =
+  components["schemas"]["NotificationListResponse"];
+export type NotificationUnreadCountResponse =
+  components["schemas"]["NotificationUnreadCountResponse"];
+export type UnifiedNotificationItem =
+  components["schemas"]["UnifiedNotificationItem"];
+export type UnifiedNotificationListResponse =
+  components["schemas"]["UnifiedNotificationListResponse"];
+export type PushStatusResponse = components["schemas"]["PushStatusResponse"];
+
 // ── User-defined (demo) types ─────────────────────────────────────────────
 
 /** Response body for GET /demo/ping */
@@ -90,6 +103,12 @@ type _AssertAdminProjectPatch = paths["/admin/projects/{project_id}"]["patch"];
 type _AssertAdminPushChannelsGet =
   paths["/admin/projects/{project_id}/push/channels"]["get"];
 type _AssertAdminPushTestPost = paths["/admin/push/test"]["post"];
+type _AssertNotificationsGet = paths["/notifications"]["get"];
+type _AssertNotificationsUnreadCountGet =
+  paths["/notifications/unread-count"]["get"];
+type _AssertNotificationReadPost =
+  paths["/notifications/{notification_id}/read"]["post"];
+type _AssertPushStatusGet = paths["/p/{project_id}/push/status"]["get"];
 
 // Suppress "declared but never read" – they exist purely for the type check.
 export type {
@@ -108,4 +127,8 @@ export type {
   _AssertAdminProjectPatch,
   _AssertAdminPushChannelsGet,
   _AssertAdminPushTestPost,
+  _AssertNotificationsGet,
+  _AssertNotificationsUnreadCountGet,
+  _AssertNotificationReadPost,
+  _AssertPushStatusGet,
 };

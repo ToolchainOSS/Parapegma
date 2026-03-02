@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router';
+import api from '../api/client';
 
 export type Notification = {
   id: number;
@@ -17,9 +18,11 @@ export function useNotifications() {
     queryKey: ['notifications', projectId],
     queryFn: async () => {
       if (!projectId) return [];
-      const res = await fetch(`/api/p/${projectId}/notifications`);
-      if (!res.ok) throw new Error('Failed to fetch notifications');
-      const data = await res.json();
+      const { data, error } = await api.GET(
+        '/p/{project_id}/notifications',
+        { params: { path: { project_id: projectId } } },
+      );
+      if (error) throw new Error('Failed to fetch notifications');
       return data.notifications;
     },
     enabled: !!projectId,
@@ -29,9 +32,12 @@ export function useNotifications() {
     queryKey: ['notifications-unread-count', projectId],
     queryFn: async () => {
       if (!projectId) return { count: 0 };
-      const res = await fetch(`/api/p/${projectId}/notifications/unread-count`);
-      if (!res.ok) return { count: 0 };
-      return res.json();
+      const { data, error } = await api.GET(
+        '/p/{project_id}/notifications/unread-count',
+        { params: { path: { project_id: projectId } } },
+      );
+      if (error) return { count: 0 };
+      return { count: data.count };
     },
     enabled: !!projectId,
     refetchInterval: 30000, // Poll every 30s for sync
@@ -40,9 +46,14 @@ export function useNotifications() {
   const markReadMutation = useMutation({
     mutationFn: async (notificationId: number) => {
       if (!projectId) return;
-      await fetch(`/api/p/${projectId}/notifications/${notificationId}/read`, {
-        method: 'POST',
-      });
+      await api.POST(
+        '/p/{project_id}/notifications/{notification_id}/read',
+        {
+          params: {
+            path: { project_id: projectId, notification_id: notificationId },
+          },
+        },
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications', projectId] });

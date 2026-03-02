@@ -555,6 +555,66 @@ export interface paths {
         patch: operations["update_me_me_patch"];
         trace?: never;
     };
+    "/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Unified Notifications
+         * @description List notifications across all projects for the current user, ordered by time.
+         */
+        get: operations["list_unified_notifications_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Unified Unread Count
+         * @description Get count of unread notifications across all projects.
+         */
+        get: operations["get_unified_unread_count_notifications_unread_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Unified Notification Read
+         * @description Mark a notification as read (global, resolves project from notification).
+         */
+        post: operations["mark_unified_notification_read_notifications__notification_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/p/{project_id}/activate/claim": {
         parameters: {
             query?: never;
@@ -710,6 +770,26 @@ export interface paths {
         get: operations["get_profile_p__project_id__profile_get"];
         /** Put Profile */
         put: operations["put_profile_p__project_id__profile_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/p/{project_id}/push/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Push Status
+         * @description Check whether a push subscription is registered for this membership.
+         */
+        get: operations["push_status_p__project_id__push_status_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1359,6 +1439,11 @@ export interface components {
             /** P256Dh */
             p256dh: string;
         };
+        /** PushStatusResponse */
+        PushStatusResponse: {
+            /** Registered */
+            registered: boolean;
+        };
         /** PushSubscribeRequest */
         PushSubscribeRequest: {
             /** Endpoint */
@@ -1396,6 +1481,28 @@ export interface components {
             client_msg_id?: string | null;
             /** Text */
             text: string;
+        };
+        /** UnifiedNotificationItem */
+        UnifiedNotificationItem: {
+            /** Body */
+            body: string;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Project Display Name */
+            project_display_name: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Read At */
+            read_at: string | null;
+            /** Title */
+            title: string;
+        };
+        /** UnifiedNotificationListResponse */
+        UnifiedNotificationListResponse: {
+            /** Notifications */
+            notifications: components["schemas"]["UnifiedNotificationItem"][];
         };
         /** UserMeResponse */
         UserMeResponse: {
@@ -2471,6 +2578,79 @@ export interface operations {
             };
         };
     };
+    list_unified_notifications_notifications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnifiedNotificationListResponse"];
+                };
+            };
+        };
+    };
+    get_unified_unread_count_notifications_unread_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationUnreadCountResponse"];
+                };
+            };
+        };
+    };
+    mark_unified_notification_read_notifications__notification_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     claim_invite_p__project_id__activate_claim_post: {
         parameters: {
             query?: never;
@@ -2783,6 +2963,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserProfileData"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    push_status_p__project_id__push_status_get: {
+        parameters: {
+            query: {
+                endpoint: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushStatusResponse"];
                 };
             };
             /** @description Validation Error */

@@ -218,3 +218,124 @@ async def test_scheduler_tools(seeded_project: dict[str, Any]) -> None:
 
     finally:
         scheduler_tools_module.async_session_factory = old_factory
+
+
+@pytest.mark.asyncio
+async def test_unified_notifications_lifecycle(seeded_project: dict[str, Any]) -> None:
+    """Unified notification endpoints return cross-project notifications."""
+    client = seeded_project["client"]
+    project_id = seeded_project["project_id"]
+
+    # 1. Create notifications manually in DB (simulating worker)
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+
+        notif1 = Notification(
+            membership_id=membership.id,
+            title="Nudge 1",
+            body="First nudge body.",
+            payload_json="{}",
+        )
+        notif2 = Notification(
+            membership_id=membership.id,
+            title="Nudge 2",
+            body="Second nudge body.",
+            payload_json="{}",
+        )
+        db.add(notif1)
+        db.add(notif2)
+        await db.commit()
+        notif1_id = notif1.id
+        notif2_id = notif2.id
+
+    # 2. List unified notifications
+    resp = await client.get("/notifications")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["notifications"]) == 2
+    # Should include project_id and project_display_name
+    for n in data["notifications"]:
+        assert n["project_id"] == project_id
+        assert n["project_display_name"] == "Test Project"
+
+    # 3. Get unified unread count
+    resp = await client.get("/notifications/unread-count")
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+
+    # 4. Mark one notification read via unified endpoint
+    resp = await client.post(f"/notifications/{notif1_id}/read")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+    # 5. Verify unread count decreased
+    resp = await client.get("/notifications/unread-count")
+    assert resp.json()["count"] == 1
+
+    # 6. Verify the read status in unified list
+    resp = await client.get("/notifications")
+    notifications_data = {n["id"]: n for n in resp.json()["notifications"]}
+    assert notifications_data[notif1_id]["read_at"] is not None
+    assert notifications_data[notif2_id]["read_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_unified_notification_read_not_found(
+    seeded_project: dict[str, Any],
+) -> None:
+    """Reading a non-existent notification returns 404."""
+    client = seeded_project["client"]
+    resp = await client.post("/notifications/999999/read")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_push_status_endpoint(seeded_project: dict[str, Any]) -> None:
+    """Push status endpoint returns correct registration state."""
+    client = seeded_project["client"]
+    project_id = seeded_project["project_id"]
+
+    # No subscription registered yet
+    resp = await client.get(
+        f"/p/{project_id}/push/status",
+        params={"endpoint": "https://push.example.com/sub/1"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["registered"] is False
+
+    # Register a push subscription
+    async with _test_session_factory() as db:
+        from app.models import PushSubscription
+
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+        sub = PushSubscription(
+            membership_id=membership.id,
+            endpoint="https://push.example.com/sub/1",
+            p256dh="testkey",
+            auth="testauth",
+            user_agent="pytest",
+        )
+        db.add(sub)
+        await db.commit()
+
+    # Should now be registered
+    resp = await client.get(
+        f"/p/{project_id}/push/status",
+        params={"endpoint": "https://push.example.com/sub/1"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["registered"] is True
+
+    # Different endpoint should not be registered
+    resp = await client.get(
+        f"/p/{project_id}/push/status",
+        params={"endpoint": "https://push.example.com/sub/other"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["registered"] is False

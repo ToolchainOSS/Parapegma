@@ -11,6 +11,7 @@ import { MessageBubble } from "../components/ui/MessageBubble";
 import { Composer } from "../components/ui/Composer";
 import { useLayoutMode } from "../hooks/useLayoutMode";
 import type { DashboardResponse } from "../api/types";
+import api from "../api/client";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
@@ -82,7 +83,8 @@ export function ChatThread() {
   // Handle push notification interaction (nid param)
   useEffect(() => {
     const nid = searchParams.get("nid");
-    if (nid && projectId) {
+    const parsedNid = nid ? parseInt(nid, 10) : NaN;
+    if (!Number.isNaN(parsedNid) && projectId) {
       // Clear param immediately so we don't re-trigger
       const newParams = new URLSearchParams(searchParams);
       newParams.delete("nid");
@@ -91,11 +93,17 @@ export function ChatThread() {
       // Call mark-read
       (async () => {
         try {
-          const token = await getOrMintToken("http");
-          await fetch(`${API_BASE}/p/${projectId}/notifications/${nid}/read`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          await api.POST(
+            "/p/{project_id}/notifications/{notification_id}/read",
+            {
+              params: {
+                path: {
+                  project_id: projectId,
+                  notification_id: parsedNid,
+                },
+              },
+            },
+          );
         } catch (err) {
           console.error("Failed to mark notification read", err);
         }
