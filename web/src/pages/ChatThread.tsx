@@ -11,6 +11,7 @@ import { MessageBubble } from "../components/ui/MessageBubble";
 import { Composer } from "../components/ui/Composer";
 import { useLayoutMode } from "../hooks/useLayoutMode";
 import type { DashboardResponse } from "../api/types";
+import api from "../api/client";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
@@ -91,11 +92,17 @@ export function ChatThread() {
       // Call mark-read
       (async () => {
         try {
-          const token = await getOrMintToken("http");
-          await fetch(`${API_BASE}/p/${projectId}/notifications/${nid}/read`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          await api.POST(
+            "/p/{project_id}/notifications/{notification_id}/read",
+            {
+              params: {
+                path: {
+                  project_id: projectId,
+                  notification_id: Number(nid),
+                },
+              },
+            },
+          );
         } catch (err) {
           console.error("Failed to mark notification read", err);
         }

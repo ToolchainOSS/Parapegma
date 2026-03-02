@@ -5,16 +5,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { Button } from "../components/Button";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import api from "../api/client";
-
-interface UnifiedNotification {
-  id: number;
-  title: string;
-  body: string;
-  created_at: string;
-  read_at: string | null;
-  project_id: string;
-  project_display_name: string | null;
-}
+import type { UnifiedNotificationItem } from "../api/types";
 
 function relativeTime(dateStr: string): string {
   const now = Date.now();
@@ -36,14 +27,14 @@ export function Updates() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, error } = useQuery<UnifiedNotification[]>({
+  const { data, isLoading, error } = useQuery<UnifiedNotificationItem[]>({
     queryKey: ["unified-notifications"],
     queryFn: async () => {
       const { data: respData, error: respError } = await api.GET(
         "/notifications",
       );
       if (respError) throw new Error("Failed to load notifications");
-      return (respData as { notifications: UnifiedNotification[] }).notifications;
+      return respData.notifications;
     },
   });
 
@@ -60,7 +51,7 @@ export function Updates() {
 
   const notifications = data ?? [];
 
-  const handleClick = (n: UnifiedNotification) => {
+  const handleClick = (n: UnifiedNotificationItem) => {
     if (!n.read_at) {
       markReadMutation.mutate(n.id);
     }

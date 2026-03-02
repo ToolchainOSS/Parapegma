@@ -417,63 +417,71 @@ async def dashboard(
     db: AsyncSession = Depends(get_db),
 ) -> DashboardResponse:
     """Return all memberships with project info for the current user."""
-    result = await db.execute(
-        select(ProjectMembership)
-        .where(ProjectMembership.user_id == user.id)
-        .options(
-            joinedload(ProjectMembership.project),
-            selectinload(ProjectMembership.conversations),
-        )
-    )
-    memberships = result.scalars().all()
-
-    # Batch: fetch last message per conversation to avoid N+1
-    membership_ids = [m.id for m in memberships]
-    last_msg_map: dict[int, Message] = {}
-    if membership_ids:
-        # Subquery for the max message id per conversation
-        latest_msg_subq = (
-            select(
-                Conversation.membership_id,
-                func.max(Message.id).label("max_msg_id"),
-            )
-            .join(Message, Message.conversation_id == Conversation.id)
-            .where(Conversation.membership_id.in_(membership_ids))
-            .group_by(Conversation.membership_id)
-            .subquery()
-        )
-        last_msgs_result = await db.execute(
-            select(latest_msg_subq.c.membership_id, Message).join(
-                Message, Message.id == latest_msg_subq.c.max_msg_id
+    try:
+        result = await db.execute(
+            select(ProjectMembership)
+            .where(ProjectMembership.user_id == user.id)
+            .options(
+                joinedload(ProjectMembership.project),
+                selectinload(ProjectMembership.conversations),
             )
         )
-        for row in last_msgs_result:
-            last_msg_map[row[0]] = row[1]
+        memberships = result.scalars().all()
 
-    items: list[MembershipInfo] = []
-    for m in memberships:
-        # Fetch project display name
-        project = m.project
-
-        # Fetch conversation id
-        conv = m.conversations[0] if m.conversations else None
-
-        last_msg = last_msg_map.get(m.id)
-
-        items.append(
-            MembershipInfo(
-                project_id=m.project_id,
-                display_name=project.display_name if project else None,
-                status=m.status,
-                conversation_id=conv.id if conv else None,
-                last_message_preview=last_msg.content[:MESSAGE_PREVIEW_MAX_LENGTH]
-                if last_msg
-                else None,
-                last_message_at=last_msg.created_at.isoformat() if last_msg else None,
+        # Batch: fetch last message per conversation to avoid N+1
+        membership_ids = [m.id for m in memberships]
+        last_msg_map: dict[int, Message] = {}
+        if membership_ids:
+            # Subquery for the max message id per conversation
+            latest_msg_subq = (
+                select(
+                    Conversation.membership_id,
+                    func.max(Message.id).label("max_msg_id"),
+                )
+                .join(Message, Message.conversation_id == Conversation.id)
+                .where(Conversation.membership_id.in_(membership_ids))
+                .group_by(Conversation.membership_id)
+                .subquery()
             )
-        )
+            last_msgs_result = await db.execute(
+                select(latest_msg_subq.c.membership_id, Message).join(
+                    Message, Message.id == latest_msg_subq.c.max_msg_id
+                )
+            )
+            for row in last_msgs_result:
+                last_msg_map[row[0]] = row[1]
 
-    return DashboardResponse(memberships=items)
+        items: list[MembershipInfo] = []
+        for m in memberships:
+            # Fetch project display name
+            project = m.project
+
+            # Fetch conversation id
+            conv = m.conversations[0] if m.conversations else None
+
+            last_msg = last_msg_map.get(m.id)
+
+            items.append(
+                MembershipInfo(
+                    project_id=m.project_id,
+                    display_name=project.display_name if project else None,
+                    status=m.status,
+                    conversation_id=conv.id if conv else None,
+                    last_message_preview=last_msg.content[:MESSAGE_PREVIEW_MAX_LENGTH]
+                    if last_msg
+                    else None,
+                    last_message_at=last_msg.created_at.isoformat()
+                    if last_msg
+                    else None,
+                )
+            )
+
+        return DashboardResponse(memberships=items)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to load dashboard")
+        raise HTTPException(status_code=500, detail="Failed to load dashboard")
 
 
 @router.get("/auth/me", tags=["auth"])
@@ -487,20 +495,26 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
 ) -> UserMeResponse:
     """Return current user profile including email and display name."""
-    profile_result = await db.execute(
-        select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
-    )
-    profile = profile_result.scalar_one_or_none()
-    return UserMeResponse(
-        user_id=user.id,
-        email=(
-            profile.email_raw or profile.email_normalized
-            if profile is not None
-            else None
-        ),
-        display_name=profile.display_name if profile else None,
-        is_admin=user.role == "admin",
-    )
+    try:
+        profile_result = await db.execute(
+            select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
+        )
+        profile = profile_result.scalar_one_or_none()
+        return UserMeResponse(
+            user_id=user.id,
+            email=(
+                profile.email_raw or profile.email_normalized
+                if profile is not None
+                else None
+            ),
+            display_name=profile.display_name if profile else None,
+            is_admin=user.role == "admin",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to load user profile")
+        raise HTTPException(status_code=500, detail="Failed to load user profile")
 
 
 @router.patch("/me", tags=["user"])
@@ -510,48 +524,56 @@ async def update_me(
     db: AsyncSession = Depends(get_db),
 ) -> UserMeResponse:
     """Update current user's email and/or display name."""
-    profile_result = await db.execute(
-        select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
-    )
-    profile = profile_result.scalar_one_or_none()
-    if profile is None:
-        profile = FlowUserProfile(user_id=user.id)
-        db.add(profile)
+    try:
+        profile_result = await db.execute(
+            select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
+        )
+        profile = profile_result.scalar_one_or_none()
+        if profile is None:
+            profile = FlowUserProfile(user_id=user.id)
+            db.add(profile)
 
-    if body.email is not None:
-        trimmed_email = str(body.email).strip()
-        profile.email_raw = trimmed_email
-        profile.email_normalized = trimmed_email.lower()
+        if body.email is not None:
+            trimmed_email = str(body.email).strip()
+            profile.email_raw = trimmed_email
+            profile.email_normalized = trimmed_email.lower()
 
-    if body.display_name is not None:
-        # None = don't update; empty string = invalid
-        trimmed = body.display_name.strip()
-        if len(trimmed) > 255:
-            raise HTTPException(
-                status_code=422, detail="Display name too long (max 255)"
-            )
-        if len(trimmed) == 0:
-            raise HTTPException(status_code=422, detail="Display name cannot be empty")
+        if body.display_name is not None:
+            # None = don't update; empty string = invalid
+            trimmed = body.display_name.strip()
+            if len(trimmed) > 255:
+                raise HTTPException(
+                    status_code=422, detail="Display name too long (max 255)"
+                )
+            if len(trimmed) == 0:
+                raise HTTPException(
+                    status_code=422, detail="Display name cannot be empty"
+                )
 
-        profile.display_name = trimmed
+            profile.display_name = trimmed
 
-    await db.commit()
+        await db.commit()
 
-    # Reload for response
-    profile_result = await db.execute(
-        select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
-    )
-    profile = profile_result.scalar_one_or_none()
-    return UserMeResponse(
-        user_id=user.id,
-        email=(
-            profile.email_raw or profile.email_normalized
-            if profile is not None
-            else None
-        ),
-        display_name=profile.display_name if profile else None,
-        is_admin=user.role == "admin",
-    )
+        # Reload for response
+        profile_result = await db.execute(
+            select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
+        )
+        profile = profile_result.scalar_one_or_none()
+        return UserMeResponse(
+            user_id=user.id,
+            email=(
+                profile.email_raw or profile.email_normalized
+                if profile is not None
+                else None
+            ),
+            display_name=profile.display_name if profile else None,
+            is_admin=user.role == "admin",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to update user profile")
+        raise HTTPException(status_code=500, detail="Failed to update user profile")
 
 
 async def _require_auth_context(request: Request) -> AuthContext:
@@ -566,22 +588,28 @@ async def auth_sessions(
     auth_ctx: AuthContext = Depends(_require_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> AuthSessionsResponse:
-    result = await db.execute(
-        select(Device)
-        .where(Device.user_id == auth_ctx.user_id)
-        .order_by(Device.created_at.desc())
-    )
-    sessions = [
-        AuthSessionItem(
-            device_id=device.id,
-            label=device.label,
-            created_at=device.created_at.isoformat(),
-            revoked_at=device.revoked_at.isoformat() if device.revoked_at else None,
-            is_current=device.id == auth_ctx.device_id,
+    try:
+        result = await db.execute(
+            select(Device)
+            .where(Device.user_id == auth_ctx.user_id)
+            .order_by(Device.created_at.desc())
         )
-        for device in result.scalars().all()
-    ]
-    return AuthSessionsResponse(sessions=sessions)
+        sessions = [
+            AuthSessionItem(
+                device_id=device.id,
+                label=device.label,
+                created_at=device.created_at.isoformat(),
+                revoked_at=device.revoked_at.isoformat() if device.revoked_at else None,
+                is_current=device.id == auth_ctx.device_id,
+            )
+            for device in result.scalars().all()
+        ]
+        return AuthSessionsResponse(sessions=sessions)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to load sessions")
+        raise HTTPException(status_code=500, detail="Failed to load sessions")
 
 
 @router.post("/auth/sessions/{device_id}/revoke", tags=["auth"])
@@ -590,16 +618,24 @@ async def revoke_auth_session(
     auth_ctx: AuthContext = Depends(_require_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> AuthSessionRevokeResponse:
-    result = await db.execute(
-        select(Device).where(Device.id == device_id, Device.user_id == auth_ctx.user_id)
-    )
-    device = result.scalar_one_or_none()
-    if device is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if device.revoked_at is None:
-        device.revoked_at = datetime.now(UTC)
-        await db.commit()
-    return AuthSessionRevokeResponse(ok=True)
+    try:
+        result = await db.execute(
+            select(Device).where(
+                Device.id == device_id, Device.user_id == auth_ctx.user_id
+            )
+        )
+        device = result.scalar_one_or_none()
+        if device is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if device.revoked_at is None:
+            device.revoked_at = datetime.now(UTC)
+            await db.commit()
+        return AuthSessionRevokeResponse(ok=True)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to revoke session")
+        raise HTTPException(status_code=500, detail="Failed to revoke session")
 
 
 @router.get("/admin/debug/status", tags=["admin"])
@@ -930,34 +966,42 @@ async def project_me(
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
     """Return membership status, conversation id, and stored email."""
-    membership = await _get_membership(db, project_id, user.id)
+    try:
+        membership = await _get_membership(db, project_id, user.id)
 
-    # Get conversation
-    conv_result = await db.execute(
-        select(Conversation).where(Conversation.membership_id == membership.id)
-    )
-    conv = conv_result.scalar_one_or_none()
+        # Get conversation
+        conv_result = await db.execute(
+            select(Conversation).where(Conversation.membership_id == membership.id)
+        )
+        conv = conv_result.scalar_one_or_none()
 
-    # Get latest email contact
-    contact_result = await db.execute(
-        select(ParticipantContact)
-        .where(ParticipantContact.membership_id == membership.id)
-        .order_by(ParticipantContact.created_at.desc())
-        .limit(1)
-    )
-    contact = contact_result.scalar_one_or_none()
-    profile_result = await db.execute(
-        select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
-    )
-    profile = profile_result.scalar_one_or_none()
+        # Get latest email contact
+        contact_result = await db.execute(
+            select(ParticipantContact)
+            .where(ParticipantContact.membership_id == membership.id)
+            .order_by(ParticipantContact.created_at.desc())
+            .limit(1)
+        )
+        contact = contact_result.scalar_one_or_none()
+        profile_result = await db.execute(
+            select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
+        )
+        profile = profile_result.scalar_one_or_none()
 
-    return MeResponse(
-        membership_status=membership.status,
-        conversation_id=conv.id if conv else None,
-        email=contact.email_raw
-        if contact
-        else (profile.email_raw if profile else None),
-    )
+        return MeResponse(
+            membership_status=membership.status,
+            conversation_id=conv.id if conv else None,
+            email=contact.email_raw
+            if contact
+            else (profile.email_raw if profile else None),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to load project membership info")
+        raise HTTPException(
+            status_code=500, detail="Failed to load project membership info"
+        )
 
 
 @router.get("/p/{project_id}/profile", tags=["profile"])
@@ -966,8 +1010,14 @@ async def get_profile(
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
 ) -> UserProfileData:
-    membership = await _get_membership(db, project_id, user.id)
-    return await load_user_profile(db, membership.id)
+    try:
+        membership = await _get_membership(db, project_id, user.id)
+        return await load_user_profile(db, membership.id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to load profile")
+        raise HTTPException(status_code=500, detail="Failed to load profile")
 
 
 @router.put("/p/{project_id}/profile", tags=["profile"])
@@ -977,14 +1027,20 @@ async def put_profile(
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
 ) -> UserProfileData:
-    membership = await _get_membership(db, project_id, user.id)
-    current = await load_user_profile(db, membership.id)
-    merged = current.model_dump()
-    merged.update(body.model_dump())
-    profile = UserProfileData.model_validate(merged)
-    await save_user_profile(db, membership.id, profile)
-    await db.commit()
-    return profile
+    try:
+        membership = await _get_membership(db, project_id, user.id)
+        current = await load_user_profile(db, membership.id)
+        merged = current.model_dump()
+        merged.update(body.model_dump())
+        profile = UserProfileData.model_validate(merged)
+        await save_user_profile(db, membership.id, profile)
+        await db.commit()
+        return profile
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to update profile")
+        raise HTTPException(status_code=500, detail="Failed to update profile")
 
 
 # ---------------------------------------------------------------------------
@@ -999,24 +1055,30 @@ async def list_messages(
     db: AsyncSession = Depends(get_db),
 ) -> MessageListResponse:
     """Return persisted messages for a project conversation."""
-    membership = await _get_membership(db, project_id, user.id)
-    conv = await _get_conversation(db, membership.id)
-    result = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conv.id)
-        .order_by(Message.id.asc())
-    )
-    items = [
-        MessageItem(
-            message_id=msg.id,
-            server_msg_id=msg.server_msg_id,
-            role=msg.role,
-            content=msg.content,
-            created_at=msg.created_at.isoformat(),
+    try:
+        membership = await _get_membership(db, project_id, user.id)
+        conv = await _get_conversation(db, membership.id)
+        result = await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conv.id)
+            .order_by(Message.id.asc())
         )
-        for msg in result.scalars().all()
-    ]
-    return MessageListResponse(messages=items)
+        items = [
+            MessageItem(
+                message_id=msg.id,
+                server_msg_id=msg.server_msg_id,
+                role=msg.role,
+                content=msg.content,
+                created_at=msg.created_at.isoformat(),
+            )
+            for msg in result.scalars().all()
+        ]
+        return MessageListResponse(messages=items)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to load messages")
+        raise HTTPException(status_code=500, detail="Failed to load messages")
 
 
 @router.post("/p/{project_id}/messages", tags=["messaging"])
@@ -1411,16 +1473,22 @@ async def vapid_public_key(
     db: AsyncSession = Depends(get_db),
 ) -> VapidPublicKeyResponse:
     """Return the VAPID public key from environment."""
-    # Verify membership exists
-    await _get_membership(db, project_id, user.id)
+    try:
+        # Verify membership exists
+        await _get_membership(db, project_id, user.id)
 
-    key = config.get_vapid_public_key()
-    if not key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="VAPID public key not configured",
-        )
-    return VapidPublicKeyResponse(public_key=key)
+        key = config.get_vapid_public_key()
+        if not key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="VAPID public key not configured",
+            )
+        return VapidPublicKeyResponse(public_key=key)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to get VAPID public key")
+        raise HTTPException(status_code=500, detail="Failed to get VAPID public key")
 
 
 # ---------------------------------------------------------------------------
@@ -1501,26 +1569,32 @@ async def push_unsubscribe(
     db: AsyncSession = Depends(get_db),
 ) -> PushUnsubscribeResponse:
     """Revoke a push subscription by endpoint."""
-    membership = await _get_membership(db, project_id, user.id)
+    try:
+        membership = await _get_membership(db, project_id, user.id)
 
-    result = await db.execute(
-        select(PushSubscription).where(
-            PushSubscription.membership_id == membership.id,
-            PushSubscription.endpoint == body.endpoint,
-            PushSubscription.revoked_at.is_(None),
+        result = await db.execute(
+            select(PushSubscription).where(
+                PushSubscription.membership_id == membership.id,
+                PushSubscription.endpoint == body.endpoint,
+                PushSubscription.revoked_at.is_(None),
+            )
         )
-    )
-    sub = result.scalar_one_or_none()
-    if sub is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Subscription not found",
-        )
+        sub = result.scalar_one_or_none()
+        if sub is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Subscription not found",
+            )
 
-    sub.revoked_at = datetime.now(UTC)
-    await db.commit()
+        sub.revoked_at = datetime.now(UTC)
+        await db.commit()
 
-    return PushUnsubscribeResponse(ok=True)
+        return PushUnsubscribeResponse(ok=True)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Push unsubscribe failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/p/{project_id}/push/status", tags=["push"])
@@ -1560,26 +1634,32 @@ async def list_notifications(
     db: AsyncSession = Depends(get_db),
 ) -> NotificationListResponse:
     """List notifications for the current membership."""
-    membership = await _get_membership(db, project_id, user.id)
-    result = await db.execute(
-        select(Notification)
-        .where(Notification.membership_id == membership.id)
-        .order_by(Notification.created_at.desc())
-        .limit(50)
-    )
-    notifications = result.scalars().all()
-    return NotificationListResponse(
-        notifications=[
-            NotificationItem(
-                id=n.id,
-                title=n.title,
-                body=n.body,
-                created_at=n.created_at.isoformat(),
-                read_at=n.read_at.isoformat() if n.read_at else None,
-            )
-            for n in notifications
-        ]
-    )
+    try:
+        membership = await _get_membership(db, project_id, user.id)
+        result = await db.execute(
+            select(Notification)
+            .where(Notification.membership_id == membership.id)
+            .order_by(Notification.created_at.desc())
+            .limit(50)
+        )
+        notifications = result.scalars().all()
+        return NotificationListResponse(
+            notifications=[
+                NotificationItem(
+                    id=n.id,
+                    title=n.title,
+                    body=n.body,
+                    created_at=n.created_at.isoformat(),
+                    read_at=n.read_at.isoformat() if n.read_at else None,
+                )
+                for n in notifications
+            ]
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to list notifications")
+        raise HTTPException(status_code=500, detail="Failed to load notifications")
 
 
 @router.get("/p/{project_id}/notifications/unread-count", tags=["notifications"])
@@ -1589,14 +1669,21 @@ async def get_unread_count(
     db: AsyncSession = Depends(get_db),
 ) -> NotificationUnreadCountResponse:
     """Get count of unread notifications."""
-    membership = await _get_membership(db, project_id, user.id)
-    result = await db.execute(
-        select(func.count(Notification.id)).where(
-            Notification.membership_id == membership.id, Notification.read_at.is_(None)
+    try:
+        membership = await _get_membership(db, project_id, user.id)
+        result = await db.execute(
+            select(func.count(Notification.id)).where(
+                Notification.membership_id == membership.id,
+                Notification.read_at.is_(None),
+            )
         )
-    )
-    count = result.scalar() or 0
-    return NotificationUnreadCountResponse(count=count)
+        count = result.scalar() or 0
+        return NotificationUnreadCountResponse(count=count)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to get unread count")
+        raise HTTPException(status_code=500, detail="Failed to load unread count")
 
 
 @router.post(
@@ -1609,34 +1696,45 @@ async def mark_notification_read(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
     """Mark a notification as read."""
-    membership = await _get_membership(db, project_id, user.id)
-    result = await db.execute(
-        select(Notification).where(
-            Notification.id == notification_id,
-            Notification.membership_id == membership.id,
+    try:
+        membership = await _get_membership(db, project_id, user.id)
+        result = await db.execute(
+            select(Notification).where(
+                Notification.id == notification_id,
+                Notification.membership_id == membership.id,
+            )
         )
-    )
-    notification = result.scalar_one_or_none()
-    if not notification:
-        raise HTTPException(status_code=404, detail="Notification not found")
+        notification = result.scalar_one_or_none()
+        if not notification:
+            raise HTTPException(status_code=404, detail="Notification not found")
 
-    if not notification.read_at:
-        notification.read_at = datetime.now(UTC)
+        if not notification.read_at:
+            notification.read_at = datetime.now(UTC)
 
-        # Enqueue read receipt sync to other devices
-        await enqueue_outbox_event(
-            db,
-            project_id=project_id,
-            membership_id=membership.id,
-            event_type="notification_read_receipt",
-            payload={"notification_id": notification_id, "project_id": project_id},
-            dedupe_key=f"read_receipt:{notification_id}",
-            available_at=datetime.now(UTC),
+            # Enqueue read receipt sync to other devices
+            await enqueue_outbox_event(
+                db,
+                project_id=project_id,
+                membership_id=membership.id,
+                event_type="notification_read_receipt",
+                payload={
+                    "notification_id": notification_id,
+                    "project_id": project_id,
+                },
+                dedupe_key=f"read_receipt:{notification_id}",
+                available_at=datetime.now(UTC),
+            )
+
+            await db.commit()
+
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to mark notification as read")
+        raise HTTPException(
+            status_code=500, detail="Failed to mark notification as read"
         )
-
-        await db.commit()
-
-    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
