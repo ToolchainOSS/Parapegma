@@ -68,6 +68,11 @@ _EXPECTED_TABLES = {
     "conversation_turns",
     "flow_user_profiles",
     "flow_alembic_version",
+    "nudge_schedules",
+    "notifications",
+    "notification_rules",
+    "notification_rule_state",
+    "notification_deliveries",
 }
 
 

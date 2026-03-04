@@ -320,6 +320,13 @@ class UserMeUpdateRequest(BaseModel):
     display_name: str | None = None
 
 
+class TimezoneUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timezone: str
+    offset_minutes: int | None = None
+
+
 class AdminProjectUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -574,6 +581,44 @@ async def update_me(
     except Exception:
         logger.exception("Failed to update user profile")
         raise HTTPException(status_code=500, detail="Failed to update user profile")
+
+
+@router.post("/me/timezone", tags=["user"])
+async def update_timezone(
+    body: TimezoneUpdateRequest,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Store the user's IANA timezone. Called automatically by the frontend."""
+    try:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(body.timezone)
+        except (ZoneInfoNotFoundError, KeyError):
+            raise HTTPException(
+                status_code=422, detail=f"Invalid IANA timezone: {body.timezone}"
+            )
+
+        profile_result = await db.execute(
+            select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
+        )
+        profile = profile_result.scalar_one_or_none()
+        if profile is None:
+            profile = FlowUserProfile(user_id=user.id)
+            db.add(profile)
+
+        profile.timezone = body.timezone
+        profile.tz_offset_minutes = body.offset_minutes
+        profile.tz_updated_at = datetime.now(UTC)
+
+        await db.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to update timezone")
+        raise HTTPException(status_code=500, detail="Failed to update timezone")
 
 
 async def _require_auth_context(request: Request) -> AuthContext:

@@ -6,9 +6,11 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -151,6 +153,13 @@ class Conversation(Base):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id",
+            "client_msg_id",
+            name="uq_message_conversation_client_msg",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     conversation_id: Mapped[int] = mapped_column(
@@ -375,6 +384,11 @@ class FlowUserProfile(Base):
     email_raw: Mapped[str | None] = mapped_column(String(320), nullable=True)
     email_normalized: Mapped[str | None] = mapped_column(String(320), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tz_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    tz_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -416,5 +430,115 @@ class Notification(Base):
     read_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    rule_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("notification_rules.id"), nullable=True
+    )
+    local_date: Mapped[str | None] = mapped_column(Date, nullable=True)
+    dedupe_key: Mapped[str | None] = mapped_column(
+        String(255), unique=True, nullable=True
+    )
 
+    membership: Mapped[ProjectMembership] = relationship()
+    rule: Mapped[NotificationRule | None] = relationship(back_populates="instances")
+
+
+class NotificationRule(Base):
+    """Describes what should happen and when (e.g. daily nudge at 08:00 local)."""
+
+    __tablename__ = "notification_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    membership_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project_memberships.id"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(50), nullable=False)
+    config_json: Mapped[str] = mapped_column(Text, nullable=False)
+    tz_policy: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="floating_user_tz"
+    )
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    membership: Mapped[ProjectMembership] = relationship()
+    state: Mapped[NotificationRuleState | None] = relationship(
+        back_populates="rule", uselist=False
+    )
+    instances: Mapped[list[Notification]] = relationship(back_populates="rule")
+
+
+class NotificationRuleState(Base):
+    """Hot worker state for a notification rule — indexed for efficient polling."""
+
+    __tablename__ = "notification_rule_state"
+    __table_args__ = (Index("ix_rule_state_next_due", "next_due_at_utc"),)
+
+    rule_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("notification_rules.id"), primary_key=True
+    )
+    next_due_at_utc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locked_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    rule: Mapped[NotificationRule] = relationship(back_populates="state")
+
+
+class NotificationDelivery(Base):
+    """Short-lived delivery command (push_notify, push_dismiss)."""
+
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (Index("ix_delivery_run_status", "run_at_utc", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instance_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("notifications.id"), nullable=False
+    )
+    membership_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project_memberships.id"), nullable=False
+    )
+    channel: Mapped[str] = mapped_column(String(30), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    run_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locked_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    instance: Mapped[Notification] = relationship()
     membership: Mapped[ProjectMembership] = relationship()
