@@ -1952,19 +1952,22 @@ async def admin_project_participants(
             profile.user_id: profile for profile in profiles_result.scalars().all()
         }
 
-    push_stats_by_membership: dict[int, dict[str, Any]] = {
-        membership_id: {"count": 0, "last_success_at": None, "last_failure_at": None}
-        for membership_id in membership_ids
-    }
-    if membership_ids:
+    push_stats_by_user: dict[str, dict[str, Any]] = {}
+    if user_ids:
         push_result = await db.execute(
             select(PushSubscription).where(
-                PushSubscription.membership_id.in_(membership_ids),
+                PushSubscription.user_id.in_(user_ids),
                 PushSubscription.revoked_at.is_(None),
             )
         )
         for sub in push_result.scalars().all():
-            stats = push_stats_by_membership[sub.membership_id]
+            if sub.user_id not in push_stats_by_user:
+                push_stats_by_user[sub.user_id] = {
+                    "count": 0,
+                    "last_success_at": None,
+                    "last_failure_at": None,
+                }
+            stats = push_stats_by_user[sub.user_id]
             stats["count"] += 1
             if sub.last_success_at and (
                 stats["last_success_at"] is None
@@ -1980,8 +1983,8 @@ async def admin_project_participants(
     participants: list[AdminParticipantItem] = []
     for membership in memberships:
         contact = latest_contact_by_membership.get(membership.id)
-        stats = push_stats_by_membership.get(
-            membership.id,
+        stats = push_stats_by_user.get(
+            membership.user_id,
             {"count": 0, "last_success_at": None, "last_failure_at": None},
         )
         participants.append(
@@ -2049,7 +2052,7 @@ async def admin_project_export(
     )
     push_result = await db.execute(
         select(PushSubscription).where(
-            PushSubscription.membership_id.in_(membership_ids)
+            PushSubscription.user_id.in_([m.user_id for m in memberships])
         )
     )
 
@@ -2125,7 +2128,7 @@ async def admin_project_export(
         "push_subscriptions": [
             {
                 "subscription_id": s.id,
-                "membership_id": s.membership_id,
+                "user_id": s.user_id,
                 "endpoint": s.endpoint,
                 "created_at": s.created_at.isoformat(),
                 "revoked_at": s.revoked_at.isoformat() if s.revoked_at else None,
@@ -2149,11 +2152,9 @@ async def admin_push_channels(
 ) -> AdminPushChannelsResponse:
     result = await db.execute(
         select(PushSubscription, ProjectMembership, User, FlowUserProfile)
-        .join(ProjectMembership, PushSubscription.membership_id == ProjectMembership.id)
-        .outerjoin(User, User.id == ProjectMembership.user_id)
-        .outerjoin(
-            FlowUserProfile, FlowUserProfile.user_id == ProjectMembership.user_id
-        )
+        .join(ProjectMembership, PushSubscription.user_id == ProjectMembership.user_id)
+        .outerjoin(User, User.id == PushSubscription.user_id)
+        .outerjoin(FlowUserProfile, FlowUserProfile.user_id == PushSubscription.user_id)
         .where(
             ProjectMembership.project_id == project_id,
             PushSubscription.revoked_at.is_(None),
@@ -2169,7 +2170,7 @@ async def admin_push_channels(
             AdminPushChannelItem(
                 subscription_id=sub.id,
                 membership_id=membership.id,
-                user_id=membership.user_id,
+                user_id=sub.user_id,
                 user_email=user.email if user else None,
                 display_name=profile.display_name if profile else None,
                 endpoint_hint=endpoint_hint,

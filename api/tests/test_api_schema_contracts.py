@@ -22,7 +22,6 @@ from app.routes import (
     MessageListResponse,
     ProfileUpdateRequest,
     PushSubscribeRequest,
-    PushUnsubscribeRequest,
     SendMessageRequest,
     UserMeUpdateRequest,
 )
@@ -39,10 +38,6 @@ from app.routes import (
                 "keys": {"p256dh": "abc", "auth": "def"},
                 "user_agent": "pytest",
             },
-        ),
-        (
-            PushUnsubscribeRequest,
-            {"endpoint": "https://example.test/subscriptions/123"},
         ),
         (
             ProfileUpdateRequest,
@@ -107,7 +102,6 @@ def test_major_request_models_accept_valid_payloads(
             },
             "p256dh",
         ),
-        (PushUnsubscribeRequest, {}, "endpoint"),
         (ProfileUpdateRequest, {"preferred_time": "08:30"}, "prompt_anchor"),
         (AdminCreateInviteRequest, {"count": 2}, "expires_at"),
         (
@@ -137,10 +131,6 @@ def test_major_request_models_reject_missing_required_fields(
                 "endpoint": "https://example.test/subscriptions/123",
                 "keys": {"p256dh": "abc", "auth": "def", "extra": "x"},
             },
-        ),
-        (
-            PushUnsubscribeRequest,
-            {"endpoint": "https://example.test/subscriptions/123", "foo": "bar"},
         ),
         (
             ProfileUpdateRequest,

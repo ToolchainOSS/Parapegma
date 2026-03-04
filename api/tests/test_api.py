@@ -389,19 +389,18 @@ async def test_send_message_no_membership(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_push_subscribe(seeded_client: dict[str, Any]) -> None:
+async def test_webpush_subscribe(seeded_client: dict[str, Any]) -> None:
     client = seeded_client["client"]
     project_id = seeded_client["project_id"]
     invite_code = seeded_client["invite_code"]
 
-    # Activate
     await client.post(
         f"/p/{project_id}/activate/claim",
         json={"invite_code": invite_code},
     )
 
     resp = await client.post(
-        f"/p/{project_id}/push/subscribe",
+        "/notifications/webpush/subscriptions",
         json={
             "endpoint": "https://push.example.com/sub/abc",
             "keys": {"p256dh": "test_p256dh_key", "auth": "test_auth_key"},
@@ -414,8 +413,10 @@ async def test_push_subscribe(seeded_client: dict[str, Any]) -> None:
 
 
 @pytest.mark.asyncio
-async def test_push_subscribe_duplicate_updates(seeded_client: dict[str, Any]) -> None:
-    """Re-subscribing with same endpoint updates keys instead of creating duplicate."""
+async def test_webpush_subscribe_duplicate_updates(
+    seeded_client: dict[str, Any],
+) -> None:
+    """Re-subscribing with same endpoint updates keys (user-scoped)."""
     client = seeded_client["client"]
     project_id = seeded_client["project_id"]
     invite_code = seeded_client["invite_code"]
@@ -426,24 +427,25 @@ async def test_push_subscribe_duplicate_updates(seeded_client: dict[str, Any]) -
     )
 
     endpoint = "https://push.example.com/sub/dedup"
-    body = {
+    body: dict[str, Any] = {
         "endpoint": endpoint,
         "keys": {"p256dh": "key1", "auth": "auth1"},
     }
-    resp1 = await client.post(f"/p/{project_id}/push/subscribe", json=body)
+    resp1 = await client.post("/notifications/webpush/subscriptions", json=body)
     sub_id_1 = resp1.json()["subscription_id"]
 
     body["keys"] = {"p256dh": "key2", "auth": "auth2"}
-    resp2 = await client.post(f"/p/{project_id}/push/subscribe", json=body)
+    resp2 = await client.post("/notifications/webpush/subscriptions", json=body)
     sub_id_2 = resp2.json()["subscription_id"]
 
     assert sub_id_1 == sub_id_2  # same subscription updated
 
 
 @pytest.mark.asyncio
-async def test_push_subscribe_same_endpoint_across_projects(
+async def test_webpush_user_scoped_single_row(
     seeded_client: dict[str, Any],
 ) -> None:
+    """User-scoped: subscribing creates ONE row regardless of membership count."""
     client = seeded_client["client"]
     first_project_id = seeded_client["project_id"]
     first_invite_code = seeded_client["invite_code"]
@@ -472,27 +474,24 @@ async def test_push_subscribe_same_endpoint_across_projects(
         json={"invite_code": second_invite_code},
     )
 
+    # User-scoped subscribe: creates ONE row
     endpoint = "https://push.example.com/sub/shared-endpoint"
-    resp1 = await client.post(
-        f"/p/{first_project_id}/push/subscribe",
+    resp = await client.post(
+        "/notifications/webpush/subscriptions",
         json={"endpoint": endpoint, "keys": {"p256dh": "key1", "auth": "auth1"}},
     )
-    resp2 = await client.post(
-        f"/p/{second_project_id}/push/subscribe",
-        json={"endpoint": endpoint, "keys": {"p256dh": "key2", "auth": "auth2"}},
-    )
-    assert resp1.status_code == 200
-    assert resp2.status_code == 200
-    assert resp1.json()["subscription_id"] != resp2.json()["subscription_id"]
+    assert resp.status_code == 200
 
     async with _test_session_factory() as db:
-        result = await db.execute(select(PushSubscription))
+        result = await db.execute(
+            select(PushSubscription).where(PushSubscription.endpoint == endpoint)
+        )
         rows = result.scalars().all()
-        assert len(rows) == 2
+        assert len(rows) == 1  # user-scoped: one row per user+endpoint
 
 
 @pytest.mark.asyncio
-async def test_push_unsubscribe(seeded_client: dict[str, Any]) -> None:
+async def test_webpush_unsubscribe(seeded_client: dict[str, Any]) -> None:
     client = seeded_client["client"]
     project_id = seeded_client["project_id"]
     invite_code = seeded_client["invite_code"]
@@ -503,24 +502,26 @@ async def test_push_unsubscribe(seeded_client: dict[str, Any]) -> None:
     )
 
     endpoint = "https://push.example.com/sub/unsub"
-    await client.post(
-        f"/p/{project_id}/push/subscribe",
+    resp = await client.post(
+        "/notifications/webpush/subscriptions",
         json={
             "endpoint": endpoint,
             "keys": {"p256dh": "pk", "auth": "ak"},
         },
     )
+    sub_id = resp.json()["subscription_id"]
 
-    resp = await client.post(
-        f"/p/{project_id}/push/unsubscribe",
-        json={"endpoint": endpoint},
+    resp = await client.request(
+        "DELETE", f"/notifications/webpush/subscriptions/{sub_id}"
     )
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
 
 
 @pytest.mark.asyncio
-async def test_push_unsubscribe_nonexistent(seeded_client: dict[str, Any]) -> None:
+async def test_webpush_unsubscribe_nonexistent(
+    seeded_client: dict[str, Any],
+) -> None:
     client = seeded_client["client"]
     project_id = seeded_client["project_id"]
     invite_code = seeded_client["invite_code"]
@@ -530,10 +531,7 @@ async def test_push_unsubscribe_nonexistent(seeded_client: dict[str, Any]) -> No
         json={"invite_code": invite_code},
     )
 
-    resp = await client.post(
-        f"/p/{project_id}/push/unsubscribe",
-        json={"endpoint": "https://push.example.com/does-not-exist"},
-    )
+    resp = await client.request("DELETE", "/notifications/webpush/subscriptions/99999")
     assert resp.status_code == 404
 
 
@@ -675,7 +673,7 @@ async def test_admin_project_and_invite_endpoints(client: AsyncClient) -> None:
         json={"invite_code": invite_code},
     )
     await client.post(
-        f"/p/{project_id}/push/subscribe",
+        "/notifications/webpush/subscriptions",
         json={
             "endpoint": "https://push.example.com/sub/admin-export",
             "keys": {"p256dh": "pk", "auth": "ak"},
@@ -698,7 +696,7 @@ async def test_admin_project_and_invite_endpoints(client: AsyncClient) -> None:
     assert payload["messages"][0]["server_msg_id"] != ""
     assert "id" in payload["messages"][0]
     assert "client_msg_id" in payload["messages"][0]
-    assert payload["push_subscriptions"][0]["membership_id"] is not None
+    assert payload["push_subscriptions"][0]["user_id"] is not None
     assert invite_code not in json.dumps(payload)
 
 
