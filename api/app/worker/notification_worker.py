@@ -1,8 +1,14 @@
+"""Unified notification worker: rule polling → instance creation → delivery sending.
+
+Single worker process — no legacy outbox events.
+"""
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -22,6 +28,7 @@ from app.models import (
     NotificationDelivery,
     NotificationRule,
     NotificationRuleState,
+    ProjectMembership,
     PushSubscription,
 )
 from app.services.notification_engine import (
@@ -39,24 +46,11 @@ MAX_ATTEMPTS = 5
 FAILED_EVENT_POSTPONE_DAYS = 3650
 LOCK_DURATION_SECONDS = 300
 PUSH_TIMEOUT_SECONDS = 10
-WORKER_POOL_SIZE = 5
-MAX_QUEUE_SIZE = WORKER_POOL_SIZE * 2
 
 
 def _make_worker_id() -> str:
     base = config.get_worker_id()
-    # Note: socket.gethostname() is handled in config.get_worker_id()
-    # But wait, config.get_worker_id() handles FLOW_WORKER_ID or socket.gethostname()
-    # But here we want pid and uuid as well?
-    # Actually, let's keep the pid and uuid part here, but use config for the base.
-    import os
-
     return f"{base}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
-
-
-async def _claim_due_events(worker_id: str, limit: int = 20) -> list:
-    """Legacy outbox event claiming — no longer used."""
-    return []
 
 
 def _push_enabled() -> bool:
@@ -71,6 +65,7 @@ async def _send_push_notifications(
     url: str,
     data: dict | None = None,
 ) -> None:
+    """Send Web Push to all active subscriptions for a membership."""
     if not _push_enabled():
         return
 
@@ -94,7 +89,6 @@ async def _send_push_notifications(
     )
 
     vapid_private_key = config.get_vapid_private_key()
-    # vapid_utils.get_vapid_claims() was just {"sub": get_vapid_sub()}
     vapid_claims = {"sub": config.get_vapid_sub()}
 
     async def _send_single(sub: PushSubscription):
@@ -123,34 +117,18 @@ async def _send_push_notifications(
     await asyncio.gather(*[_send_single(sub) for sub in subscriptions])
 
 
-async def _handle_read_receipt(db, event) -> None:
-    payload = json.loads(event.payload_json)
-    notification_id = payload.get("notification_id")
-    payload.get("project_id", event.project_id)
-
-    if notification_id:
-        await _send_push_notifications(
-            db,
-            event.membership_id,
-            title="",  # Silent push
-            body="",
-            url="",
-            data={"action": "dismiss", "notification_id": notification_id},
-        )
-
-
 async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
     llm_key = config.get_openai_api_key()
     if not llm_key:
         return f"{topic} (LLM not configured)"
 
     profile = await load_user_profile(db, membership_id)
-    # Simple prompt
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                "You are a helpful coach. Generate a short, encouraging daily nudge for the user about: {topic}. User profile: {profile_json}",
+                "You are a helpful coach. Generate a short, encouraging daily nudge "
+                "for the user about: {topic}. User profile: {profile_json}",
             ),
             ("human", "Generate the nudge."),
         ]
@@ -173,26 +151,9 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
         return f"{topic} (Generation failed)"
 
 
-async def _handle_scheduled_nudge(db, event) -> None:
-    """Legacy scheduled nudge handler — no longer used."""
-    logger.info("Legacy _handle_scheduled_nudge called, skipping.")
-
-
-async def _process_event(event, worker_id: str) -> None:
-    """Legacy outbox event processor — no longer used."""
-    logger.info("Legacy _process_event called, skipping.")
-
-
-async def _consumer_task(queue: asyncio.Queue, worker_id: str) -> None:
-    """Continuously processes events from the queue."""
-    while True:
-        event = await queue.get()
-        try:
-            await _process_event(event, worker_id)
-        except Exception as exc:
-            logger.error("Failed processing event %s: %s", event.id, exc)
-        finally:
-            queue.task_done()
+# ---------------------------------------------------------------------------
+# Rule evaluation
+# ---------------------------------------------------------------------------
 
 
 async def _evaluate_due_rules(worker_id: str) -> int:
@@ -251,7 +212,6 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
                 select(Notification).where(Notification.dedupe_key == dedupe_key)
             )
             if existing.scalar_one_or_none():
-                # Already processed — just advance
                 await recompute_rule_due_time(db, rule, state)
                 await db.commit()
                 return
@@ -268,9 +228,7 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
                 db.add(conversation)
                 await db.flush()
 
-            # Determine project_id for this membership
-            from app.models import ProjectMembership
-
+            # Determine project_id
             mem_result = await db.execute(
                 select(ProjectMembership).where(
                     ProjectMembership.id == rule.membership_id
@@ -313,7 +271,7 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
             db.add(notification)
             await db.flush()
 
-            # Create push delivery
+            # Create push delivery with proper payload conventions
             chat_url = f"/p/{project_id}/chat?nid={notification.id}"
             delivery = NotificationDelivery(
                 instance_id=notification.id,
@@ -327,7 +285,9 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
                         "data": {
                             "notification_id": notification.id,
                             "project_id": project_id,
-                            "url": chat_url,
+                            "membership_id": rule.membership_id,
+                            "rule_id": rule.id,
+                            "action": "notify",
                         },
                     }
                 ),
@@ -348,7 +308,6 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
 
         except Exception as exc:
             await db.rollback()
-            # Reload state and record failure
             state_result = await db.execute(
                 select(NotificationRuleState).where(
                     NotificationRuleState.rule_id == rule_id
@@ -371,6 +330,11 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
                     )
                 await db.commit()
             raise
+
+
+# ---------------------------------------------------------------------------
+# Delivery processing
+# ---------------------------------------------------------------------------
 
 
 async def _process_due_deliveries(worker_id: str) -> int:
@@ -446,44 +410,30 @@ async def _send_delivery(delivery_id: int, worker_id: str) -> None:
             raise
 
 
+# ---------------------------------------------------------------------------
+# Main worker loop
+# ---------------------------------------------------------------------------
+
+
 async def run_worker_loop(poll_seconds: int = 5) -> None:
+    """Single unified worker loop: poll rules → process deliveries → sleep."""
     worker_id = _make_worker_id()
-    queue: asyncio.Queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
+    logger.info("Notification worker started: %s", worker_id)
 
-    consumers = [
-        asyncio.create_task(_consumer_task(queue, worker_id))
-        for _ in range(WORKER_POOL_SIZE)
-    ]
+    while True:
+        # 1. Rule-based notification engine
+        try:
+            await _evaluate_due_rules(worker_id)
+        except Exception as exc:
+            logger.error("Rule evaluation error: %s", exc)
 
-    try:
-        while True:
-            # 1. Legacy outbox event processing
-            if queue.qsize() < WORKER_POOL_SIZE:
-                fetch_limit = MAX_QUEUE_SIZE - queue.qsize()
-                if fetch_limit > 0:
-                    events = await _claim_due_events(
-                        worker_id=worker_id, limit=fetch_limit
-                    )
-                    for event in events:
-                        await queue.put(event)
+        # 2. Delivery processing
+        try:
+            await _process_due_deliveries(worker_id)
+        except Exception as exc:
+            logger.error("Delivery processing error: %s", exc)
 
-            # 2. Rule-based notification engine
-            try:
-                await _evaluate_due_rules(worker_id)
-            except Exception as exc:
-                logger.error("Rule evaluation error: %s", exc)
-
-            # 3. Delivery processing
-            try:
-                await _process_due_deliveries(worker_id)
-            except Exception as exc:
-                logger.error("Delivery processing error: %s", exc)
-
-            await asyncio.sleep(poll_seconds)
-    finally:
-        for c in consumers:
-            c.cancel()
-        await asyncio.gather(*consumers, return_exceptions=True)
+        await asyncio.sleep(poll_seconds)
 
 
 def main() -> None:
