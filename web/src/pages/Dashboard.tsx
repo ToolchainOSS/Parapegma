@@ -9,6 +9,7 @@ import { ListRow } from "../components/ui/ListRow";
 import { Button } from "../components/Button";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import { useLayoutMode } from "../hooks/useLayoutMode";
+import { useTimezone } from "../hooks/useTimezone";
 import type { DashboardResponse, MembershipInfo } from "../api/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
@@ -91,6 +92,7 @@ function Avatar({ name }: { name: string }) {
 export function Dashboard() {
   const navigate = useNavigate();
   const layoutMode = useLayoutMode();
+  useTimezone();
   const [search, setSearch] = useState("");
   const { canPrompt, promptInstall, showIOSGuide } = useInstallPrompt();
   const [showFab, setShowFab] = useState(false);

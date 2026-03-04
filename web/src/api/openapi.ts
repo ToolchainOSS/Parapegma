@@ -555,6 +555,26 @@ export interface paths {
         patch: operations["update_me_me_patch"];
         trace?: never;
     };
+    "/me/timezone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Timezone
+         * @description Store the user's IANA timezone. Called automatically by the frontend.
+         */
+        post: operations["update_timezone_me_timezone_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notifications": {
         parameters: {
             query?: never;
@@ -1481,6 +1501,13 @@ export interface components {
             client_msg_id?: string | null;
             /** Text */
             text: string;
+        };
+        /** TimezoneUpdateRequest */
+        TimezoneUpdateRequest: {
+            /** Offset Minutes */
+            offset_minutes?: number | null;
+            /** Timezone */
+            timezone: string;
         };
         /** UnifiedNotificationItem */
         UnifiedNotificationItem: {
@@ -2565,6 +2592,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserMeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_timezone_me_timezone_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimezoneUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
             /** @description Validation Error */

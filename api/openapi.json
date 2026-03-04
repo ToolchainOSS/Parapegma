@@ -1550,6 +1550,31 @@
         "title": "SendMessageRequest",
         "type": "object"
       },
+      "TimezoneUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "offset_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset Minutes"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timezone"
+        ],
+        "title": "TimezoneUpdateRequest",
+        "type": "object"
+      },
       "UnifiedNotificationItem": {
         "properties": {
           "body": {
@@ -3101,6 +3126,57 @@
           }
         ],
         "summary": "Update Me",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/me/timezone": {
+      "post": {
+        "description": "Store the user's IANA timezone. Called automatically by the frontend.",
+        "operationId": "update_timezone_me_timezone_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimezoneUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Update Timezone Me Timezone Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Update Timezone",
         "tags": [
           "user"
         ]
