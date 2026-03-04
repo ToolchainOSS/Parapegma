@@ -211,6 +211,7 @@ All project-scoped endpoints require passkey authentication.
 | `POST` | `/auth/sessions/{device_id}/revoke` | auth | Revoke a passkey device |
 | `GET` | `/me` | user | Current user profile (email, display_name, is_admin) |
 | `PATCH` | `/me` | user | Update email and/or display name |
+| `POST` | `/me/timezone` | user | Store user's IANA timezone |
 | `GET` | `/dashboard` | dashboard | List user's project memberships |
 | `POST` | `/p/{project_id}/activate/claim` | activation | Claim invite code, create membership + conversation |
 | `GET` | `/p/{project_id}/me` | activation | Get membership status, conversation ID |

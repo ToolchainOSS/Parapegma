@@ -10,6 +10,7 @@ import { ChatHeader } from "../components/ui/ChatHeader";
 import { MessageBubble } from "../components/ui/MessageBubble";
 import { Composer } from "../components/ui/Composer";
 import { useLayoutMode } from "../hooks/useLayoutMode";
+import { useTimezone } from "../hooks/useTimezone";
 import type { DashboardResponse } from "../api/types";
 import api from "../api/client";
 
@@ -56,6 +57,7 @@ export function ChatThread() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   useAuth();
+  useTimezone();
   const queryClient = useQueryClient();
   const layoutMode = useLayoutMode();
   const [messages, setMessages] = useState<Message[]>([]);

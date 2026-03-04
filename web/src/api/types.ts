@@ -56,6 +56,8 @@ export type AdminPushTestResultItem =
   components["schemas"]["AdminPushTestResultItem"];
 export type UserMeResponse = components["schemas"]["UserMeResponse"];
 export type UserMeUpdateRequest = components["schemas"]["UserMeUpdateRequest"];
+export type TimezoneUpdateRequest =
+  components["schemas"]["TimezoneUpdateRequest"];
 export type DashboardResponse = components["schemas"]["DashboardResponse"];
 export type MembershipInfo = components["schemas"]["MembershipInfo"];
 
@@ -98,6 +100,7 @@ type _AssertDemoPingGet = paths["/demo/ping"]["get"];
 type _AssertDemoSseGet = paths["/demo/sse"]["get"];
 type _AssertMeGet = paths["/me"]["get"];
 type _AssertMePatch = paths["/me"]["patch"];
+type _AssertMeTimezonePost = paths["/me/timezone"]["post"];
 type _AssertDashboardGet = paths["/dashboard"]["get"];
 type _AssertAdminProjectPatch = paths["/admin/projects/{project_id}"]["patch"];
 type _AssertAdminPushChannelsGet =
@@ -123,6 +126,7 @@ export type {
   _AssertDemoSseGet,
   _AssertMeGet,
   _AssertMePatch,
+  _AssertMeTimezonePost,
   _AssertDashboardGet,
   _AssertAdminProjectPatch,
   _AssertAdminPushChannelsGet,
