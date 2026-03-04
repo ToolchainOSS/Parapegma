@@ -40,6 +40,27 @@ function getSubscriptionKeys(
 
 const SUB_ID_STORAGE_KEY = "flow_push_subscription_id";
 
+/** Shape of a single subscription returned by the debug list endpoint. */
+interface WebPushSubscriptionInfo {
+  id: number;
+  endpoint: string;
+  user_agent: string;
+  created_at: string | null;
+}
+
+/** Extract the subscriptions array from the untyped backend response. */
+function extractSubscriptions(data: unknown): WebPushSubscriptionInfo[] {
+  if (
+    data &&
+    typeof data === "object" &&
+    "subscriptions" in data &&
+    Array.isArray((data as { subscriptions: unknown }).subscriptions)
+  ) {
+    return (data as { subscriptions: WebPushSubscriptionInfo[] }).subscriptions;
+  }
+  return [];
+}
+
 /**
  * User-scoped push notification management.
  * No projectId required — subscriptions are global per user.
@@ -74,8 +95,9 @@ export function usePushNotifications() {
         const { data } = await api.GET(
           "/notifications/webpush/subscriptions",
         );
-        const registered = (data?.subscriptions ?? []).some(
-          (s: { endpoint: string }) => s.endpoint === sub.endpoint,
+        const subs = extractSubscriptions(data);
+        const registered = subs.some(
+          (s) => s.endpoint === sub.endpoint,
         );
         setSubscribed(registered);
       } catch {
@@ -200,8 +222,9 @@ export function usePushNotifications() {
           const { data } = await api.GET(
             "/notifications/webpush/subscriptions",
           );
-          const match = (data?.subscriptions ?? []).find(
-            (s: { endpoint: string }) => s.endpoint === sub.endpoint,
+          const subs = extractSubscriptions(data);
+          const match = subs.find(
+            (s) => s.endpoint === sub.endpoint,
           );
           if (match) subId = String(match.id);
         }
@@ -222,8 +245,9 @@ export function usePushNotifications() {
             const { data: fallbackData } = await api.GET(
               "/notifications/webpush/subscriptions",
             );
-            const match = (fallbackData?.subscriptions ?? []).find(
-              (s: { endpoint: string }) => s.endpoint === sub2.endpoint,
+            const fallbackSubs = extractSubscriptions(fallbackData);
+            const match = fallbackSubs.find(
+              (s) => s.endpoint === sub2.endpoint,
             );
             if (match) {
               await api.DELETE(
