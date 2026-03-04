@@ -16,6 +16,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pywebpush import WebPushException, webpush
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app import config
 from app.db import async_session_factory
@@ -59,25 +60,28 @@ def _push_enabled() -> bool:
 
 async def _send_push_notifications(
     db,
-    membership_id: int,
+    user_id: str,
     title: str,
     body: str,
     url: str,
     data: dict | None = None,
-) -> None:
-    """Send Web Push to all active subscriptions for a membership."""
+) -> tuple[int, int]:
+    """Send Web Push to all active subscriptions for a user.
+
+    Returns (success_count, total_count).
+    """
     if not _push_enabled():
-        return
+        return 0, 0
 
     result = await db.execute(
         select(PushSubscription).where(
-            PushSubscription.membership_id == membership_id,
+            PushSubscription.user_id == user_id,
             PushSubscription.revoked_at.is_(None),
         )
     )
     subscriptions = result.scalars().all()
     if not subscriptions:
-        return
+        return 0, 0
 
     payload = json.dumps(
         {
@@ -91,7 +95,9 @@ async def _send_push_notifications(
     vapid_private_key = config.get_vapid_private_key()
     vapid_claims = {"sub": config.get_vapid_sub()}
 
-    async def _send_single(sub: PushSubscription):
+    success_count = 0
+
+    async def _send_single(sub: PushSubscription) -> bool:
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(
@@ -107,14 +113,31 @@ async def _send_push_notifications(
                 timeout=PUSH_TIMEOUT_SECONDS,
             )
             sub.last_success_at = datetime.now(UTC)
+            return True
         except asyncio.TimeoutError:
             sub.last_failure_at = datetime.now(UTC)
             logger.warning("Push send timed out for subscription %s", sub.id)
+            return False
         except WebPushException as exc:
             sub.last_failure_at = datetime.now(UTC)
-            logger.warning("Push send failed for subscription %s: %s", sub.id, exc)
+            # Revoke subscription on permanent errors (410 Gone, 404 Not Found)
+            status_code = getattr(exc, "response", None)
+            if status_code is not None:
+                status_code = getattr(status_code, "status_code", None)
+            if status_code in (404, 410):
+                sub.revoked_at = datetime.now(UTC)
+                logger.info(
+                    "Revoking subscription %s: permanent error %s",
+                    sub.id,
+                    status_code,
+                )
+            else:
+                logger.warning("Push send failed for subscription %s: %s", sub.id, exc)
+            return False
 
-    await asyncio.gather(*[_send_single(sub) for sub in subscriptions])
+    results = await asyncio.gather(*[_send_single(sub) for sub in subscriptions])
+    success_count = sum(1 for r in results if r)
+    return success_count, len(subscriptions)
 
 
 async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
@@ -207,7 +230,7 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
             local_date = compute_local_date_for_rule(rule, user_tz, fire_utc)
             dedupe_key = f"rule:{rule.id}:{local_date.isoformat()}"
 
-            # Check if instance already exists (idempotency)
+            # Idempotency check — advance if already fired
             existing = await db.execute(
                 select(Notification).where(Notification.dedupe_key == dedupe_key)
             )
@@ -276,6 +299,7 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
             delivery = NotificationDelivery(
                 instance_id=notification.id,
                 membership_id=rule.membership_id,
+                user_id=membership.user_id,
                 channel="push_notify",
                 payload_json=json.dumps(
                     {
@@ -305,6 +329,25 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
                 notification.id,
                 message.id,
             )
+
+        except IntegrityError:
+            # Dedupe collision — another worker already fired this rule
+            await db.rollback()
+            async with async_session_factory() as db2:
+                rule_r = await db2.execute(
+                    select(NotificationRule).where(NotificationRule.id == rule_id)
+                )
+                rule2 = rule_r.scalar_one_or_none()
+                state_r = await db2.execute(
+                    select(NotificationRuleState).where(
+                        NotificationRuleState.rule_id == rule_id
+                    )
+                )
+                state2 = state_r.scalar_one_or_none()
+                if rule2 and state2:
+                    await recompute_rule_due_time(db2, rule2, state2)
+                    await db2.commit()
+            logger.info("Rule %s: dedupe collision, advancing state", rule_id)
 
         except Exception as exc:
             await db.rollback()
@@ -354,7 +397,7 @@ async def _process_due_deliveries(worker_id: str) -> int:
 
 
 async def _send_delivery(delivery_id: int, worker_id: str) -> None:
-    """Send a single delivery (push notification)."""
+    """Send a single delivery (push notification) to all user subscriptions."""
     async with async_session_factory() as db:
         d_result = await db.execute(
             select(NotificationDelivery).where(
@@ -368,26 +411,46 @@ async def _send_delivery(delivery_id: int, worker_id: str) -> None:
 
         try:
             payload = json.loads(delivery.payload_json)
+            user_id = delivery.user_id
+
             if delivery.channel == "push_notify":
-                await _send_push_notifications(
+                success, total = await _send_push_notifications(
                     db,
-                    delivery.membership_id,
+                    user_id,
                     title=payload.get("title", ""),
                     body=payload.get("body", ""),
                     url=payload.get("url", ""),
                     data=payload.get("data"),
                 )
             elif delivery.channel == "push_dismiss":
-                await _send_push_notifications(
+                success, total = await _send_push_notifications(
                     db,
-                    delivery.membership_id,
+                    user_id,
                     title="",
                     body="",
                     url="",
                     data=payload.get("data"),
                 )
+            else:
+                success, total = 0, 0
 
-            delivery.status = "sent"
+            # Mark sent if at least one push succeeded, or if there are no subscriptions
+            if success > 0 or total == 0:
+                delivery.status = "sent"
+            else:
+                # All sends failed — retry with backoff
+                delivery.attempts += 1
+                if delivery.attempts >= MAX_ATTEMPTS:
+                    delivery.status = "failed"
+                else:
+                    backoff_minutes = 2 ** min(delivery.attempts, 8)
+                    delivery.run_at_utc = datetime.now(UTC) + timedelta(
+                        minutes=backoff_minutes
+                    )
+                delivery.locked_by = None
+                delivery.claimed_at = None
+                delivery.locked_until = None
+
             await db.commit()
 
         except Exception as exc:
@@ -406,6 +469,11 @@ async def _send_delivery(delivery_id: int, worker_id: str) -> None:
                 delivery.locked_until = None
                 if delivery.attempts >= MAX_ATTEMPTS:
                     delivery.status = "failed"
+                else:
+                    backoff_minutes = 2 ** min(delivery.attempts, 8)
+                    delivery.run_at_utc = datetime.now(UTC) + timedelta(
+                        minutes=backoff_minutes
+                    )
                 await db.commit()
             raise
 

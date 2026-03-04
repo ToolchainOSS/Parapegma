@@ -107,9 +107,6 @@ class ProjectMembership(Base):
     conversations: Mapped[list[Conversation]] = relationship(
         back_populates="membership"
     )
-    push_subscriptions: Mapped[list[PushSubscription]] = relationship(
-        back_populates="membership"
-    )
 
 
 class ParticipantContact(Base):
@@ -195,20 +192,17 @@ class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
     __table_args__ = (
         UniqueConstraint(
-            "membership_id", "endpoint", name="uq_push_subscription_membership_endpoint"
+            "user_id", "endpoint", name="uq_push_subscription_user_endpoint"
         ),
         Index("ix_push_sub_user_active", "user_id", "revoked_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    membership_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("project_memberships.id"), nullable=False
-    )
-    user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     endpoint: Mapped[str] = mapped_column(String(2048), nullable=False)
     p256dh: Mapped[str] = mapped_column(String(255), nullable=False)
     auth: Mapped[str] = mapped_column(String(255), nullable=False)
-    user_agent: Mapped[str] = mapped_column(String(512), nullable=False)
+    user_agent: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -220,10 +214,6 @@ class PushSubscription(Base):
     )
     last_failure_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
-    )
-
-    membership: Mapped[ProjectMembership] = relationship(
-        back_populates="push_subscriptions"
     )
 
 
@@ -460,7 +450,10 @@ class NotificationDelivery(Base):
     """Short-lived delivery command (push_notify, push_dismiss)."""
 
     __tablename__ = "notification_deliveries"
-    __table_args__ = (Index("ix_delivery_run_status", "run_at_utc", "status"),)
+    __table_args__ = (
+        Index("ix_delivery_run_status", "run_at_utc", "status"),
+        Index("ix_delivery_user_id", "user_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     instance_id: Mapped[int] = mapped_column(
@@ -469,6 +462,7 @@ class NotificationDelivery(Base):
     membership_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("project_memberships.id"), nullable=False
     )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     channel: Mapped[str] = mapped_column(String(30), nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
     run_at_utc: Mapped[datetime] = mapped_column(

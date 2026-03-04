@@ -1640,7 +1640,7 @@ async def mark_unified_notification_read(
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
-    """Mark a notification as read and create push_dismiss deliveries."""
+    """Mark a notification as read and enqueue exactly one push_dismiss delivery."""
     try:
         result = await db.execute(
             select(Notification, ProjectMembership.project_id)
@@ -1661,7 +1661,7 @@ async def mark_unified_notification_read(
         if not notification.read_at:
             notification.read_at = datetime.now(UTC)
 
-            # Create push_dismiss deliveries for active subscriptions
+            # Enqueue exactly ONE push_dismiss delivery — the worker fans out to all subscriptions
             dismiss_payload = json.dumps(
                 {
                     "data": {
@@ -1670,22 +1670,15 @@ async def mark_unified_notification_read(
                     }
                 }
             )
-            sub_result = await db.execute(
-                select(PushSubscription).where(
-                    PushSubscription.membership_id == notification.membership_id,
-                    PushSubscription.revoked_at.is_(None),
-                )
+            delivery = NotificationDelivery(
+                instance_id=notification.id,
+                membership_id=notification.membership_id,
+                user_id=user.id,
+                channel="push_dismiss",
+                payload_json=dismiss_payload,
+                run_at_utc=datetime.now(UTC),
             )
-            for sub in sub_result.scalars().all():
-                delivery = NotificationDelivery(
-                    instance_id=notification.id,
-                    membership_id=notification.membership_id,
-                    channel="push_dismiss",
-                    payload_json=dismiss_payload,
-                    run_at_utc=datetime.now(UTC),
-                )
-                db.add(delivery)
-
+            db.add(delivery)
             await db.commit()
 
         return {"ok": True}
@@ -1730,62 +1723,35 @@ async def webpush_subscribe(
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
 ) -> PushSubscribeResponse:
-    """Create or upsert a push subscription for the current user.
-
-    The subscription is registered for ALL of the user's active memberships.
-    """
+    """Create or upsert a push subscription for the current user (user-scoped)."""
     try:
-        # Find all active memberships for this user
-        mem_result = await db.execute(
-            select(ProjectMembership).where(
-                ProjectMembership.user_id == user.id,
-                ProjectMembership.status == "active",
+        # Check for existing subscription with same user+endpoint
+        existing_result = await db.execute(
+            select(PushSubscription).where(
+                PushSubscription.user_id == user.id,
+                PushSubscription.endpoint == body.endpoint,
+                PushSubscription.revoked_at.is_(None),
             )
         )
-        memberships = mem_result.scalars().all()
-        if not memberships:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No active memberships found",
+        existing = existing_result.scalar_one_or_none()
+
+        if existing is not None:
+            existing.p256dh = body.keys.p256dh
+            existing.auth = body.keys.auth
+            existing.user_agent = body.user_agent or existing.user_agent
+            await db.commit()
+            return PushSubscribeResponse(subscription_id=existing.id)
+        else:
+            sub = PushSubscription(
+                user_id=user.id,
+                endpoint=body.endpoint,
+                p256dh=body.keys.p256dh,
+                auth=body.keys.auth,
+                user_agent=body.user_agent or "",
             )
-
-        subscription_id = None
-        for membership in memberships:
-            # Check for existing subscription with same endpoint per membership
-            existing_result = await db.execute(
-                select(PushSubscription).where(
-                    PushSubscription.membership_id == membership.id,
-                    PushSubscription.endpoint == body.endpoint,
-                    PushSubscription.revoked_at.is_(None),
-                )
-            )
-            existing = existing_result.scalar_one_or_none()
-
-            if existing is not None:
-                existing.p256dh = body.keys.p256dh
-                existing.auth = body.keys.auth
-                existing.user_agent = body.user_agent or existing.user_agent
-                existing.user_id = user.id
-                if subscription_id is None:
-                    subscription_id = existing.id
-            else:
-                sub = PushSubscription(
-                    membership_id=membership.id,
-                    user_id=user.id,
-                    endpoint=body.endpoint,
-                    p256dh=body.keys.p256dh,
-                    auth=body.keys.auth,
-                    user_agent=body.user_agent or "",
-                )
-                db.add(sub)
-                await db.flush()
-                if subscription_id is None:
-                    subscription_id = sub.id
-
-        await db.commit()
-        if subscription_id is None:
-            raise HTTPException(status_code=500, detail="Subscription creation failed")
-        return PushSubscribeResponse(subscription_id=subscription_id)
+            db.add(sub)
+            await db.commit()
+            return PushSubscribeResponse(subscription_id=sub.id)
     except HTTPException:
         raise
     except Exception:
@@ -1804,14 +1770,9 @@ async def webpush_unsubscribe(
     """Remove a push subscription."""
     try:
         result = await db.execute(
-            select(PushSubscription)
-            .join(
-                ProjectMembership,
-                PushSubscription.membership_id == ProjectMembership.id,
-            )
-            .where(
+            select(PushSubscription).where(
                 PushSubscription.id == subscription_id,
-                ProjectMembership.user_id == user.id,
+                PushSubscription.user_id == user.id,
             )
         )
         sub = result.scalar_one_or_none()
@@ -1838,13 +1799,8 @@ async def webpush_list_subscriptions(
     """List active push subscriptions for the current user (debug endpoint)."""
     try:
         result = await db.execute(
-            select(PushSubscription)
-            .join(
-                ProjectMembership,
-                PushSubscription.membership_id == ProjectMembership.id,
-            )
-            .where(
-                ProjectMembership.user_id == user.id,
+            select(PushSubscription).where(
+                PushSubscription.user_id == user.id,
                 PushSubscription.revoked_at.is_(None),
             )
         )
@@ -1854,7 +1810,6 @@ async def webpush_list_subscriptions(
                 {
                     "id": s.id,
                     "endpoint": s.endpoint,
-                    "membership_id": s.membership_id,
                     "user_agent": s.user_agent,
                     "created_at": s.created_at.isoformat() if s.created_at else None,
                 }

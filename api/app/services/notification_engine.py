@@ -52,8 +52,8 @@ def compute_next_due_utc(
     4. Convert to UTC
 
     DST safety:
-    - Nonexistent local time (spring forward): shift to next valid time (fold=0)
-    - Ambiguous local time (fall back): pick the first occurrence (fold=0)
+    - Nonexistent local time (spring forward): round-trip through UTC to find next valid time.
+    - Ambiguous local time (fall back): pick first occurrence (fold=0), rely on dedupe.
     """
     if now_utc is None:
         now_utc = datetime.now(UTC)
@@ -84,7 +84,6 @@ def compute_next_due_utc(
 
     # Candidate: today's occurrence in local time
     candidate_local = datetime.combine(now_local.date(), target_time)
-    # Use fold=0 to get the first/earlier interpretation in case of ambiguity
     candidate_local = candidate_local.replace(tzinfo=tz, fold=0)
 
     # If this time has already passed, move to tomorrow
@@ -94,8 +93,24 @@ def compute_next_due_utc(
         )
         candidate_local = candidate_local.replace(tzinfo=tz, fold=0)
 
-    # Convert to UTC
-    return candidate_local.astimezone(UTC)
+    # DST gap handling: round-trip through UTC and back to local
+    candidate_utc = candidate_local.astimezone(UTC)
+    round_tripped = candidate_utc.astimezone(tz)
+
+    # If the round-tripped local time doesn't match requested, the time was nonexistent
+    if round_tripped.hour != hour or round_tripped.minute != minute:
+        # Shift forward: use the round-tripped instant (which is the next valid time)
+        logger.info(
+            "DST gap: requested %02d:%02d but got %02d:%02d in %s, using shifted time",
+            hour,
+            minute,
+            round_tripped.hour,
+            round_tripped.minute,
+            tz_name,
+        )
+        return candidate_utc
+
+    return candidate_utc
 
 
 def compute_local_date_for_rule(
@@ -156,10 +171,12 @@ async def claim_due_rules(
     worker_id: str,
     now: datetime | None = None,
     limit: int = 20,
+    lookahead_seconds: int = 60,
 ) -> list[tuple[NotificationRule, NotificationRuleState]]:
-    """Claim rules whose next_due_at_utc <= now. Returns (rule, state) pairs."""
+    """Claim rules whose next_due_at_utc <= now + lookahead. Returns (rule, state) pairs."""
     if now is None:
         now = datetime.now(UTC)
+    horizon = now + timedelta(seconds=lookahead_seconds)
     locked_until = now + timedelta(seconds=300)
 
     # Select candidate rule_ids
@@ -172,7 +189,7 @@ async def claim_due_rules(
         .where(
             NotificationRule.is_active.is_(True),
             NotificationRuleState.next_due_at_utc.is_not(None),
-            NotificationRuleState.next_due_at_utc <= now,
+            NotificationRuleState.next_due_at_utc <= horizon,
             or_(
                 NotificationRuleState.locked_until.is_(None),
                 NotificationRuleState.locked_until < now,
