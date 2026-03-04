@@ -143,6 +143,16 @@ def upgrade() -> None:
             ["conversation_id", "client_msg_id"],
         )
 
+    # --- 6b. nudge_schedules: add linked_rule_id ---
+    with op.batch_alter_table("nudge_schedules") as batch:
+        batch.add_column(sa.Column("linked_rule_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key(
+            "fk_nudge_schedule_linked_rule",
+            "notification_rules",
+            ["linked_rule_id"],
+            ["id"],
+        )
+
     # --- 7. Migrate nudge_schedules → notification_rules + state ---
     conn = op.get_bind()
     rows = conn.execute(
@@ -179,17 +189,29 @@ def upgrade() -> None:
                 )
             ).scalar()
 
-        if rule_id and is_active:
+        if rule_id:
+            # Link the nudge schedule to the new rule
             conn.execute(
                 sa.text(
-                    "INSERT INTO notification_rule_state (rule_id, attempts, updated_at) "
-                    "VALUES (:rid, 0, :cat)"
+                    "UPDATE nudge_schedules SET linked_rule_id = :rid WHERE id = :nsid"
                 ),
-                {"rid": rule_id, "cat": created_at},
+                {"rid": rule_id, "nsid": ns_id},
             )
+            if is_active:
+                conn.execute(
+                    sa.text(
+                        "INSERT INTO notification_rule_state (rule_id, attempts, updated_at) "
+                        "VALUES (:rid, 0, :cat)"
+                    ),
+                    {"rid": rule_id, "cat": created_at},
+                )
 
 
 def downgrade() -> None:
+    with op.batch_alter_table("nudge_schedules") as batch:
+        batch.drop_constraint("fk_nudge_schedule_linked_rule", type_="foreignkey")
+        batch.drop_column("linked_rule_id")
+
     with op.batch_alter_table("messages") as batch:
         batch.drop_constraint("uq_message_conversation_client_msg", type_="unique")
 

@@ -123,6 +123,7 @@ def _parse_time(preferred_time: str) -> tuple[int, int]:
 
     value = preferred_time.strip().lower()
     if not value:
+        logger.warning("Empty preferred_time, defaulting to 09:00")
         return 9, 0
     if match_24h := re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", value):
         return int(match_24h.group(1)), int(match_24h.group(2))
@@ -132,6 +133,7 @@ def _parse_time(preferred_time: str) -> tuple[int, int]:
             hour += 12
         minute = int(match_ampm.group(2) or "0")
         return hour, minute
+    logger.warning("Unparseable preferred_time '%s', defaulting to 09:00", value)
     return 9, 0
 
 

@@ -60,6 +60,9 @@ async def create_nudge_schedule(
     db.add(rule)
     await db.flush()
 
+    # Link the schedule to the rule
+    schedule.linked_rule_id = rule.id
+
     # Compute next due time using user's timezone
     user_tz = await get_user_timezone(db, membership_id)
     next_due = compute_next_due_utc(rule, user_tz)
@@ -102,17 +105,15 @@ async def deactivate_schedule(db: AsyncSession, schedule_id: int) -> bool:
 
     schedule.is_active = False
 
-    # Also deactivate matching notification rules
-    rules_result = await db.execute(
-        select(NotificationRule).where(
-            NotificationRule.membership_id == schedule.membership_id,
-            NotificationRule.kind == "daily_local_time",
-            NotificationRule.is_active.is_(True),
+    # Also deactivate the linked notification rule if one exists
+    if schedule.linked_rule_id:
+        rule_result = await db.execute(
+            select(NotificationRule).where(
+                NotificationRule.id == schedule.linked_rule_id
+            )
         )
-    )
-    for rule in rules_result.scalars().all():
-        config_data = json.loads(rule.config_json)
-        if config_data.get("topic") == schedule.topic:
+        rule = rule_result.scalar_one_or_none()
+        if rule:
             rule.is_active = False
 
     return True
