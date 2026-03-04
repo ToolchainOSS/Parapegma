@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
@@ -13,7 +13,6 @@ from app.id_utils import generate_project_id
 from app.models import (
     Base,
     FlowUserProfile,
-    OutboxEvent,
     Project,
     ProjectMembership,
 )
@@ -46,15 +45,11 @@ async def test_handle_read_receipt(db_session: AsyncSession) -> None:
     db_session.add(FlowUserProfile(user_id="u_test", email_raw="test@example.com"))
     await db_session.flush()
 
-    event = OutboxEvent(
+    event = SimpleNamespace(
         project_id=project_id,
         membership_id=membership.id,
-        type="notification_read_receipt",
         payload_json=json.dumps({"notification_id": 123, "project_id": project_id}),
-        dedupe_key="read-receipt-123",
-        available_at=datetime.now(UTC),
     )
-    db_session.add(event)
     await db_session.commit()
 
     with patch(

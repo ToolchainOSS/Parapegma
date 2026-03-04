@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pywebpush import WebPushException, webpush
-from sqlalchemy import Select, delete, or_, select, update
+from sqlalchemy import select
 
 from app import config
 from app.db import async_session_factory
@@ -22,8 +22,6 @@ from app.models import (
     NotificationDelivery,
     NotificationRule,
     NotificationRuleState,
-    NudgeSchedule,
-    OutboxEvent,
     PushSubscription,
 )
 from app.services.notification_engine import (
@@ -32,10 +30,6 @@ from app.services.notification_engine import (
     compute_local_date_for_rule,
     get_user_timezone,
     recompute_rule_due_time,
-)
-from app.services.outbox_service import (
-    enqueue_outbox_event,
-    next_run_at,
 )
 from app.services.profile_service import load_user_profile
 
@@ -60,50 +54,9 @@ def _make_worker_id() -> str:
     return f"{base}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
 
-async def _claim_due_events(worker_id: str, limit: int = 20) -> list[OutboxEvent]:
-    async with async_session_factory() as db:
-        now = datetime.now(UTC)
-        locked_until = now + timedelta(seconds=LOCK_DURATION_SECONDS)
-        id_query: Select[tuple[int]] = (
-            select(OutboxEvent.id)
-            .where(
-                OutboxEvent.available_at <= now,
-                or_(
-                    OutboxEvent.locked_until.is_(None),
-                    OutboxEvent.locked_until < now,
-                ),
-            )
-            .order_by(OutboxEvent.available_at.asc(), OutboxEvent.id.asc())
-            .limit(limit)
-        )
-        if db.bind and db.bind.dialect.name == "postgresql":
-            id_query = id_query.with_for_update(skip_locked=True)
-
-        result = await db.execute(id_query)
-        ids = [event_id for (event_id,) in result.all()]
-        if not ids:
-            return []
-
-        await db.execute(
-            update(OutboxEvent)
-            .where(
-                OutboxEvent.id.in_(ids),
-                or_(
-                    OutboxEvent.locked_until.is_(None),
-                    OutboxEvent.locked_until < now,
-                ),
-            )
-            .values(locked_by=worker_id, claimed_at=now, locked_until=locked_until)
-        )
-        await db.commit()
-
-        claimed_result = await db.execute(
-            select(OutboxEvent).where(
-                OutboxEvent.id.in_(ids),
-                OutboxEvent.locked_by == worker_id,
-            )
-        )
-        return list(claimed_result.scalars().all())
+async def _claim_due_events(worker_id: str, limit: int = 20) -> list:
+    """Legacy outbox event claiming — no longer used."""
+    return []
 
 
 def _push_enabled() -> bool:
@@ -170,7 +123,7 @@ async def _send_push_notifications(
     await asyncio.gather(*[_send_single(sub) for sub in subscriptions])
 
 
-async def _handle_read_receipt(db, event: OutboxEvent) -> None:
+async def _handle_read_receipt(db, event) -> None:
     payload = json.loads(event.payload_json)
     notification_id = payload.get("notification_id")
     payload.get("project_id", event.project_id)
@@ -220,151 +173,14 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
         return f"{topic} (Generation failed)"
 
 
-async def _handle_scheduled_nudge(db, event: OutboxEvent) -> None:
-    payload = json.loads(event.payload_json)
-    schedule_id = payload.get("schedule_id")
-    topic = payload.get("topic", "Daily Nudge")
-    project_id = payload.get("project_id", event.project_id)
-
-    # Check schedule active
-    if schedule_id:
-        sched_result = await db.execute(
-            select(NudgeSchedule).where(NudgeSchedule.id == schedule_id)
-        )
-        schedule = sched_result.scalar_one_or_none()
-        if not schedule or not schedule.is_active:
-            logger.info("Schedule %s inactive, stopping recurrence.", schedule_id)
-            return
-
-        # Enqueue next recurrence
-        run_at = next_run_at(schedule.cron_rule, datetime.now(UTC))
-        next_dedupe_key = f"nudge:{schedule.id}:{run_at.date().isoformat()}"
-
-        await enqueue_outbox_event(
-            db,
-            project_id=project_id,
-            membership_id=event.membership_id,
-            event_type="scheduled_nudge",
-            payload=payload,
-            dedupe_key=next_dedupe_key,
-            available_at=run_at,
-        )
-
-    # Generate Content
-    content = await _generate_custom_prompt(db, event.membership_id, topic)
-
-    # Get conversation
-    conversation_result = await db.execute(
-        select(Conversation).where(Conversation.membership_id == event.membership_id)
-    )
-    conversation = conversation_result.scalar_one_or_none()
-    if not conversation:
-        # Create if missing (edge case)
-        conversation = Conversation(membership_id=event.membership_id)
-        db.add(conversation)
-        await db.flush()
-
-    # Persist Message (Chat History)
-    server_msg_id = generate_server_msg_id()
-    message = Message(
-        conversation_id=conversation.id,
-        role="assistant",
-        content=content,
-        server_msg_id=server_msg_id,
-        client_msg_id=event.dedupe_key,
-    )
-    db.add(message)
-    await db.flush()
-
-    # Persist Notification (Updates Tab)
-    # Link to chat with notification_id param for read-sync
-    notification = Notification(
-        membership_id=event.membership_id,
-        title=topic,
-        body=content,
-        payload_json=json.dumps(
-            {
-                "schedule_id": schedule_id,
-                "server_msg_id": server_msg_id,
-                "project_id": project_id,
-            }
-        ),
-    )
-    db.add(notification)
-    await db.flush()
-
-    # Send Push (Browser Notification)
-    # Clicking goes to chat, passing nid to mark it read on open
-    chat_url = f"/p/{project_id}/chat?nid={notification.id}"
-    await _send_push_notifications(
-        db,
-        event.membership_id,
-        title=topic,
-        body=content,
-        url=chat_url,
-        data={
-            "notification_id": notification.id,
-            "project_id": project_id,
-            "url": chat_url,
-        },
-    )
-
-    await db.commit()
+async def _handle_scheduled_nudge(db, event) -> None:
+    """Legacy scheduled nudge handler — no longer used."""
+    logger.info("Legacy _handle_scheduled_nudge called, skipping.")
 
 
-async def _process_event(event: OutboxEvent, worker_id: str) -> None:
-    async with async_session_factory() as db:
-        row_result = await db.execute(
-            select(OutboxEvent).where(
-                OutboxEvent.id == event.id,
-                OutboxEvent.locked_by == worker_id,
-            )
-        )
-        row = row_result.scalar_one_or_none()
-        if row is None:
-            return
-        try:
-            if row.type == "scheduled_prompt":
-                # Legacy event type — noop, delete, and log.
-                logger.info(
-                    "Ignoring legacy scheduled_prompt event %s, deleting.", row.id
-                )
-            elif row.type == "scheduled_nudge":
-                await _handle_scheduled_nudge(db, row)
-            elif row.type == "notification_read_receipt":
-                await _handle_read_receipt(db, row)
-            else:
-                raise ValueError(f"Unsupported event type: {row.type}")
-            await db.execute(
-                delete(OutboxEvent).where(
-                    OutboxEvent.id == row.id,
-                    OutboxEvent.locked_by == worker_id,
-                )
-            )
-            await db.commit()
-        except Exception as exc:  # noqa: BLE001
-            # Reset failed transaction state before reloading the persisted row.
-            await db.rollback()
-            row_result = await db.execute(
-                select(OutboxEvent).where(OutboxEvent.id == event.id)
-            )
-            row = row_result.scalar_one_or_none()
-            if row is None:
-                return
-            row.attempts += 1
-            row.last_error = str(exc)
-            row.locked_by = None
-            row.claimed_at = None
-            row.locked_until = None
-            if row.attempts >= MAX_ATTEMPTS:
-                row.available_at = datetime.now(UTC) + timedelta(
-                    days=FAILED_EVENT_POSTPONE_DAYS
-                )
-            else:
-                row.available_at = datetime.now(UTC) + timedelta(
-                    minutes=2 ** min(row.attempts, 8)
-                )
-            await db.commit()
+async def _process_event(event, worker_id: str) -> None:
+    """Legacy outbox event processor — no longer used."""
+    logger.info("Legacy _process_event called, skipping.")
 
 
 async def _consumer_task(queue: asyncio.Queue, worker_id: str) -> None:
@@ -632,7 +448,7 @@ async def _send_delivery(delivery_id: int, worker_id: str) -> None:
 
 async def run_worker_loop(poll_seconds: int = 5) -> None:
     worker_id = _make_worker_id()
-    queue: asyncio.Queue[OutboxEvent] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
 
     consumers = [
         asyncio.create_task(_consumer_task(queue, worker_id))

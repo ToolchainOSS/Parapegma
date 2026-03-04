@@ -46,7 +46,6 @@ class Project(Base):
     memberships: Mapped[list[ProjectMembership]] = relationship(
         back_populates="project"
     )
-    outbox_events: Mapped[list[OutboxEvent]] = relationship(back_populates="project")
 
 
 # ---- Internal entities -------------------------------------------------------
@@ -111,7 +110,6 @@ class ProjectMembership(Base):
     push_subscriptions: Mapped[list[PushSubscription]] = relationship(
         back_populates="membership"
     )
-    outbox_events: Mapped[list[OutboxEvent]] = relationship(back_populates="membership")
 
 
 class ParticipantContact(Base):
@@ -199,12 +197,14 @@ class PushSubscription(Base):
         UniqueConstraint(
             "membership_id", "endpoint", name="uq_push_subscription_membership_endpoint"
         ),
+        Index("ix_push_sub_user_active", "user_id", "revoked_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     membership_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("project_memberships.id"), nullable=False
     )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     endpoint: Mapped[str] = mapped_column(String(2048), nullable=False)
     p256dh: Mapped[str] = mapped_column(String(255), nullable=False)
     auth: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -225,39 +225,6 @@ class PushSubscription(Base):
     membership: Mapped[ProjectMembership] = relationship(
         back_populates="push_subscriptions"
     )
-
-
-class OutboxEvent(Base):
-    __tablename__ = "outbox_events"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    project_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("projects.id"), nullable=False
-    )
-    membership_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("project_memberships.id"), nullable=False
-    )
-    type: Mapped[str] = mapped_column(String(50), nullable=False)
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
-    dedupe_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    available_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    locked_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    locked_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    claimed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-    project: Mapped[Project] = relationship(back_populates="outbox_events")
-    membership: Mapped[ProjectMembership] = relationship(back_populates="outbox_events")
 
 
 class UserProfileStore(Base):
@@ -395,26 +362,6 @@ class FlowUserProfile(Base):
         onupdate=func.now(),
         nullable=False,
     )
-
-
-class NudgeSchedule(Base):
-    __tablename__ = "nudge_schedules"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    membership_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("project_memberships.id"), nullable=False
-    )
-    topic: Mapped[str] = mapped_column(String(255), nullable=False)
-    cron_rule: Mapped[str] = mapped_column(String(50), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
-    linked_rule_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("notification_rules.id"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-    membership: Mapped[ProjectMembership] = relationship()
 
 
 class Notification(Base):

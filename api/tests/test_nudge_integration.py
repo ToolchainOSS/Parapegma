@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.id_utils import generate_project_id
@@ -15,14 +15,12 @@ from app.models import (
     Base,
     FlowUserProfile,
     Notification,
-    NudgeSchedule,
-    OutboxEvent,
+    NotificationRule,
+    NotificationRuleState,
     Project,
     ProjectMembership,
-    Message,
-    Conversation,
 )
-from app.worker.outbox_worker import _handle_scheduled_nudge, _handle_read_receipt
+from app.worker.outbox_worker import _handle_read_receipt
 from app.tools.scheduler_tools import schedule_nudge
 
 # Helper to create DB
@@ -41,8 +39,8 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.mark.asyncio
-async def test_full_nudge_lifecycle(db_session: AsyncSession) -> None:
-    # 1. Setup Data
+async def test_schedule_nudge_creates_rule(db_session: AsyncSession) -> None:
+    """schedule_nudge tool creates a NotificationRule and NotificationRuleState."""
     project_id = generate_project_id()
     db_session.add(Project(id=project_id, display_name="Test Project"))
     membership = ProjectMembership(
@@ -52,8 +50,6 @@ async def test_full_nudge_lifecycle(db_session: AsyncSession) -> None:
     db_session.add(FlowUserProfile(user_id="u_test", email_raw="test@example.com"))
     await db_session.commit()
 
-    # 2. Schedule Nudge (Agent Tool)
-    # Patch session factory for the tool
     import app.tools.scheduler_tools as scheduler_tools_module
 
     old_factory = scheduler_tools_module.async_session_factory
@@ -70,76 +66,46 @@ async def test_full_nudge_lifecycle(db_session: AsyncSession) -> None:
     finally:
         scheduler_tools_module.async_session_factory = old_factory
 
-    # Verify Schedule and Initial Event
-    schedule = (await db_session.execute(select(NudgeSchedule))).scalar_one()
-    assert schedule.topic == "Morning Reflection"
-    assert schedule.cron_rule == "08:00"
+    # Verify NotificationRule created
+    rule = (await db_session.execute(select(NotificationRule))).scalar_one()
+    config = json.loads(rule.config_json)
+    assert config["topic"] == "Morning Reflection"
+    assert config["time"] == "08:00"
+    assert rule.is_active is True
 
-    event = (
-        await db_session.execute(
-            select(OutboxEvent).where(OutboxEvent.type == "scheduled_nudge")
-        )
-    ).scalar_one()
-    payload = json.loads(event.payload_json)
-    assert payload["schedule_id"] == schedule.id
+    # Verify NotificationRuleState created
+    state = (await db_session.execute(select(NotificationRuleState))).scalar_one()
+    assert state.rule_id == rule.id
+    assert state.next_due_at_utc is not None
 
-    # 3. Process Nudge (Worker)
-    # We need to ensure the worker calculates the NEXT run time (e.g. tomorrow),
-    # distinct from the current event's time, to avoid dedupe collision.
-    future_run = event.available_at + timedelta(days=1)
 
-    with (
-        patch(
-            "app.worker.outbox_worker._generate_custom_prompt", new_callable=AsyncMock
-        ) as mock_llm,
-        patch(
-            "app.worker.outbox_worker._send_push_notifications", new_callable=AsyncMock
-        ) as mock_push,
-        patch("app.worker.outbox_worker.next_run_at", return_value=future_run),
-    ):
-        mock_llm.return_value = "Good morning! How are you feeling?"
+@pytest.mark.asyncio
+async def test_read_receipt_handler(db_session: AsyncSession) -> None:
+    """_handle_read_receipt sends a dismiss push notification."""
+    project_id = generate_project_id()
+    db_session.add(Project(id=project_id, display_name="Test Project"))
+    membership = ProjectMembership(
+        project_id=project_id, user_id="u_test", status="active"
+    )
+    db_session.add(membership)
+    db_session.add(FlowUserProfile(user_id="u_test", email_raw="test@example.com"))
+    await db_session.commit()
 
-        await _handle_scheduled_nudge(db_session, event)
+    notification = Notification(
+        membership_id=membership.id,
+        title="Test",
+        body="Test body",
+        payload_json="{}",
+    )
+    db_session.add(notification)
+    await db_session.flush()
 
-        # Verify Notification & Message created atomically
-        notification = (await db_session.execute(select(Notification))).scalar_one()
-        assert notification.title == "Morning Reflection"
-        assert notification.body == "Good morning! How are you feeling?"
-
-        message = (
-            await db_session.execute(select(Message).where(Message.role == "assistant"))
-        ).scalar_one()
-        assert message.content == "Good morning! How are you feeling?"
-
-        # Verify Linkage (via payload or dedupe key logic if applicable, but mainly check push URL)
-        args, kwargs = mock_push.call_args
-        assert f"nid={notification.id}" in kwargs["url"]
-
-        # Verify Next Recurrence Enqueued
-        next_events = (
-            (
-                await db_session.execute(
-                    select(OutboxEvent).where(
-                        OutboxEvent.type == "scheduled_nudge",
-                        OutboxEvent.id != event.id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert len(next_events) == 1
-
-    # 4. Read Receipt (Simulate API enqueueing event -> Worker processing)
-    read_event = OutboxEvent(
+    read_event = SimpleNamespace(
         project_id=project_id,
         membership_id=membership.id,
-        type="notification_read_receipt",
         payload_json=json.dumps(
             {"notification_id": notification.id, "project_id": project_id}
         ),
-        dedupe_key=f"read-receipt-{notification.id}",
-        available_at=datetime.now(UTC),
     )
 
     with patch(
@@ -151,48 +117,3 @@ async def test_full_nudge_lifecycle(db_session: AsyncSession) -> None:
         _, kwargs = mock_push_receipt.call_args
         assert kwargs["data"]["action"] == "dismiss"
         assert kwargs["data"]["notification_id"] == notification.id
-
-
-@pytest.mark.asyncio
-async def test_nudge_creates_conversation_if_missing(db_session: AsyncSession) -> None:
-    # Setup without conversation
-    project_id = generate_project_id()
-    db_session.add(Project(id=project_id))
-    membership = ProjectMembership(project_id=project_id, user_id="u_test_2")
-    db_session.add(membership)
-    db_session.add(FlowUserProfile(user_id="u_test_2"))
-    await db_session.commit()
-
-    event = OutboxEvent(
-        project_id=project_id,
-        membership_id=membership.id,
-        type="scheduled_nudge",
-        payload_json=json.dumps({"topic": "Test", "project_id": project_id}),
-        dedupe_key="test-dedupe",
-        available_at=datetime.now(UTC),
-    )
-
-    with (
-        patch(
-            "app.worker.outbox_worker._generate_custom_prompt", new_callable=AsyncMock
-        ) as mock_llm,
-        patch(
-            "app.worker.outbox_worker._send_push_notifications", new_callable=AsyncMock
-        ),
-    ):
-        mock_llm.return_value = "Prompt"
-        await _handle_scheduled_nudge(db_session, event)
-
-        # Verify conversation created
-        conv_count = (
-            await db_session.execute(
-                select(func.count(Conversation.id)).where(
-                    Conversation.membership_id == membership.id
-                )
-            )
-        ).scalar()
-        assert conv_count == 1
-
-        # Verify message added
-        msg_count = (await db_session.execute(select(func.count(Message.id)))).scalar()
-        assert msg_count == 1

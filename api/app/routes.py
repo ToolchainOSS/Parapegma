@@ -30,7 +30,6 @@ from app.models import (
     FlowUserProfile,
     MemoryItem,
     Notification,
-    OutboxEvent,
     PatchAuditLog,
     Conversation,
     Message,
@@ -43,9 +42,6 @@ from app.models import (
 )
 from app.schemas.patches import UserProfileData
 from app.services.event_service import load_events_since, persist_event
-from app.services.outbox_service import (
-    enqueue_outbox_event,
-)
 from app.services.profile_service import load_user_profile, save_user_profile
 from app import config
 from h4ckath0n.auth import require_user
@@ -1758,19 +1754,7 @@ async def mark_notification_read(
         if not notification.read_at:
             notification.read_at = datetime.now(UTC)
 
-            # Enqueue read receipt sync to other devices
-            await enqueue_outbox_event(
-                db,
-                project_id=project_id,
-                membership_id=membership.id,
-                event_type="notification_read_receipt",
-                payload={
-                    "notification_id": notification_id,
-                    "project_id": project_id,
-                },
-                dedupe_key=f"read_receipt:{notification_id}",
-                available_at=datetime.now(UTC),
-            )
+            # TODO: read receipt sync via unified notification delivery
 
             await db.commit()
 
@@ -1889,15 +1873,7 @@ async def mark_unified_notification_read(
         if not notification.read_at:
             notification.read_at = datetime.now(UTC)
 
-            await enqueue_outbox_event(
-                db,
-                project_id=project_id,
-                membership_id=notification.membership_id,
-                event_type="notification_read_receipt",
-                payload={"notification_id": notification_id, "project_id": project_id},
-                dedupe_key=f"read_receipt:{notification_id}",
-                available_at=datetime.now(UTC),
-            )
+            # TODO: read receipt sync via unified notification delivery
 
             await db.commit()
 
@@ -2136,12 +2112,6 @@ async def admin_project_export(
     patch_result = await db.execute(
         select(PatchAuditLog).where(PatchAuditLog.membership_id.in_(membership_ids))
     )
-    outbox_result = await db.execute(
-        select(OutboxEvent).where(
-            OutboxEvent.project_id == project_id,
-            OutboxEvent.membership_id.in_(membership_ids),
-        )
-    )
     push_result = await db.execute(
         select(PushSubscription).where(
             PushSubscription.membership_id.in_(membership_ids)
@@ -2216,22 +2186,6 @@ async def admin_project_export(
                 "created_at": p.created_at.isoformat(),
             }
             for p in patch_result.scalars().all()
-        ],
-        "outbox_events": [
-            {
-                "project_id": e.project_id,
-                "membership_id": e.membership_id,
-                "type": e.type,
-                "payload_json": e.payload_json,
-                "dedupe_key": e.dedupe_key,
-                "available_at": e.available_at.isoformat(),
-                "attempts": e.attempts,
-                "last_error": e.last_error,
-                "locked_until": e.locked_until.isoformat() if e.locked_until else None,
-                "locked_by": e.locked_by,
-                "claimed_at": e.claimed_at.isoformat() if e.claimed_at else None,
-            }
-            for e in outbox_result.scalars().all()
         ],
         "push_subscriptions": [
             {

@@ -46,7 +46,8 @@ from app.services.profile_service import (
     validate_memory_patch,
     validate_profile_patch,
 )
-from app.services.scheduler_service import create_nudge_schedule, deactivate_schedule
+from app.models import NotificationRule, NotificationRuleState
+from app.services.notification_engine import compute_next_due_utc, get_user_timezone
 from app.tools.proposal_tools import ProposalCollector
 
 logger = logging.getLogger(__name__)
@@ -327,9 +328,9 @@ async def _process_proposals(
                     valid = False
                     reason = "Missing topic or time"
             elif proposal.action == "delete":
-                if not proposal.schedule_id:
+                if not proposal.rule_id:
                     valid = False
-                    reason = "Missing schedule_id"
+                    reason = "Missing rule_id"
 
             if valid and proposal.source_bot != "COACH":
                 # Assuming only Coach should really be messing with schedules for now,
@@ -348,7 +349,7 @@ async def _process_proposals(
                         "action": proposal.action,
                         "topic": proposal.topic,
                         "time": proposal.time,
-                        "schedule_id": proposal.schedule_id,
+                        "rule_id": proposal.rule_id,
                     }
                 ),
                 confidence=proposal.confidence,
@@ -360,14 +361,36 @@ async def _process_proposals(
 
             if valid:
                 if proposal.action == "create":
-                    await create_nudge_schedule(
-                        db, membership_id, proposal.topic, proposal.time
+                    rule = NotificationRule(
+                        membership_id=membership_id,
+                        kind="daily_local_time",
+                        config_json=json.dumps(
+                            {"topic": proposal.topic, "time": proposal.time}
+                        ),
+                        tz_policy="floating_user_tz",
+                        is_active=True,
                     )
+                    db.add(rule)
+                    await db.flush()
+                    user_tz = await get_user_timezone(db, membership_id)
+                    next_due = compute_next_due_utc(rule, user_tz)
+                    state = NotificationRuleState(
+                        rule_id=rule.id,
+                        next_due_at_utc=next_due,
+                    )
+                    db.add(state)
                     logger.info(
                         "Committed schedule creation from %s", proposal.source_bot
                     )
                 elif proposal.action == "delete":
-                    await deactivate_schedule(db, proposal.schedule_id)
+                    rule_result = await db.execute(
+                        select(NotificationRule).where(
+                            NotificationRule.id == proposal.rule_id
+                        )
+                    )
+                    rule = rule_result.scalar_one_or_none()
+                    if rule:
+                        rule.is_active = False
                     logger.info(
                         "Committed schedule deletion from %s", proposal.source_bot
                     )
