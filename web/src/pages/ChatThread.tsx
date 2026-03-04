@@ -92,15 +92,14 @@ export function ChatThread() {
       newParams.delete("nid");
       setSearchParams(newParams, { replace: true });
 
-      // Call mark-read
+      // Call mark-read (unified global endpoint)
       (async () => {
         try {
           await api.POST(
-            "/p/{project_id}/notifications/{notification_id}/read",
+            "/notifications/{notification_id}/read",
             {
               params: {
                 path: {
-                  project_id: projectId,
                   notification_id: parsedNid,
                 },
               },

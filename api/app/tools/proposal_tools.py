@@ -94,7 +94,7 @@ class ProposeScheduleNudgeArgs(BaseModel):
 class ProposeDeleteScheduleArgs(BaseModel):
     """Arguments for the propose_delete_schedule tool."""
 
-    schedule_id: int = Field(..., description="The ID of the schedule to delete")
+    rule_id: int = Field(..., description="The ID of the notification rule to delete")
     confidence: float = Field(..., ge=0, le=1, description="Confidence 0-1")
     message_ids: list[int] = Field(..., description="Message IDs supporting this claim")
     source_bot: str = Field(..., description="INTAKE, FEEDBACK, or COACH")
@@ -189,7 +189,7 @@ def make_proposal_tools(collector: ProposalCollector, source_bot: str) -> list[A
 
     @tool("propose_delete_schedule", args_schema=ProposeDeleteScheduleArgs)
     def propose_delete_schedule(
-        schedule_id: int,
+        rule_id: int,
         confidence: float,
         message_ids: list[int],
         source_bot: str = source_bot,
@@ -197,7 +197,7 @@ def make_proposal_tools(collector: ProposalCollector, source_bot: str) -> list[A
         """Propose deleting (deactivating) a nudge schedule."""
         proposal = {
             "action": "delete",
-            "schedule_id": schedule_id,
+            "rule_id": rule_id,
             "confidence": confidence,
             "evidence": {"message_ids": message_ids},
             "source_bot": source_bot,

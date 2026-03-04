@@ -30,7 +30,9 @@ from app.models import (
     FlowUserProfile,
     MemoryItem,
     Notification,
-    OutboxEvent,
+    NotificationDelivery,
+    NotificationRule,
+    NotificationRuleState,
     PatchAuditLog,
     Conversation,
     Message,
@@ -43,9 +45,6 @@ from app.models import (
 )
 from app.schemas.patches import UserProfileData
 from app.services.event_service import load_events_since, persist_event
-from app.services.outbox_service import (
-    enqueue_outbox_event,
-)
 from app.services.profile_service import load_user_profile, save_user_profile
 from app import config
 from h4ckath0n.auth import require_user
@@ -197,28 +196,6 @@ class PushSubscribeResponse(BaseModel):
     subscription_id: int
 
 
-class PushUnsubscribeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    endpoint: str
-
-
-class PushUnsubscribeResponse(BaseModel):
-    ok: bool
-
-
-class NotificationItem(BaseModel):
-    id: int
-    title: str
-    body: str
-    created_at: str
-    read_at: str | None
-
-
-class NotificationListResponse(BaseModel):
-    notifications: list[NotificationItem]
-
-
 class NotificationUnreadCountResponse(BaseModel):
     count: int
 
@@ -227,22 +204,23 @@ class VapidPublicKeyResponse(BaseModel):
     public_key: str
 
 
-class PushStatusResponse(BaseModel):
-    registered: bool
-
-
 class UnifiedNotificationItem(BaseModel):
     id: int
     title: str
     body: str
     created_at: str
     read_at: str | None
+    payload_json: str
     project_id: str
     project_display_name: str | None
+    membership_id: int
+    rule_id: int | None = None
+    local_date: str | None = None
 
 
 class UnifiedNotificationListResponse(BaseModel):
     notifications: list[UnifiedNotificationItem]
+    next_cursor: str | None = None
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -613,6 +591,38 @@ async def update_timezone(
         profile.tz_updated_at = datetime.now(UTC)
 
         await db.commit()
+
+        # Recompute next_due_at_utc for floating notification rules
+        try:
+            from app.services.notification_engine import recompute_rule_due_time
+
+            mem_result = await db.execute(
+                select(ProjectMembership).where(
+                    ProjectMembership.user_id == user.id,
+                    ProjectMembership.status == "active",
+                )
+            )
+            memberships = mem_result.scalars().all()
+            for mem in memberships:
+                rule_result = await db.execute(
+                    select(NotificationRule, NotificationRuleState)
+                    .join(
+                        NotificationRuleState,
+                        NotificationRule.id == NotificationRuleState.rule_id,
+                    )
+                    .where(
+                        NotificationRule.membership_id == mem.id,
+                        NotificationRule.is_active.is_(True),
+                        NotificationRule.tz_policy == "floating_user_tz",
+                    )
+                )
+                for rule, state in rule_result.all():
+                    if state.locked_by is None:
+                        await recompute_rule_due_time(db, rule, state)
+            await db.commit()
+        except Exception:
+            logger.exception("Failed to recompute floating rules after timezone update")
+
         return {"ok": True}
     except HTTPException:
         raise
@@ -1507,285 +1517,7 @@ async def event_stream(
 
 
 # ---------------------------------------------------------------------------
-# 6. VAPID public key
-# ---------------------------------------------------------------------------
-
-
-@router.get("/p/{project_id}/push/vapid-public-key", tags=["push"])
-async def vapid_public_key(
-    project_id: str,
-    user: User = require_user(),
-    db: AsyncSession = Depends(get_db),
-) -> VapidPublicKeyResponse:
-    """Return the VAPID public key from environment."""
-    try:
-        # Verify membership exists
-        await _get_membership(db, project_id, user.id)
-
-        key = config.get_vapid_public_key()
-        if not key:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="VAPID public key not configured",
-            )
-        return VapidPublicKeyResponse(public_key=key)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Failed to get VAPID public key")
-        raise HTTPException(status_code=500, detail="Failed to get VAPID public key")
-
-
-# ---------------------------------------------------------------------------
-# 7. Push subscribe
-# ---------------------------------------------------------------------------
-
-
-@router.post("/p/{project_id}/push/subscribe", tags=["push"])
-async def push_subscribe(
-    project_id: str,
-    body: PushSubscribeRequest,
-    user: User = require_user(),
-    db: AsyncSession = Depends(get_db),
-) -> PushSubscribeResponse:
-    """Store a push subscription for the current membership."""
-    try:
-        return await _push_subscribe_impl(project_id, body, user, db)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Push subscription failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-async def _push_subscribe_impl(
-    project_id: str,
-    body: PushSubscribeRequest,
-    user: User,
-    db: AsyncSession,
-) -> PushSubscribeResponse:
-    membership = await _get_membership(db, project_id, user.id)
-
-    # Check for existing subscription with same endpoint
-    # membership_id scoping intentionally allows the same endpoint to be
-    # registered for multiple project memberships by the same device.
-    existing_result = await db.execute(
-        select(PushSubscription).where(
-            PushSubscription.membership_id == membership.id,
-            PushSubscription.endpoint == body.endpoint,
-            PushSubscription.revoked_at.is_(None),
-        )
-    )
-    existing = existing_result.scalar_one_or_none()
-
-    if existing is not None:
-        # Update keys in case they changed
-        existing.p256dh = body.keys.p256dh
-        existing.auth = body.keys.auth
-        existing.user_agent = body.user_agent or existing.user_agent
-        await db.commit()
-        await db.refresh(existing)
-        return PushSubscribeResponse(subscription_id=existing.id)
-
-    sub = PushSubscription(
-        membership_id=membership.id,
-        endpoint=body.endpoint,
-        p256dh=body.keys.p256dh,
-        auth=body.keys.auth,
-        user_agent=body.user_agent or "",
-    )
-    db.add(sub)
-    await db.commit()
-    await db.refresh(sub)
-
-    return PushSubscribeResponse(subscription_id=sub.id)
-
-
-# ---------------------------------------------------------------------------
-# 8. Push unsubscribe
-# ---------------------------------------------------------------------------
-
-
-@router.post("/p/{project_id}/push/unsubscribe", tags=["push"])
-async def push_unsubscribe(
-    project_id: str,
-    body: PushUnsubscribeRequest,
-    user: User = require_user(),
-    db: AsyncSession = Depends(get_db),
-) -> PushUnsubscribeResponse:
-    """Revoke a push subscription by endpoint."""
-    try:
-        membership = await _get_membership(db, project_id, user.id)
-
-        result = await db.execute(
-            select(PushSubscription).where(
-                PushSubscription.membership_id == membership.id,
-                PushSubscription.endpoint == body.endpoint,
-                PushSubscription.revoked_at.is_(None),
-            )
-        )
-        sub = result.scalar_one_or_none()
-        if sub is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Subscription not found",
-            )
-
-        sub.revoked_at = datetime.now(UTC)
-        await db.commit()
-
-        return PushUnsubscribeResponse(ok=True)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Push unsubscribe failed")
-        raise HTTPException(
-            status_code=500, detail="Failed to unsubscribe from push notifications"
-        )
-
-
-@router.get("/p/{project_id}/push/status", tags=["push"])
-async def push_status(
-    project_id: str,
-    endpoint: str,
-    user: User = require_user(),
-    db: AsyncSession = Depends(get_db),
-) -> PushStatusResponse:
-    """Check whether a push subscription is registered for this membership."""
-    try:
-        membership = await _get_membership(db, project_id, user.id)
-        result = await db.execute(
-            select(PushSubscription.id).where(
-                PushSubscription.membership_id == membership.id,
-                PushSubscription.endpoint == endpoint,
-                PushSubscription.revoked_at.is_(None),
-            )
-        )
-        return PushStatusResponse(registered=result.scalar_one_or_none() is not None)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Push status check failed")
-        return PushStatusResponse(registered=False)
-
-
-# ---------------------------------------------------------------------------
-# 9. Notifications
-# ---------------------------------------------------------------------------
-
-
-@router.get("/p/{project_id}/notifications", tags=["notifications"])
-async def list_notifications(
-    project_id: str,
-    user: User = require_user(),
-    db: AsyncSession = Depends(get_db),
-) -> NotificationListResponse:
-    """List notifications for the current membership."""
-    try:
-        membership = await _get_membership(db, project_id, user.id)
-        result = await db.execute(
-            select(Notification)
-            .where(Notification.membership_id == membership.id)
-            .order_by(Notification.created_at.desc())
-            .limit(50)
-        )
-        notifications = result.scalars().all()
-        return NotificationListResponse(
-            notifications=[
-                NotificationItem(
-                    id=n.id,
-                    title=n.title,
-                    body=n.body,
-                    created_at=n.created_at.isoformat(),
-                    read_at=n.read_at.isoformat() if n.read_at else None,
-                )
-                for n in notifications
-            ]
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Failed to list notifications")
-        raise HTTPException(status_code=500, detail="Failed to load notifications")
-
-
-@router.get("/p/{project_id}/notifications/unread-count", tags=["notifications"])
-async def get_unread_count(
-    project_id: str,
-    user: User = require_user(),
-    db: AsyncSession = Depends(get_db),
-) -> NotificationUnreadCountResponse:
-    """Get count of unread notifications."""
-    try:
-        membership = await _get_membership(db, project_id, user.id)
-        result = await db.execute(
-            select(func.count(Notification.id)).where(
-                Notification.membership_id == membership.id,
-                Notification.read_at.is_(None),
-            )
-        )
-        count = result.scalar() or 0
-        return NotificationUnreadCountResponse(count=count)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Failed to get unread count")
-        raise HTTPException(status_code=500, detail="Failed to load unread count")
-
-
-@router.post(
-    "/p/{project_id}/notifications/{notification_id}/read", tags=["notifications"]
-)
-async def mark_notification_read(
-    project_id: str,
-    notification_id: int,
-    user: User = require_user(),
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, bool]:
-    """Mark a notification as read."""
-    try:
-        membership = await _get_membership(db, project_id, user.id)
-        result = await db.execute(
-            select(Notification).where(
-                Notification.id == notification_id,
-                Notification.membership_id == membership.id,
-            )
-        )
-        notification = result.scalar_one_or_none()
-        if not notification:
-            raise HTTPException(status_code=404, detail="Notification not found")
-
-        if not notification.read_at:
-            notification.read_at = datetime.now(UTC)
-
-            # Enqueue read receipt sync to other devices
-            await enqueue_outbox_event(
-                db,
-                project_id=project_id,
-                membership_id=membership.id,
-                event_type="notification_read_receipt",
-                payload={
-                    "notification_id": notification_id,
-                    "project_id": project_id,
-                },
-                dedupe_key=f"read_receipt:{notification_id}",
-                available_at=datetime.now(UTC),
-            )
-
-            await db.commit()
-
-        return {"ok": True}
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Failed to mark notification as read")
-        raise HTTPException(
-            status_code=500, detail="Failed to mark notification as read"
-        )
-
-
-# ---------------------------------------------------------------------------
-# 9b. Unified Notifications (cross-project)
+# 6. Unified Notifications (cross-project)
 # ---------------------------------------------------------------------------
 
 
@@ -1793,10 +1525,20 @@ async def mark_notification_read(
 async def list_unified_notifications(
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
+    project_id: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
 ) -> UnifiedNotificationListResponse:
-    """List notifications across all projects for the current user, ordered by time."""
+    """List notifications across all projects for the current user, ordered by time.
+
+    Supports optional project_id filtering and cursor-based pagination.
+    """
+    import base64
+
     try:
-        result = await db.execute(
+        limit = min(limit, 200)
+
+        query = (
             select(Notification, ProjectMembership.project_id, Project.display_name)
             .join(
                 ProjectMembership,
@@ -1804,10 +1546,31 @@ async def list_unified_notifications(
             )
             .join(Project, ProjectMembership.project_id == Project.id)
             .where(ProjectMembership.user_id == user.id)
-            .order_by(Notification.created_at.desc())
-            .limit(50)
         )
+
+        if project_id is not None:
+            query = query.where(ProjectMembership.project_id == project_id)
+
+        if cursor is not None:
+            try:
+                cursor_id = int(base64.b64decode(cursor).decode())
+                query = query.where(Notification.id < cursor_id)
+            except Exception:
+                pass
+
+        query = query.order_by(Notification.id.desc()).limit(limit + 1)
+
+        result = await db.execute(query)
         rows = result.all()
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+
+        next_cursor = None
+        if has_more and rows:
+            last_id = rows[-1][0].id
+            next_cursor = base64.b64encode(str(last_id).encode()).decode()
+
         return UnifiedNotificationListResponse(
             notifications=[
                 UnifiedNotificationItem(
@@ -1816,11 +1579,16 @@ async def list_unified_notifications(
                     body=n.body,
                     created_at=n.created_at.isoformat(),
                     read_at=n.read_at.isoformat() if n.read_at else None,
-                    project_id=project_id,
+                    payload_json=n.payload_json or "{}",
+                    project_id=pid,
                     project_display_name=display_name,
+                    membership_id=n.membership_id,
+                    rule_id=n.rule_id,
+                    local_date=n.local_date.isoformat() if n.local_date else None,
                 )
-                for n, project_id, display_name in rows
-            ]
+                for n, pid, display_name in rows
+            ],
+            next_cursor=next_cursor,
         )
     except HTTPException:
         raise
@@ -1836,10 +1604,11 @@ async def list_unified_notifications(
 async def get_unified_unread_count(
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
+    project_id: str | None = None,
 ) -> NotificationUnreadCountResponse:
-    """Get count of unread notifications across all projects."""
+    """Get count of unread notifications across all projects (or filtered by project)."""
     try:
-        result = await db.execute(
+        query = (
             select(func.count(Notification.id))
             .join(
                 ProjectMembership,
@@ -1850,6 +1619,9 @@ async def get_unified_unread_count(
                 Notification.read_at.is_(None),
             )
         )
+        if project_id is not None:
+            query = query.where(ProjectMembership.project_id == project_id)
+        result = await db.execute(query)
         count = result.scalar() or 0
         return NotificationUnreadCountResponse(count=count)
     except HTTPException:
@@ -1868,7 +1640,7 @@ async def mark_unified_notification_read(
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
-    """Mark a notification as read (global, resolves project from notification)."""
+    """Mark a notification as read and enqueue exactly one push_dismiss delivery."""
     try:
         result = await db.execute(
             select(Notification, ProjectMembership.project_id)
@@ -1885,20 +1657,28 @@ async def mark_unified_notification_read(
         if not row:
             raise HTTPException(status_code=404, detail="Notification not found")
 
-        notification, project_id = row
+        notification, _project_id = row
         if not notification.read_at:
             notification.read_at = datetime.now(UTC)
 
-            await enqueue_outbox_event(
-                db,
-                project_id=project_id,
-                membership_id=notification.membership_id,
-                event_type="notification_read_receipt",
-                payload={"notification_id": notification_id, "project_id": project_id},
-                dedupe_key=f"read_receipt:{notification_id}",
-                available_at=datetime.now(UTC),
+            # Enqueue exactly ONE push_dismiss delivery — the worker fans out to all subscriptions
+            dismiss_payload = json.dumps(
+                {
+                    "data": {
+                        "action": "dismiss",
+                        "notification_id": notification_id,
+                    }
+                }
             )
-
+            delivery = NotificationDelivery(
+                instance_id=notification.id,
+                membership_id=notification.membership_id,
+                user_id=user.id,
+                channel="push_dismiss",
+                payload_json=dismiss_payload,
+                run_at_utc=datetime.now(UTC),
+            )
+            db.add(delivery)
             await db.commit()
 
         return {"ok": True}
@@ -1910,6 +1690,137 @@ async def mark_unified_notification_read(
             status_code=500,
             detail="Failed to mark notification as read",
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. Web Push endpoints (unified, not per-project)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/notifications/webpush/vapid-public-key", tags=["notifications"])
+async def webpush_vapid_public_key(
+    user: User = require_user(),
+) -> VapidPublicKeyResponse:
+    """Return the VAPID public key for Web Push subscription."""
+    try:
+        key = config.get_vapid_public_key()
+        if not key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="VAPID public key not configured",
+            )
+        return VapidPublicKeyResponse(public_key=key)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to get VAPID public key")
+        raise HTTPException(status_code=500, detail="Failed to get VAPID public key")
+
+
+@router.post("/notifications/webpush/subscriptions", tags=["notifications"])
+async def webpush_subscribe(
+    body: PushSubscribeRequest,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> PushSubscribeResponse:
+    """Create or upsert a push subscription for the current user (user-scoped)."""
+    try:
+        # Check for existing subscription with same user+endpoint
+        existing_result = await db.execute(
+            select(PushSubscription).where(
+                PushSubscription.user_id == user.id,
+                PushSubscription.endpoint == body.endpoint,
+                PushSubscription.revoked_at.is_(None),
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+
+        if existing is not None:
+            existing.p256dh = body.keys.p256dh
+            existing.auth = body.keys.auth
+            existing.user_agent = body.user_agent or existing.user_agent
+            await db.commit()
+            return PushSubscribeResponse(subscription_id=existing.id)
+        else:
+            sub = PushSubscription(
+                user_id=user.id,
+                endpoint=body.endpoint,
+                p256dh=body.keys.p256dh,
+                auth=body.keys.auth,
+                user_agent=body.user_agent or "",
+            )
+            db.add(sub)
+            await db.commit()
+            return PushSubscribeResponse(subscription_id=sub.id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Push subscription failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/notifications/webpush/subscriptions/{subscription_id}", tags=["notifications"]
+)
+async def webpush_unsubscribe(
+    subscription_id: int,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Remove a push subscription."""
+    try:
+        result = await db.execute(
+            select(PushSubscription).where(
+                PushSubscription.id == subscription_id,
+                PushSubscription.user_id == user.id,
+            )
+        )
+        sub = result.scalar_one_or_none()
+        if sub is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Subscription not found",
+            )
+        sub.revoked_at = datetime.now(UTC)
+        await db.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Push unsubscribe failed")
+        raise HTTPException(status_code=500, detail="Failed to unsubscribe")
+
+
+@router.get("/notifications/webpush/subscriptions", tags=["notifications"])
+async def webpush_list_subscriptions(
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """List active push subscriptions for the current user (debug endpoint)."""
+    try:
+        result = await db.execute(
+            select(PushSubscription).where(
+                PushSubscription.user_id == user.id,
+                PushSubscription.revoked_at.is_(None),
+            )
+        )
+        subs = result.scalars().all()
+        return {
+            "subscriptions": [
+                {
+                    "id": s.id,
+                    "endpoint": s.endpoint,
+                    "user_agent": s.user_agent,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in subs
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to list push subscriptions")
+        raise HTTPException(status_code=500, detail="Failed to list subscriptions")
 
 
 @router.post("/admin/projects", tags=["admin"])
@@ -2041,19 +1952,22 @@ async def admin_project_participants(
             profile.user_id: profile for profile in profiles_result.scalars().all()
         }
 
-    push_stats_by_membership: dict[int, dict[str, Any]] = {
-        membership_id: {"count": 0, "last_success_at": None, "last_failure_at": None}
-        for membership_id in membership_ids
-    }
-    if membership_ids:
+    push_stats_by_user: dict[str, dict[str, Any]] = {}
+    if user_ids:
         push_result = await db.execute(
             select(PushSubscription).where(
-                PushSubscription.membership_id.in_(membership_ids),
+                PushSubscription.user_id.in_(user_ids),
                 PushSubscription.revoked_at.is_(None),
             )
         )
         for sub in push_result.scalars().all():
-            stats = push_stats_by_membership[sub.membership_id]
+            if sub.user_id not in push_stats_by_user:
+                push_stats_by_user[sub.user_id] = {
+                    "count": 0,
+                    "last_success_at": None,
+                    "last_failure_at": None,
+                }
+            stats = push_stats_by_user[sub.user_id]
             stats["count"] += 1
             if sub.last_success_at and (
                 stats["last_success_at"] is None
@@ -2069,8 +1983,8 @@ async def admin_project_participants(
     participants: list[AdminParticipantItem] = []
     for membership in memberships:
         contact = latest_contact_by_membership.get(membership.id)
-        stats = push_stats_by_membership.get(
-            membership.id,
+        stats = push_stats_by_user.get(
+            membership.user_id,
             {"count": 0, "last_success_at": None, "last_failure_at": None},
         )
         participants.append(
@@ -2136,15 +2050,9 @@ async def admin_project_export(
     patch_result = await db.execute(
         select(PatchAuditLog).where(PatchAuditLog.membership_id.in_(membership_ids))
     )
-    outbox_result = await db.execute(
-        select(OutboxEvent).where(
-            OutboxEvent.project_id == project_id,
-            OutboxEvent.membership_id.in_(membership_ids),
-        )
-    )
     push_result = await db.execute(
         select(PushSubscription).where(
-            PushSubscription.membership_id.in_(membership_ids)
+            PushSubscription.user_id.in_([m.user_id for m in memberships])
         )
     )
 
@@ -2217,26 +2125,10 @@ async def admin_project_export(
             }
             for p in patch_result.scalars().all()
         ],
-        "outbox_events": [
-            {
-                "project_id": e.project_id,
-                "membership_id": e.membership_id,
-                "type": e.type,
-                "payload_json": e.payload_json,
-                "dedupe_key": e.dedupe_key,
-                "available_at": e.available_at.isoformat(),
-                "attempts": e.attempts,
-                "last_error": e.last_error,
-                "locked_until": e.locked_until.isoformat() if e.locked_until else None,
-                "locked_by": e.locked_by,
-                "claimed_at": e.claimed_at.isoformat() if e.claimed_at else None,
-            }
-            for e in outbox_result.scalars().all()
-        ],
         "push_subscriptions": [
             {
                 "subscription_id": s.id,
-                "membership_id": s.membership_id,
+                "user_id": s.user_id,
                 "endpoint": s.endpoint,
                 "created_at": s.created_at.isoformat(),
                 "revoked_at": s.revoked_at.isoformat() if s.revoked_at else None,
@@ -2260,11 +2152,9 @@ async def admin_push_channels(
 ) -> AdminPushChannelsResponse:
     result = await db.execute(
         select(PushSubscription, ProjectMembership, User, FlowUserProfile)
-        .join(ProjectMembership, PushSubscription.membership_id == ProjectMembership.id)
-        .outerjoin(User, User.id == ProjectMembership.user_id)
-        .outerjoin(
-            FlowUserProfile, FlowUserProfile.user_id == ProjectMembership.user_id
-        )
+        .join(ProjectMembership, PushSubscription.user_id == ProjectMembership.user_id)
+        .outerjoin(User, User.id == PushSubscription.user_id)
+        .outerjoin(FlowUserProfile, FlowUserProfile.user_id == PushSubscription.user_id)
         .where(
             ProjectMembership.project_id == project_id,
             PushSubscription.revoked_at.is_(None),
@@ -2280,7 +2170,7 @@ async def admin_push_channels(
             AdminPushChannelItem(
                 subscription_id=sub.id,
                 membership_id=membership.id,
-                user_id=membership.user_id,
+                user_id=sub.user_id,
                 user_email=user.email if user else None,
                 display_name=profile.display_name if profile else None,
                 endpoint_hint=endpoint_hint,

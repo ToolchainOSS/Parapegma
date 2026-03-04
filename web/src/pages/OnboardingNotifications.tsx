@@ -20,7 +20,7 @@ export function OnboardingNotifications() {
     success,
     subscribe,
     pushNotConfigured,
-  } = usePushNotifications(projectId);
+  } = usePushNotifications();
 
   const showsIOSGuide = isIOS() && !isStandalone();
 

@@ -58,7 +58,7 @@ services:
       [
         "/opt/venv/bin/python",
         "-m",
-        "app.worker.outbox_worker",
+        "app.worker.notification_worker",
       ]
     environment:
       H4CKATH0N_ENV: ${H4CKATH0N_ENV:-production}
