@@ -121,9 +121,11 @@ async def _send_push_notifications(
         except WebPushException as exc:
             sub.last_failure_at = datetime.now(UTC)
             # Revoke subscription on permanent errors (410 Gone, 404 Not Found)
-            status_code = getattr(exc, "response", None)
-            if status_code is not None:
-                status_code = getattr(status_code, "status_code", None)
+            resp = getattr(exc, "response", None)
+            try:
+                status_code = resp.status_code if resp is not None else None
+            except AttributeError:
+                status_code = None
             if status_code in (404, 410):
                 sub.revoked_at = datetime.now(UTC)
                 logger.info(
@@ -331,7 +333,9 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
             )
 
         except IntegrityError:
-            # Dedupe collision — another worker already fired this rule
+            # Dedupe collision — another worker already fired this rule.
+            # After rollback, the original db session's ORM objects are invalidated,
+            # so we must open a fresh session (db2) to advance the rule state.
             await db.rollback()
             async with async_session_factory() as db2:
                 rule_r = await db2.execute(

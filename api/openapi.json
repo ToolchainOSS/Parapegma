@@ -925,62 +925,6 @@
         "title": "MessageListResponse",
         "type": "object"
       },
-      "NotificationItem": {
-        "properties": {
-          "body": {
-            "title": "Body",
-            "type": "string"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "read_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Read At"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "body",
-          "created_at",
-          "read_at"
-        ],
-        "title": "NotificationItem",
-        "type": "object"
-      },
-      "NotificationListResponse": {
-        "properties": {
-          "notifications": {
-            "items": {
-              "$ref": "#/components/schemas/NotificationItem"
-            },
-            "title": "Notifications",
-            "type": "array"
-          }
-        },
-        "required": [
-          "notifications"
-        ],
-        "title": "NotificationListResponse",
-        "type": "object"
-      },
       "NotificationUnreadCountResponse": {
         "properties": {
           "count": {
@@ -1429,19 +1373,6 @@
         "title": "PushKeys",
         "type": "object"
       },
-      "PushStatusResponse": {
-        "properties": {
-          "registered": {
-            "title": "Registered",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "registered"
-        ],
-        "title": "PushStatusResponse",
-        "type": "object"
-      },
       "PushSubscribeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1482,33 +1413,6 @@
           "subscription_id"
         ],
         "title": "PushSubscribeResponse",
-        "type": "object"
-      },
-      "PushUnsubscribeRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "endpoint": {
-            "title": "Endpoint",
-            "type": "string"
-          }
-        },
-        "required": [
-          "endpoint"
-        ],
-        "title": "PushUnsubscribeRequest",
-        "type": "object"
-      },
-      "PushUnsubscribeResponse": {
-        "properties": {
-          "ok": {
-            "title": "Ok",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "ok"
-        ],
-        "title": "PushUnsubscribeResponse",
         "type": "object"
       },
       "RootResponse": {
@@ -1589,6 +1493,25 @@
             "title": "Id",
             "type": "integer"
           },
+          "local_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Date"
+          },
+          "membership_id": {
+            "title": "Membership Id",
+            "type": "integer"
+          },
+          "payload_json": {
+            "title": "Payload Json",
+            "type": "string"
+          },
           "project_display_name": {
             "anyOf": [
               {
@@ -1615,6 +1538,17 @@
             ],
             "title": "Read At"
           },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -1626,14 +1560,27 @@
           "body",
           "created_at",
           "read_at",
+          "payload_json",
           "project_id",
-          "project_display_name"
+          "project_display_name",
+          "membership_id"
         ],
         "title": "UnifiedNotificationItem",
         "type": "object"
       },
       "UnifiedNotificationListResponse": {
         "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
           "notifications": {
             "items": {
               "$ref": "#/components/schemas/UnifiedNotificationItem"
@@ -3184,8 +3131,52 @@
     },
     "/notifications": {
       "get": {
-        "description": "List notifications across all projects for the current user, ordered by time.",
+        "description": "List notifications across all projects for the current user, ordered by time.\n\nSupports optional project_id filtering and cursor-based pagination.",
         "operationId": "list_unified_notifications_notifications_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3196,6 +3187,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -3211,8 +3212,26 @@
     },
     "/notifications/unread-count": {
       "get": {
-        "description": "Get count of unread notifications across all projects.",
+        "description": "Get count of unread notifications across all projects (or filtered by project).",
         "operationId": "get_unified_unread_count_notifications_unread_count_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3223,6 +3242,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -3236,9 +3265,162 @@
         ]
       }
     },
+    "/notifications/webpush/subscriptions": {
+      "get": {
+        "description": "List active push subscriptions for the current user (debug endpoint).",
+        "operationId": "webpush_list_subscriptions_notifications_webpush_subscriptions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Webpush List Subscriptions Notifications Webpush Subscriptions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Webpush List Subscriptions",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "post": {
+        "description": "Create or upsert a push subscription for the current user (user-scoped).",
+        "operationId": "webpush_subscribe_notifications_webpush_subscriptions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscribeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Webpush Subscribe",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/notifications/webpush/subscriptions/{subscription_id}": {
+      "delete": {
+        "description": "Remove a push subscription.",
+        "operationId": "webpush_unsubscribe_notifications_webpush_subscriptions__subscription_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subscription_id",
+            "required": true,
+            "schema": {
+              "title": "Subscription Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Webpush Unsubscribe Notifications Webpush Subscriptions  Subscription Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Webpush Unsubscribe",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/notifications/webpush/vapid-public-key": {
+      "get": {
+        "description": "Return the VAPID public key for Web Push subscription.",
+        "operationId": "webpush_vapid_public_key_notifications_webpush_vapid_public_key_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VapidPublicKeyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Webpush Vapid Public Key",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
     "/notifications/{notification_id}/read": {
       "post": {
-        "description": "Mark a notification as read (global, resolves project from notification).",
+        "description": "Mark a notification as read and enqueue exactly one push_dismiss delivery.",
         "operationId": "mark_unified_notification_read_notifications__notification_id__read_post",
         "parameters": [
           {
@@ -3541,163 +3723,6 @@
         ]
       }
     },
-    "/p/{project_id}/notifications": {
-      "get": {
-        "description": "List notifications for the current membership.",
-        "operationId": "list_notifications_p__project_id__notifications_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotificationListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
-        "summary": "List Notifications",
-        "tags": [
-          "notifications"
-        ]
-      }
-    },
-    "/p/{project_id}/notifications/unread-count": {
-      "get": {
-        "description": "Get count of unread notifications.",
-        "operationId": "get_unread_count_p__project_id__notifications_unread_count_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotificationUnreadCountResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
-        "summary": "Get Unread Count",
-        "tags": [
-          "notifications"
-        ]
-      }
-    },
-    "/p/{project_id}/notifications/{notification_id}/read": {
-      "post": {
-        "description": "Mark a notification as read.",
-        "operationId": "mark_notification_read_p__project_id__notifications__notification_id__read_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "notification_id",
-            "required": true,
-            "schema": {
-              "title": "Notification Id",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "boolean"
-                  },
-                  "title": "Response Mark Notification Read P  Project Id  Notifications  Notification Id  Read Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
-        "summary": "Mark Notification Read",
-        "tags": [
-          "notifications"
-        ]
-      }
-    },
     "/p/{project_id}/profile": {
       "get": {
         "operationId": "get_profile_p__project_id__profile_get",
@@ -3797,227 +3822,6 @@
         "summary": "Put Profile",
         "tags": [
           "profile"
-        ]
-      }
-    },
-    "/p/{project_id}/push/status": {
-      "get": {
-        "description": "Check whether a push subscription is registered for this membership.",
-        "operationId": "push_status_p__project_id__push_status_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "endpoint",
-            "required": true,
-            "schema": {
-              "title": "Endpoint",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PushStatusResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
-        "summary": "Push Status",
-        "tags": [
-          "push"
-        ]
-      }
-    },
-    "/p/{project_id}/push/subscribe": {
-      "post": {
-        "description": "Store a push subscription for the current membership.",
-        "operationId": "push_subscribe_p__project_id__push_subscribe_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PushSubscribeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PushSubscribeResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
-        "summary": "Push Subscribe",
-        "tags": [
-          "push"
-        ]
-      }
-    },
-    "/p/{project_id}/push/unsubscribe": {
-      "post": {
-        "description": "Revoke a push subscription by endpoint.",
-        "operationId": "push_unsubscribe_p__project_id__push_unsubscribe_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PushUnsubscribeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PushUnsubscribeResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
-        "summary": "Push Unsubscribe",
-        "tags": [
-          "push"
-        ]
-      }
-    },
-    "/p/{project_id}/push/vapid-public-key": {
-      "get": {
-        "description": "Return the VAPID public key from environment.",
-        "operationId": "vapid_public_key_p__project_id__push_vapid_public_key_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VapidPublicKeyResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
-        "summary": "Vapid Public Key",
-        "tags": [
-          "push"
         ]
       }
     }

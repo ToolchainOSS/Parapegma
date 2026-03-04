@@ -12,7 +12,7 @@ export function NotificationBanner() {
     initializing,
     subscribe,
     pushNotConfigured,
-  } = usePushNotifications(projectId);
+  } = usePushNotifications();
 
   // If we are not in a project route, don't show the banner
   if (!projectId) return null;

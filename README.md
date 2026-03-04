@@ -220,16 +220,13 @@ All project-scoped endpoints require passkey authentication.
 | `GET` | `/p/{project_id}/messages` | messaging | Get message history |
 | `POST` | `/p/{project_id}/messages` | messaging | Send message, get assistant reply |
 | `GET` | `/p/{project_id}/events` | streaming | SSE event stream for real-time updates |
-| `GET` | `/p/{project_id}/push/vapid-public-key` | push | Get VAPID public key for push subscription |
-| `POST` | `/p/{project_id}/push/subscribe` | push | Store a push subscription |
-| `POST` | `/p/{project_id}/push/unsubscribe` | push | Revoke a push subscription |
-| `GET` | `/p/{project_id}/push/status` | push | Check push subscription registration status |
-| `GET` | `/p/{project_id}/notifications` | notifications | List notifications |
-| `GET` | `/p/{project_id}/notifications/unread-count` | notifications | Get unread notification count |
-| `POST` | `/p/{project_id}/notifications/{notification_id}/read` | notifications | Mark notification as read |
-| `GET` | `/notifications` | notifications | List unified notifications across all projects |
-| `GET` | `/notifications/unread-count` | notifications | Get unified unread notification count |
-| `POST` | `/notifications/{notification_id}/read` | notifications | Mark notification as read (global) |
+| `GET` | `/notifications` | notifications | List unified notifications (optional project_id filter) |
+| `GET` | `/notifications/unread-count` | notifications | Get unread notification count (optional project_id filter) |
+| `POST` | `/notifications/{notification_id}/read` | notifications | Mark notification as read, enqueue push_dismiss delivery |
+| `GET` | `/notifications/webpush/vapid-public-key` | notifications | Get VAPID public key for push subscription |
+| `POST` | `/notifications/webpush/subscriptions` | notifications | Create/upsert push subscription (user-scoped) |
+| `DELETE` | `/notifications/webpush/subscriptions/{subscription_id}` | notifications | Revoke a push subscription |
+| `GET` | `/notifications/webpush/subscriptions` | notifications | List active push subscriptions (debug) |
 | `GET` | `/admin/debug/status` | admin | System debug status |
 | `POST` | `/admin/debug/llm-connectivity` | admin | Test LLM connectivity |
 | `POST` | `/admin/projects` | admin | Create a new project |

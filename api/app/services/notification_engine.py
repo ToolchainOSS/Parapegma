@@ -99,7 +99,8 @@ def compute_next_due_utc(
 
     # If the round-tripped local time doesn't match requested, the time was nonexistent
     if round_tripped.hour != hour or round_tripped.minute != minute:
-        # Shift forward: use the round-tripped instant (which is the next valid time)
+        # Use the round-tripped UTC instant, which represents the next valid
+        # local time after the gap (not a manual shift).
         logger.info(
             "DST gap: requested %02d:%02d but got %02d:%02d in %s, using shifted time",
             hour,

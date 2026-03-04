@@ -61,18 +61,14 @@ export type TimezoneUpdateRequest =
 export type DashboardResponse = components["schemas"]["DashboardResponse"];
 export type MembershipInfo = components["schemas"]["MembershipInfo"];
 
-// ── Notification types ────────────────────────────────────────────────
+// ── Notification types (unified) ──────────────────────────────────────────
 
-export type NotificationItem = components["schemas"]["NotificationItem"];
-export type NotificationListResponse =
-  components["schemas"]["NotificationListResponse"];
 export type NotificationUnreadCountResponse =
   components["schemas"]["NotificationUnreadCountResponse"];
 export type UnifiedNotificationItem =
   components["schemas"]["UnifiedNotificationItem"];
 export type UnifiedNotificationListResponse =
   components["schemas"]["UnifiedNotificationListResponse"];
-export type PushStatusResponse = components["schemas"]["PushStatusResponse"];
 
 // ── User-defined (demo) types ─────────────────────────────────────────────
 
@@ -111,7 +107,14 @@ type _AssertNotificationsUnreadCountGet =
   paths["/notifications/unread-count"]["get"];
 type _AssertNotificationReadPost =
   paths["/notifications/{notification_id}/read"]["post"];
-type _AssertPushStatusGet = paths["/p/{project_id}/push/status"]["get"];
+type _AssertWebpushVapidGet =
+  paths["/notifications/webpush/vapid-public-key"]["get"];
+type _AssertWebpushSubscriptionsPost =
+  paths["/notifications/webpush/subscriptions"]["post"];
+type _AssertWebpushSubscriptionsGet =
+  paths["/notifications/webpush/subscriptions"]["get"];
+type _AssertWebpushSubscriptionDelete =
+  paths["/notifications/webpush/subscriptions/{subscription_id}"]["delete"];
 
 // Suppress "declared but never read" – they exist purely for the type check.
 export type {
@@ -134,5 +137,8 @@ export type {
   _AssertNotificationsGet,
   _AssertNotificationsUnreadCountGet,
   _AssertNotificationReadPost,
-  _AssertPushStatusGet,
+  _AssertWebpushVapidGet,
+  _AssertWebpushSubscriptionsPost,
+  _AssertWebpushSubscriptionsGet,
+  _AssertWebpushSubscriptionDelete,
 };

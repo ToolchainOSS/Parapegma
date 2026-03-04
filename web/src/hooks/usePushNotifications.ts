@@ -38,7 +38,13 @@ function getSubscriptionKeys(
   return { auth: keys.auth, p256dh: keys.p256dh };
 }
 
-export function usePushNotifications(projectId?: string) {
+const SUB_ID_STORAGE_KEY = "flow_push_subscription_id";
+
+/**
+ * User-scoped push notification management.
+ * No projectId required — subscriptions are global per user.
+ */
+export function usePushNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>(
     typeof Notification !== "undefined" ? Notification.permission : "default",
   );
@@ -49,14 +55,10 @@ export function usePushNotifications(projectId?: string) {
   const [success, setSuccess] = useState<string | null>(null);
   const [pushNotConfigured, setPushNotConfigured] = useState(false);
 
-  // Check initial subscription status per-project via backend
+  // Check initial subscription status via backend
   useEffect(() => {
     (async () => {
       if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-        setInitializing(false);
-        return;
-      }
-      if (!projectId) {
         setInitializing(false);
         return;
       }
@@ -68,34 +70,27 @@ export function usePushNotifications(projectId?: string) {
           setInitializing(false);
           return;
         }
-        // Check backend for per-project registration status
+        // Check backend for user-scoped subscription
         const { data } = await api.GET(
-          "/p/{project_id}/push/status",
-          {
-            params: {
-              path: { project_id: projectId },
-              query: { endpoint: sub.endpoint },
-            },
-          },
+          "/notifications/webpush/subscriptions",
         );
-        setSubscribed(data?.registered ?? false);
+        const registered = (data?.subscriptions ?? []).some(
+          (s: { endpoint: string }) => s.endpoint === sub.endpoint,
+        );
+        setSubscribed(registered);
       } catch {
         // ignore
       } finally {
         setInitializing(false);
       }
     })();
-  }, [projectId]);
+  }, []);
 
   // Check if VAPID is configured on the backend
   useEffect(() => {
-    if (!projectId) return;
     (async () => {
       const { error: apiError } = await api.GET(
-        "/p/{project_id}/push/vapid-public-key",
-        {
-          params: { path: { project_id: projectId } },
-        },
+        "/notifications/webpush/vapid-public-key",
       );
       if (!apiError) return;
       const detail = extractErrorDetail(apiError, "");
@@ -106,10 +101,9 @@ export function usePushNotifications(projectId?: string) {
         setPushNotConfigured(true);
       }
     })();
-  }, [projectId]);
+  }, []);
 
   const subscribe = useCallback(async () => {
-    if (!projectId) return;
     setError(null);
     setSuccess(null);
     setLoading(true);
@@ -123,10 +117,7 @@ export function usePushNotifications(projectId?: string) {
       }
 
       const { data: vapidData, error: vapidError } = await api.GET(
-        "/p/{project_id}/push/vapid-public-key",
-        {
-          params: { path: { project_id: projectId } },
-        },
+        "/notifications/webpush/vapid-public-key",
       );
       if (vapidError) {
         const detail = extractErrorDetail(
@@ -164,10 +155,9 @@ export function usePushNotifications(projectId?: string) {
         });
       }
 
-      const { error: subscribeError } = await api.POST(
-        "/p/{project_id}/push/subscribe",
+      const { data: subData, error: subscribeError } = await api.POST(
+        "/notifications/webpush/subscriptions",
         {
-          params: { path: { project_id: projectId } },
           body: {
             endpoint: subscription.endpoint,
             keys: getSubscriptionKeys(subscription),
@@ -176,6 +166,11 @@ export function usePushNotifications(projectId?: string) {
         },
       );
       if (subscribeError) throw new Error("Failed to register subscription");
+
+      // Store subscription_id for later unsubscribe
+      if (subData?.subscription_id) {
+        localStorage.setItem(SUB_ID_STORAGE_KEY, String(subData.subscription_id));
+      }
 
       setSubscribed(true);
       setSuccess("Notifications enabled!");
@@ -186,28 +181,69 @@ export function usePushNotifications(projectId?: string) {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, []);
 
   const unsubscribe = useCallback(async () => {
-    if (!projectId) return;
     setError(null);
     setSuccess(null);
     setLoading(true);
 
     try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        // Only unregister from backend for this project — do NOT call
-        // sub.unsubscribe() which would remove the browser subscription
-        // for all projects.
-        await api.POST("/p/{project_id}/push/unsubscribe", {
-          params: { path: { project_id: projectId } },
-          body: { endpoint: sub.endpoint },
-        });
+      // Find subscription_id from localStorage or backend
+      let subId = localStorage.getItem(SUB_ID_STORAGE_KEY);
+
+      if (!subId) {
+        // Look up from backend by endpoint
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          const { data } = await api.GET(
+            "/notifications/webpush/subscriptions",
+          );
+          const match = (data?.subscriptions ?? []).find(
+            (s: { endpoint: string }) => s.endpoint === sub.endpoint,
+          );
+          if (match) subId = String(match.id);
+        }
       }
+
+      if (subId) {
+        const { error: delError } = await api.DELETE(
+          "/notifications/webpush/subscriptions/{subscription_id}",
+          { params: { path: { subscription_id: Number(subId) } } },
+        );
+        // Clear stale localStorage even on 404 (e.g., after migration)
+        localStorage.removeItem(SUB_ID_STORAGE_KEY);
+        if (delError) {
+          // If the stored ID was stale, fall back to endpoint lookup
+          const reg2 = await navigator.serviceWorker.ready;
+          const sub2 = await reg2.pushManager.getSubscription();
+          if (sub2) {
+            const { data: fallbackData } = await api.GET(
+              "/notifications/webpush/subscriptions",
+            );
+            const match = (fallbackData?.subscriptions ?? []).find(
+              (s: { endpoint: string }) => s.endpoint === sub2.endpoint,
+            );
+            if (match) {
+              await api.DELETE(
+                "/notifications/webpush/subscriptions/{subscription_id}",
+                { params: { path: { subscription_id: match.id } } },
+              );
+            }
+          }
+        }
+      }
+
+      // Also unsubscribe in the browser (global, since subscriptions are user-scoped)
+      const reg = await navigator.serviceWorker.ready;
+      const browserSub = await reg.pushManager.getSubscription();
+      if (browserSub) {
+        await browserSub.unsubscribe();
+      }
+
       setSubscribed(false);
-      setSuccess("Notifications disabled for this project.");
+      setSuccess("Notifications disabled.");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to disable notifications",
@@ -215,7 +251,7 @@ export function usePushNotifications(projectId?: string) {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, []);
 
   return {
     permission,
@@ -227,7 +263,7 @@ export function usePushNotifications(projectId?: string) {
     pushNotConfigured,
     subscribe,
     unsubscribe,
-    setError, // Allowing components to clear error if needed
-    setSuccess, // Allowing components to clear success if needed
+    setError,
+    setSuccess,
   };
 }

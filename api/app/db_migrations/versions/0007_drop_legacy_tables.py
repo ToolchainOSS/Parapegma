@@ -59,10 +59,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_delivery_user_id", table_name="notification_deliveries")
-    with op.batch_alter_table("notification_deliveries") as batch:
-        batch.drop_column("user_id")
-
-    op.drop_table("push_subscriptions")
-    # Cannot fully restore old push_subscriptions schema in downgrade
-    # Cannot restore outbox_events or nudge_schedules (data lost)
+    raise RuntimeError(
+        "Downgrade of 0007 is destructive: push_subscriptions was recreated "
+        "with a new schema and legacy tables (outbox_events, nudge_schedules) "
+        "were dropped. Restore from backup if you need to revert."
+    )

@@ -585,6 +585,8 @@ export interface paths {
         /**
          * List Unified Notifications
          * @description List notifications across all projects for the current user, ordered by time.
+         *
+         *     Supports optional project_id filtering and cursor-based pagination.
          */
         get: operations["list_unified_notifications_notifications_get"];
         put?: never;
@@ -604,9 +606,73 @@ export interface paths {
         };
         /**
          * Get Unified Unread Count
-         * @description Get count of unread notifications across all projects.
+         * @description Get count of unread notifications across all projects (or filtered by project).
          */
         get: operations["get_unified_unread_count_notifications_unread_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/webpush/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Webpush List Subscriptions
+         * @description List active push subscriptions for the current user (debug endpoint).
+         */
+        get: operations["webpush_list_subscriptions_notifications_webpush_subscriptions_get"];
+        put?: never;
+        /**
+         * Webpush Subscribe
+         * @description Create or upsert a push subscription for the current user (user-scoped).
+         */
+        post: operations["webpush_subscribe_notifications_webpush_subscriptions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/webpush/subscriptions/{subscription_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Webpush Unsubscribe
+         * @description Remove a push subscription.
+         */
+        delete: operations["webpush_unsubscribe_notifications_webpush_subscriptions__subscription_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/webpush/vapid-public-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Webpush Vapid Public Key
+         * @description Return the VAPID public key for Web Push subscription.
+         */
+        get: operations["webpush_vapid_public_key_notifications_webpush_vapid_public_key_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -626,7 +692,7 @@ export interface paths {
         put?: never;
         /**
          * Mark Unified Notification Read
-         * @description Mark a notification as read (global, resolves project from notification).
+         * @description Mark a notification as read and enqueue exactly one push_dismiss delivery.
          */
         post: operations["mark_unified_notification_read_notifications__notification_id__read_post"];
         delete?: never;
@@ -719,66 +785,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/p/{project_id}/notifications": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Notifications
-         * @description List notifications for the current membership.
-         */
-        get: operations["list_notifications_p__project_id__notifications_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/p/{project_id}/notifications/unread-count": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Unread Count
-         * @description Get count of unread notifications.
-         */
-        get: operations["get_unread_count_p__project_id__notifications_unread_count_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/p/{project_id}/notifications/{notification_id}/read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Mark Notification Read
-         * @description Mark a notification as read.
-         */
-        post: operations["mark_notification_read_p__project_id__notifications__notification_id__read_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/p/{project_id}/profile": {
         parameters: {
             query?: never;
@@ -790,86 +796,6 @@ export interface paths {
         get: operations["get_profile_p__project_id__profile_get"];
         /** Put Profile */
         put: operations["put_profile_p__project_id__profile_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/p/{project_id}/push/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Push Status
-         * @description Check whether a push subscription is registered for this membership.
-         */
-        get: operations["push_status_p__project_id__push_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/p/{project_id}/push/subscribe": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Push Subscribe
-         * @description Store a push subscription for the current membership.
-         */
-        post: operations["push_subscribe_p__project_id__push_subscribe_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/p/{project_id}/push/unsubscribe": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Push Unsubscribe
-         * @description Revoke a push subscription by endpoint.
-         */
-        post: operations["push_unsubscribe_p__project_id__push_unsubscribe_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/p/{project_id}/push/vapid-public-key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Vapid Public Key
-         * @description Return the VAPID public key from environment.
-         */
-        get: operations["vapid_public_key_p__project_id__push_vapid_public_key_get"];
-        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1192,24 +1118,6 @@ export interface components {
             /** Messages */
             messages: components["schemas"]["MessageItem"][];
         };
-        /** NotificationItem */
-        NotificationItem: {
-            /** Body */
-            body: string;
-            /** Created At */
-            created_at: string;
-            /** Id */
-            id: number;
-            /** Read At */
-            read_at: string | null;
-            /** Title */
-            title: string;
-        };
-        /** NotificationListResponse */
-        NotificationListResponse: {
-            /** Notifications */
-            notifications: components["schemas"]["NotificationItem"][];
-        };
         /** NotificationUnreadCountResponse */
         NotificationUnreadCountResponse: {
             /** Count */
@@ -1459,11 +1367,6 @@ export interface components {
             /** P256Dh */
             p256dh: string;
         };
-        /** PushStatusResponse */
-        PushStatusResponse: {
-            /** Registered */
-            registered: boolean;
-        };
         /** PushSubscribeRequest */
         PushSubscribeRequest: {
             /** Endpoint */
@@ -1476,16 +1379,6 @@ export interface components {
         PushSubscribeResponse: {
             /** Subscription Id */
             subscription_id: number;
-        };
-        /** PushUnsubscribeRequest */
-        PushUnsubscribeRequest: {
-            /** Endpoint */
-            endpoint: string;
-        };
-        /** PushUnsubscribeResponse */
-        PushUnsubscribeResponse: {
-            /** Ok */
-            ok: boolean;
         };
         /** RootResponse */
         RootResponse: {
@@ -1517,17 +1410,27 @@ export interface components {
             created_at: string;
             /** Id */
             id: number;
+            /** Local Date */
+            local_date?: string | null;
+            /** Membership Id */
+            membership_id: number;
+            /** Payload Json */
+            payload_json: string;
             /** Project Display Name */
             project_display_name: string | null;
             /** Project Id */
             project_id: string;
             /** Read At */
             read_at: string | null;
+            /** Rule Id */
+            rule_id?: number | null;
             /** Title */
             title: string;
         };
         /** UnifiedNotificationListResponse */
         UnifiedNotificationListResponse: {
+            /** Next Cursor */
+            next_cursor?: string | null;
             /** Notifications */
             notifications: components["schemas"]["UnifiedNotificationItem"][];
         };
@@ -2642,7 +2545,11 @@ export interface operations {
     };
     list_unified_notifications_notifications_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2658,9 +2565,49 @@ export interface operations {
                     "application/json": components["schemas"]["UnifiedNotificationListResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_unified_unread_count_notifications_unread_count_get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationUnreadCountResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    webpush_list_subscriptions_notifications_webpush_subscriptions_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2675,7 +2622,95 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NotificationUnreadCountResponse"];
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    webpush_subscribe_notifications_webpush_subscriptions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushSubscribeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSubscribeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    webpush_unsubscribe_notifications_webpush_subscriptions__subscription_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    webpush_vapid_public_key_notifications_webpush_vapid_public_key_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VapidPublicKeyResponse"];
                 };
             };
         };
@@ -2876,102 +2911,6 @@ export interface operations {
             };
         };
     };
-    list_notifications_p__project_id__notifications_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NotificationListResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_unread_count_p__project_id__notifications_unread_count_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NotificationUnreadCountResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mark_notification_read_p__project_id__notifications__notification_id__read_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                notification_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: boolean;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_profile_p__project_id__profile_get: {
         parameters: {
             query?: never;
@@ -3025,140 +2964,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserProfileData"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    push_status_p__project_id__push_status_get: {
-        parameters: {
-            query: {
-                endpoint: string;
-            };
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PushStatusResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    push_subscribe_p__project_id__push_subscribe_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PushSubscribeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PushSubscribeResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    push_unsubscribe_p__project_id__push_unsubscribe_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PushUnsubscribeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PushUnsubscribeResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    vapid_public_key_p__project_id__push_vapid_public_key_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VapidPublicKeyResponse"];
                 };
             };
             /** @description Validation Error */
