@@ -613,7 +613,7 @@ async def update_timezone(
                     .where(
                         NotificationRule.membership_id == mem.id,
                         NotificationRule.is_active.is_(True),
-                        NotificationRule.tz_policy == "floating",
+                        NotificationRule.tz_policy == "floating_user_tz",
                     )
                 )
                 for rule, state in rule_result.all():
@@ -1783,7 +1783,9 @@ async def webpush_subscribe(
                     subscription_id = sub.id
 
         await db.commit()
-        return PushSubscribeResponse(subscription_id=subscription_id or 0)
+        if subscription_id is None:
+            raise HTTPException(status_code=500, detail="Subscription creation failed")
+        return PushSubscribeResponse(subscription_id=subscription_id)
     except HTTPException:
         raise
     except Exception:
