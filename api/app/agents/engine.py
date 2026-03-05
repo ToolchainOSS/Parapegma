@@ -385,15 +385,26 @@ async def _process_proposals(
                 elif proposal.action == "delete":
                     rule_result = await db.execute(
                         select(NotificationRule).where(
-                            NotificationRule.id == proposal.rule_id
+                            NotificationRule.id == proposal.rule_id,
+                            NotificationRule.membership_id == membership_id,
                         )
                     )
                     rule = rule_result.scalar_one_or_none()
                     if rule:
                         rule.is_active = False
-                    logger.info(
-                        "Committed schedule deletion from %s", proposal.source_bot
-                    )
+                        logger.info(
+                            "Committed schedule deletion from %s",
+                            proposal.source_bot,
+                        )
+                    else:
+                        logger.warning(
+                            "Ignored schedule deletion from %s: "
+                            "rule_id=%s not found for membership_id=%s "
+                            "(out-of-scope or missing)",
+                            proposal.source_bot,
+                            proposal.rule_id,
+                            membership_id,
+                        )
 
         except Exception:
             logger.exception("Failed to process schedule proposal: %s", raw)
@@ -505,9 +516,9 @@ async def process_turn(
 
         # Add scheduler tools for COACH and INTAKE
         if decision.route in ("COACH", "INTAKE"):
-            from app.tools.scheduler_tools import list_schedules
+            from app.tools.scheduler_tools import make_scoped_list_schedules_tool
 
-            proposal_tools.append(list_schedules)
+            proposal_tools.append(make_scoped_list_schedules_tool(membership_id))
 
         # Collect tool names for debug info
         tool_names = [t.name for t in proposal_tools]
