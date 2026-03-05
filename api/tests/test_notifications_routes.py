@@ -390,6 +390,56 @@ async def test_webpush_unsubscribe(
     assert len(resp.json()["subscriptions"]) == 0
 
 
+@pytest.mark.asyncio
+async def test_webpush_upsert_reactivates_revoked(
+    seeded_project: dict[str, Any],
+) -> None:
+    """POST /notifications/webpush/subscriptions re-enables a revoked subscription."""
+    client = seeded_project["client"]
+
+    body: dict[str, Any] = {
+        "endpoint": "https://push.example.com/sub/reactivate",
+        "keys": {"p256dh": "key1", "auth": "auth1"},
+    }
+    resp = await client.post("/notifications/webpush/subscriptions", json=body)
+    sub_id = resp.json()["subscription_id"]
+
+    # Revoke it
+    await client.request("DELETE", f"/notifications/webpush/subscriptions/{sub_id}")
+    resp = await client.get("/notifications/webpush/subscriptions")
+    assert len(resp.json()["subscriptions"]) == 0
+
+    # Re-subscribe with same endpoint — should reactivate, not create new
+    body["keys"] = {"p256dh": "key2", "auth": "auth2"}
+    resp = await client.post("/notifications/webpush/subscriptions", json=body)
+    sub_id_2 = resp.json()["subscription_id"]
+    assert sub_id_2 == sub_id  # same row reactivated
+
+    # Should be active again
+    resp = await client.get("/notifications/webpush/subscriptions")
+    subs = resp.json()["subscriptions"]
+    assert len(subs) == 1
+    assert subs[0]["id"] == sub_id
+
+
+@pytest.mark.asyncio
+async def test_push_subscription_consecutive_gone_410_count(
+    seeded_project: dict[str, Any],
+) -> None:
+    """PushSubscription has consecutive_gone_410_count column defaulting to 0."""
+    async with _test_session_factory() as db:
+        sub = PushSubscription(
+            user_id="u_testuser_000000000000000000",
+            endpoint="https://push.example.com/sub/410test",
+            p256dh="key",
+            auth="auth",
+            user_agent="pytest",
+        )
+        db.add(sub)
+        await db.commit()
+        assert sub.consecutive_gone_410_count == 0
+
+
 # ---------------------------------------------------------------------------
 # Scheduler tools (via NotificationRule)
 # ---------------------------------------------------------------------------

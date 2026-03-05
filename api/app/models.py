@@ -88,7 +88,7 @@ class ProjectMembership(Base):
     project_id: Mapped[str] = mapped_column(
         String(32), ForeignKey("projects.id"), nullable=False
     )
-    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -198,11 +198,14 @@ class PushSubscription(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(32), nullable=False)
     endpoint: Mapped[str] = mapped_column(String(2048), nullable=False)
     p256dh: Mapped[str] = mapped_column(String(255), nullable=False)
     auth: Mapped[str] = mapped_column(String(255), nullable=False)
     user_agent: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    consecutive_gone_410_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -268,7 +271,7 @@ class PatchAuditLog(Base):
     patch_json: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
-    decision: Mapped[str] = mapped_column(String(30), nullable=False)
+    decision: Mapped[str] = mapped_column(String(255), nullable=False)
     committed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -337,7 +340,7 @@ class FlowUserProfile(Base):
 
     __tablename__ = "flow_user_profiles"
 
-    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     email_raw: Mapped[str | None] = mapped_column(String(320), nullable=True)
     email_normalized: Mapped[str | None] = mapped_column(String(320), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -462,7 +465,7 @@ class NotificationDelivery(Base):
     membership_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("project_memberships.id"), nullable=False
     )
-    user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    user_id: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     channel: Mapped[str] = mapped_column(String(30), nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
     run_at_utc: Mapped[datetime] = mapped_column(

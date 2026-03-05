@@ -46,3 +46,20 @@ def test_get_vapid_sub(monkeypatch):
     monkeypatch.setenv("VAPID_CLAIM_SUB", "mailto:test@example.com")
     config.clear_config_cache()
     assert config.get_vapid_sub() == "mailto:test@example.com"
+
+
+def test_get_push_gone_410_threshold_default(monkeypatch):
+    monkeypatch.delenv("FLOW_PUSH_GONE_410_THRESHOLD", raising=False)
+    assert config.get_push_gone_410_threshold() == 2
+
+
+def test_get_push_gone_410_threshold_custom(monkeypatch):
+    monkeypatch.setenv("FLOW_PUSH_GONE_410_THRESHOLD", "5")
+    config.clear_config_cache()
+    assert config.get_push_gone_410_threshold() == 5
+
+
+def test_get_push_gone_410_threshold_invalid(monkeypatch):
+    monkeypatch.setenv("FLOW_PUSH_GONE_410_THRESHOLD", "not_a_number")
+    config.clear_config_cache()
+    assert config.get_push_gone_410_threshold() == 2

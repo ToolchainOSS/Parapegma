@@ -113,27 +113,46 @@ async def _send_push_notifications(
                 timeout=PUSH_TIMEOUT_SECONDS,
             )
             sub.last_success_at = datetime.now(UTC)
+            sub.consecutive_gone_410_count = 0
             return True
         except asyncio.TimeoutError:
             sub.last_failure_at = datetime.now(UTC)
+            sub.consecutive_gone_410_count = 0
             logger.warning("Push send timed out for subscription %s", sub.id)
             return False
         except WebPushException as exc:
             sub.last_failure_at = datetime.now(UTC)
-            # Revoke subscription on permanent errors (410 Gone, 404 Not Found)
             resp = getattr(exc, "response", None)
             try:
                 status_code = resp.status_code if resp is not None else None
             except AttributeError:
                 status_code = None
-            if status_code in (404, 410):
+            if status_code == 404:
+                # 404: revoke immediately
                 sub.revoked_at = datetime.now(UTC)
-                logger.info(
-                    "Revoking subscription %s: permanent error %s",
-                    sub.id,
-                    status_code,
-                )
+                sub.consecutive_gone_410_count = 0
+                logger.info("Revoking subscription %s: permanent error 404", sub.id)
+            elif status_code == 410:
+                # 410 Gone: increment counter, revoke only at threshold
+                sub.consecutive_gone_410_count += 1
+                threshold = config.get_push_gone_410_threshold()
+                if sub.consecutive_gone_410_count >= threshold:
+                    sub.revoked_at = datetime.now(UTC)
+                    logger.info(
+                        "Revoking subscription %s: %d consecutive 410s (threshold=%d)",
+                        sub.id,
+                        sub.consecutive_gone_410_count,
+                        threshold,
+                    )
+                else:
+                    logger.info(
+                        "Subscription %s: 410 count %d/%d, not revoking yet",
+                        sub.id,
+                        sub.consecutive_gone_410_count,
+                        threshold,
+                    )
             else:
+                sub.consecutive_gone_410_count = 0
                 logger.warning("Push send failed for subscription %s: %s", sub.id, exc)
             return False
 
