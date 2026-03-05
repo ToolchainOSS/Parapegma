@@ -1725,12 +1725,11 @@ async def webpush_subscribe(
 ) -> PushSubscribeResponse:
     """Create or upsert a push subscription for the current user (user-scoped)."""
     try:
-        # Check for existing subscription with same user+endpoint
+        # Check for existing subscription with same user+endpoint (regardless of revoked_at)
         existing_result = await db.execute(
             select(PushSubscription).where(
                 PushSubscription.user_id == user.id,
                 PushSubscription.endpoint == body.endpoint,
-                PushSubscription.revoked_at.is_(None),
             )
         )
         existing = existing_result.scalar_one_or_none()
@@ -1739,6 +1738,9 @@ async def webpush_subscribe(
             existing.p256dh = body.keys.p256dh
             existing.auth = body.keys.auth
             existing.user_agent = body.user_agent or existing.user_agent
+            existing.revoked_at = None
+            existing.consecutive_gone_410_count = 0
+            existing.last_failure_at = None
             await db.commit()
             return PushSubscribeResponse(subscription_id=existing.id)
         else:

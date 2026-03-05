@@ -394,6 +394,7 @@ Configure in `.env` at the repository root (see `.env.example`):
 | `VAPID_CLAIM_SUB` | `mailto:flow@oss.joefang.org` | VAPID subject claim |
 | `FLOW_VAPID_PUBLIC_KEY` | (none) | Legacy alias for `VAPID_PUBLIC_KEY` |
 | `FLOW_VAPID_PRIVATE_KEY` | (none) | Legacy alias for `VAPID_PRIVATE_KEY` |
+| `FLOW_PUSH_GONE_410_THRESHOLD` | `2` | Consecutive 410 responses before revoking a push subscription |
 
 <!-- ENV_TABLE_END -->
 

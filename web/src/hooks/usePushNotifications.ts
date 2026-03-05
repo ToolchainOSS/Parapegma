@@ -75,6 +75,8 @@ export function usePushNotifications() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [pushNotConfigured, setPushNotConfigured] = useState(false);
+  const [hasStaleBrowserSubscription, setHasStaleBrowserSubscription] =
+    useState(false);
 
   // Check initial subscription status via backend
   useEffect(() => {
@@ -99,6 +101,11 @@ export function usePushNotifications() {
         const registered = subs.some(
           (s) => s.endpoint === sub.endpoint,
         );
+        if (!registered) {
+          // Browser has a subscription the backend doesn't know about — stale
+          setHasStaleBrowserSubscription(true);
+          localStorage.removeItem(SUB_ID_STORAGE_KEY);
+        }
         setSubscribed(registered);
       } catch {
         // ignore
@@ -168,7 +175,16 @@ export function usePushNotifications() {
 
       const reg = await navigator.serviceWorker.ready;
 
-      // Reuse existing browser subscription if available
+      // If browser has a stale subscription, unsubscribe first to get a fresh endpoint
+      if (hasStaleBrowserSubscription) {
+        const existingSub = await reg.pushManager.getSubscription();
+        if (existingSub) {
+          await existingSub.unsubscribe();
+        }
+        setHasStaleBrowserSubscription(false);
+      }
+
+      // Reuse existing browser subscription if available, otherwise create new
       let subscription = await reg.pushManager.getSubscription();
       if (!subscription) {
         subscription = await reg.pushManager.subscribe({
@@ -203,7 +219,7 @@ export function usePushNotifications() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hasStaleBrowserSubscription]);
 
   const unsubscribe = useCallback(async () => {
     setError(null);

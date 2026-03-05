@@ -82,6 +82,16 @@ def get_vapid_sub() -> str:
     return sub or "mailto:flow@oss.joefang.org"
 
 
+@cache
+def get_push_gone_410_threshold() -> int:
+    """Return the consecutive 410 count before revoking a push subscription."""
+    val = os.environ.get("FLOW_PUSH_GONE_410_THRESHOLD", "2")
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return 2
+
+
 def clear_config_cache() -> None:
     """Clear all configuration caches (useful for testing)."""
     get_data_dir.cache_clear()
@@ -93,3 +103,4 @@ def clear_config_cache() -> None:
     get_vapid_public_key.cache_clear()
     get_vapid_private_key.cache_clear()
     get_vapid_sub.cache_clear()
+    get_push_gone_410_threshold.cache_clear()
