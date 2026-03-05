@@ -20,6 +20,7 @@ from app.models import (
     FlowUserProfile,
     Notification,
     NotificationDelivery,
+    NotificationRule,
     Project,
     ProjectInvite,
     ProjectMembership,
@@ -487,12 +488,235 @@ async def test_scheduler_tools(seeded_project: dict[str, Any]) -> None:
         rule_id = int(match.group(1))
 
         # Delete
-        res = await delete_schedule.ainvoke({"schedule_id": rule_id})
+        res = await delete_schedule.ainvoke(
+            {"schedule_id": rule_id, "membership_id": membership_id}
+        )
         assert "deactivated" in res
 
         # List again
         res = await list_schedules.ainvoke({"membership_id": membership_id})
         assert "No active schedules found" in res
+
+    finally:
+        scheduler_tools_module.async_session_factory = old_factory
+
+
+# ---------------------------------------------------------------------------
+# Cross-project schedule isolation regression tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scoped_list_schedules_isolates_memberships(
+    seeded_project: dict[str, Any],
+) -> None:
+    """Scoped list_schedules tool must only return schedules for its own membership.
+
+    Regression test: the LLM must never see schedules from another project.
+    """
+    import app.tools.scheduler_tools as scheduler_tools_module
+    from app.tools.scheduler_tools import (
+        make_scoped_list_schedules_tool,
+        schedule_nudge,
+    )
+
+    old_factory = scheduler_tools_module.async_session_factory
+    scheduler_tools_module.async_session_factory = _test_session_factory
+
+    try:
+        # -- Set up two projects with one membership each for the same user --
+        project_a_id = seeded_project["project_id"]
+
+        project_b_id = generate_project_id()
+        async with _test_session_factory() as db:
+            db.add(Project(id=project_b_id, display_name="Project B"))
+            await db.flush()
+            db.add(
+                ProjectMembership(
+                    project_id=project_b_id,
+                    user_id="u_testuser_000000000000000000",
+                    status="active",
+                )
+            )
+            await db.commit()
+
+        # Retrieve membership IDs
+        async with _test_session_factory() as db:
+            res_a = await db.execute(
+                select(ProjectMembership).where(
+                    ProjectMembership.project_id == project_a_id
+                )
+            )
+            membership_a = res_a.scalar_one()
+            res_b = await db.execute(
+                select(ProjectMembership).where(
+                    ProjectMembership.project_id == project_b_id
+                )
+            )
+            membership_b = res_b.scalar_one()
+
+        # Create one rule per membership
+        res = await schedule_nudge.ainvoke(
+            {
+                "membership_id": membership_a.id,
+                "topic": "Morning Walk",
+                "time": "08:00",
+            }
+        )
+        assert "Scheduled nudge ID" in res
+
+        res = await schedule_nudge.ainvoke(
+            {
+                "membership_id": membership_b.id,
+                "topic": "Evening Meditation",
+                "time": "21:00",
+            }
+        )
+        assert "Scheduled nudge ID" in res
+
+        # Build scoped tool for membership A
+        scoped_tool_a = make_scoped_list_schedules_tool(membership_a.id)
+
+        # The scoped tool must NOT accept membership_id
+        schema_fields = (
+            scoped_tool_a.args_schema.model_fields if scoped_tool_a.args_schema else {}
+        )
+        assert "membership_id" not in schema_fields, (
+            "Scoped tool must not expose membership_id to the LLM"
+        )
+
+        # Invoke with no arguments
+        result = await scoped_tool_a.ainvoke({})
+
+        # Must contain membership A's schedule
+        assert "Morning Walk" in result
+        assert "08:00" in result
+
+        # Must NOT contain membership B's schedule
+        assert "Evening Meditation" not in result
+        assert "21:00" not in result
+
+        # Verify tool name matches prompt expectations
+        assert scoped_tool_a.name == "list_schedules"
+
+    finally:
+        scheduler_tools_module.async_session_factory = old_factory
+
+
+@pytest.mark.asyncio
+async def test_cross_project_delete_protection(
+    seeded_project: dict[str, Any],
+) -> None:
+    """A delete proposal referencing a rule from another membership must be ignored.
+
+    Regression test: a malicious or mistaken rule_id from project B must not
+    deactivate the rule when processing proposals for membership A.
+    """
+    import app.tools.scheduler_tools as scheduler_tools_module
+    from app.tools.scheduler_tools import schedule_nudge
+
+    from app.agents.engine import _process_proposals
+    from app.schemas.patches import UserProfileData
+    from app.tools.proposal_tools import ProposalCollector
+
+    old_factory = scheduler_tools_module.async_session_factory
+    scheduler_tools_module.async_session_factory = _test_session_factory
+
+    try:
+        # -- Set up two projects with one membership each --
+        project_a_id = seeded_project["project_id"]
+
+        project_b_id = generate_project_id()
+        async with _test_session_factory() as db:
+            db.add(Project(id=project_b_id, display_name="Project B"))
+            await db.flush()
+            db.add(
+                ProjectMembership(
+                    project_id=project_b_id,
+                    user_id="u_testuser_000000000000000000",
+                    status="active",
+                )
+            )
+            await db.commit()
+
+        # Retrieve membership IDs
+        async with _test_session_factory() as db:
+            res_a = await db.execute(
+                select(ProjectMembership).where(
+                    ProjectMembership.project_id == project_a_id
+                )
+            )
+            membership_a = res_a.scalar_one()
+            res_b = await db.execute(
+                select(ProjectMembership).where(
+                    ProjectMembership.project_id == project_b_id
+                )
+            )
+            membership_b = res_b.scalar_one()
+
+        # Create a rule for membership B
+        res = await schedule_nudge.ainvoke(
+            {
+                "membership_id": membership_b.id,
+                "topic": "Project B Nudge",
+                "time": "07:00",
+            }
+        )
+        assert "Scheduled nudge ID" in res
+
+        # Get the rule_id for membership B's rule
+        async with _test_session_factory() as db:
+            rule_result = await db.execute(
+                select(NotificationRule).where(
+                    NotificationRule.membership_id == membership_b.id,
+                    NotificationRule.is_active.is_(True),
+                )
+            )
+            rule_b = rule_result.scalar_one()
+            rule_b_id = rule_b.id
+
+        # Build a collector with a delete proposal targeting rule B,
+        # but we'll process it under membership A's context.
+        collector = ProposalCollector()
+        collector.schedule_proposals.append(
+            {
+                "action": "delete",
+                "rule_id": rule_b_id,
+                "confidence": 0.9,
+                "evidence": {"message_ids": [1], "quotes": ["remove that nudge"]},
+                "source_bot": "COACH",
+            }
+        )
+
+        profile = UserProfileData(
+            prompt_anchor="test",
+            preferred_time="08:00",
+            habit_domain="exercise",
+        )
+
+        # Process proposals under membership A — must NOT delete B's rule
+        async with _test_session_factory() as db:
+            await _process_proposals(
+                db=db,
+                membership_id=membership_a.id,
+                profile=profile,
+                collector=collector,
+                recent_message_ids=[1],
+                latest_user_message_id=1,
+            )
+
+        # Verify membership B's rule is still active
+        async with _test_session_factory() as db:
+            rule_result = await db.execute(
+                select(NotificationRule).where(
+                    NotificationRule.id == rule_b_id,
+                )
+            )
+            rule_b_after = rule_result.scalar_one()
+            assert rule_b_after.is_active is True, (
+                "Rule from membership B must remain active when processed "
+                "under membership A's context"
+            )
 
     finally:
         scheduler_tools_module.async_session_factory = old_factory
