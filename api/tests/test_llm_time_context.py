@@ -118,8 +118,13 @@ class TestWorkerPromptContext:
         fake_chain = MagicMock()
         fake_chain.ainvoke = fake_ainvoke
 
-        # Freeze now_utc to 22:00 UTC = 17:00 America/Toronto (EST)
-        frozen_now = datetime(2026, 1, 15, 22, 0, 0, tzinfo=UTC)
+        # Simulate localized time context at 17:00 America/Toronto
+        fake_time_ctx = {
+            "timezone": "America/Toronto",
+            "current_date": "2026-01-15",
+            "current_time": "17:00",
+            "current_datetime": "2026-01-15 17:00",
+        }
 
         with (
             patch("app.worker.notification_worker.config") as mock_config,
@@ -132,20 +137,14 @@ class TestWorkerPromptContext:
                 "app.worker.notification_worker.ChatPromptTemplate"
             ) as mock_prompt_cls,
             patch(
-                "app.services.llm_time_context.get_user_timezone",
+                "app.worker.notification_worker.get_llm_time_context_for_membership",
                 new_callable=AsyncMock,
-                return_value="America/Toronto",
+                return_value=fake_time_ctx,
             ),
-            patch(
-                "app.services.llm_time_context.datetime",
-            ) as mock_dt,
         ):
             mock_config.get_openai_api_key.return_value = "fake-key"
             mock_config.get_llm_model.return_value = "gpt-4o-mini"
             mock_load.return_value = profile
-
-            mock_dt.now.return_value = frozen_now
-            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
 
             mock_prompt_instance = MagicMock()
             mock_prompt_cls.from_messages.return_value = mock_prompt_instance
