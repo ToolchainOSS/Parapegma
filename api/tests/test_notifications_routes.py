@@ -579,93 +579,89 @@ async def test_cross_project_delete_protection(
     from app.schemas.patches import UserProfileData
     from app.tools.proposal_tools import ProposalCollector
 
-    try:
-        # -- Set up two projects with one membership each --
-        project_a_id = seeded_project["project_id"]
+    # -- Set up two projects with one membership each --
+    project_a_id = seeded_project["project_id"]
 
-        project_b_id = generate_project_id()
-        async with _test_session_factory() as db:
-            db.add(Project(id=project_b_id, display_name="Project B"))
-            await db.flush()
-            db.add(
-                ProjectMembership(
-                    project_id=project_b_id,
-                    user_id="u_testuser_000000000000000000",
-                    status="active",
-                )
+    project_b_id = generate_project_id()
+    async with _test_session_factory() as db:
+        db.add(Project(id=project_b_id, display_name="Project B"))
+        await db.flush()
+        db.add(
+            ProjectMembership(
+                project_id=project_b_id,
+                user_id="u_testuser_000000000000000000",
+                status="active",
             )
-            await db.commit()
+        )
+        await db.commit()
 
-        # Retrieve membership IDs
-        async with _test_session_factory() as db:
-            res_a = await db.execute(
-                select(ProjectMembership).where(
-                    ProjectMembership.project_id == project_a_id
-                )
+    # Retrieve membership IDs
+    async with _test_session_factory() as db:
+        res_a = await db.execute(
+            select(ProjectMembership).where(
+                ProjectMembership.project_id == project_a_id
             )
-            membership_a = res_a.scalar_one()
-            res_b = await db.execute(
-                select(ProjectMembership).where(
-                    ProjectMembership.project_id == project_b_id
-                )
+        )
+        membership_a = res_a.scalar_one()
+        res_b = await db.execute(
+            select(ProjectMembership).where(
+                ProjectMembership.project_id == project_b_id
             )
-            membership_b = res_b.scalar_one()
+        )
+        membership_b = res_b.scalar_one()
 
-        # Create a rule for membership B directly in DB
-        async with _test_session_factory() as db:
-            rule_b = NotificationRule(
-                membership_id=membership_b.id,
-                kind="daily_local_time",
-                config_json=json.dumps({"topic": "Project B Nudge", "time": "07:00"}),
-                tz_policy="floating_user_tz",
-                is_active=True,
-            )
-            db.add(rule_b)
-            await db.commit()
-            rule_b_id = rule_b.id
+    # Create a rule for membership B directly in DB
+    async with _test_session_factory() as db:
+        rule_b = NotificationRule(
+            membership_id=membership_b.id,
+            kind="daily_local_time",
+            config_json=json.dumps({"topic": "Project B Nudge", "time": "07:00"}),
+            tz_policy="floating_user_tz",
+            is_active=True,
+        )
+        db.add(rule_b)
+        await db.commit()
+        rule_b_id = rule_b.id
 
-        # Build a collector with a delete proposal targeting rule B,
-        # but we'll process it under membership A's context.
-        collector = ProposalCollector()
-        collector.schedule_proposals.append(
-            {
-                "action": "delete",
-                "rule_id": rule_b_id,
-                "confidence": 0.9,
-                "evidence": {"message_ids": [1], "quotes": ["remove that nudge"]},
-                "source_bot": "COACH",
-            }
+    # Build a collector with a delete proposal targeting rule B,
+    # but we'll process it under membership A's context.
+    collector = ProposalCollector()
+    collector.schedule_proposals.append(
+        {
+            "action": "delete",
+            "rule_id": rule_b_id,
+            "confidence": 0.9,
+            "evidence": {"message_ids": [1], "quotes": ["remove that nudge"]},
+            "source_bot": "COACH",
+        }
+    )
+
+    profile = UserProfileData(
+        prompt_anchor="test",
+        preferred_time="08:00",
+        habit_domain="exercise",
+    )
+
+    # Process proposals under membership A — must NOT delete B's rule
+    async with _test_session_factory() as db:
+        await _process_proposals(
+            db=db,
+            membership_id=membership_a.id,
+            profile=profile,
+            collector=collector,
+            recent_message_ids=[1],
+            latest_user_message_id=1,
         )
 
-        profile = UserProfileData(
-            prompt_anchor="test",
-            preferred_time="08:00",
-            habit_domain="exercise",
+    # Verify membership B's rule is still active
+    async with _test_session_factory() as db:
+        rule_result = await db.execute(
+            select(NotificationRule).where(
+                NotificationRule.id == rule_b_id,
+            )
         )
-
-        # Process proposals under membership A — must NOT delete B's rule
-        async with _test_session_factory() as db:
-            await _process_proposals(
-                db=db,
-                membership_id=membership_a.id,
-                profile=profile,
-                collector=collector,
-                recent_message_ids=[1],
-                latest_user_message_id=1,
-            )
-
-        # Verify membership B's rule is still active
-        async with _test_session_factory() as db:
-            rule_result = await db.execute(
-                select(NotificationRule).where(
-                    NotificationRule.id == rule_b_id,
-                )
-            )
-            rule_b_after = rule_result.scalar_one()
-            assert rule_b_after.is_active is True, (
-                "Rule from membership B must remain active when processed "
-                "under membership A's context"
-            )
-
-    finally:
-        pass
+        rule_b_after = rule_result.scalar_one()
+        assert rule_b_after.is_active is True, (
+            "Rule from membership B must remain active when processed "
+            "under membership A's context"
+        )
