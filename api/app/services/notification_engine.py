@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_default_timezone
 from app.models import (
     FlowUserProfile,
     NotificationDelivery,
@@ -25,9 +26,6 @@ from app.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Default timezone when user hasn't reported one yet
-_DEFAULT_TZ = "UTC"
 
 
 def validate_iana_timezone(tz_name: str) -> ZoneInfo:
@@ -70,13 +68,14 @@ def compute_next_due_utc(
     if rule.tz_policy == "pinned_tz" and rule.timezone:
         tz_name = rule.timezone
     else:
-        tz_name = user_tz_name or _DEFAULT_TZ
+        tz_name = user_tz_name or get_default_timezone()
 
     try:
         tz = ZoneInfo(tz_name)
     except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %s, falling back to UTC", tz_name)
-        tz = ZoneInfo("UTC")
+        fallback = get_default_timezone()
+        logger.warning("Invalid timezone %s, falling back to %s", tz_name, fallback)
+        tz = ZoneInfo(fallback)
 
     # Current time in user's timezone
     now_local = now_utc.astimezone(tz)
@@ -123,12 +122,12 @@ def compute_local_date_for_rule(
     if rule.tz_policy == "pinned_tz" and rule.timezone:
         tz_name = rule.timezone
     else:
-        tz_name = user_tz_name or _DEFAULT_TZ
+        tz_name = user_tz_name or get_default_timezone()
 
     try:
         tz = ZoneInfo(tz_name)
     except (ZoneInfoNotFoundError, KeyError):
-        tz = ZoneInfo("UTC")
+        tz = ZoneInfo(get_default_timezone())
 
     return fire_utc.astimezone(tz).date()
 

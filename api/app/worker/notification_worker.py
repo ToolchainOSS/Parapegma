@@ -166,15 +166,26 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
     if not llm_key:
         return f"{topic} (LLM not configured)"
 
+    from app.prompt_loader import load_prompt
+    from app.services.llm_time_context import get_llm_time_context_for_membership
+
     profile = await load_user_profile(db, membership_id)
+    time_ctx = await get_llm_time_context_for_membership(db, membership_id)
+
+    # Exclude preferred_time from worker-side profile to avoid ambiguity
+    profile_data = profile.model_dump()
+    profile_data.pop("preferred_time", None)
+    profile_json = json.dumps({k: v for k, v in profile_data.items() if v}, default=str)
+
+    system_text = load_prompt("prompt_generator_system")
+
     prompt = ChatPromptTemplate.from_messages(
         [
+            ("system", system_text),
             (
-                "system",
-                "You are a helpful coach. Generate a short, encouraging daily nudge "
-                "for the user about: {topic}. User profile: {profile_json}",
+                "human",
+                "Topic: {topic}\nUser profile: {profile_json}\nGenerate the nudge.",
             ),
-            ("human", "Generate the nudge."),
         ]
     )
 
@@ -186,7 +197,13 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
         )
         chain = prompt | llm
         res = await asyncio.wait_for(
-            chain.ainvoke({"topic": topic, "profile_json": profile.model_dump_json()}),
+            chain.ainvoke(
+                {
+                    "topic": topic,
+                    "profile_json": profile_json,
+                    **time_ctx,
+                }
+            ),
             timeout=15,
         )
         return str(res.content)

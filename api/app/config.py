@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import socket
 from functools import cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 @cache
@@ -92,6 +93,22 @@ def get_push_gone_410_threshold() -> int:
         return 2
 
 
+_FALLBACK_TZ = "America/Toronto"
+
+
+@cache
+def get_default_timezone() -> str:
+    """Return the default timezone: TZ env if valid IANA, else America/Toronto."""
+    tz_env = os.environ.get("TZ", "").strip()
+    if tz_env:
+        try:
+            ZoneInfo(tz_env)
+            return tz_env
+        except (ZoneInfoNotFoundError, KeyError):
+            pass
+    return _FALLBACK_TZ
+
+
 def clear_config_cache() -> None:
     """Clear all configuration caches (useful for testing)."""
     get_data_dir.cache_clear()
@@ -104,3 +121,4 @@ def clear_config_cache() -> None:
     get_vapid_private_key.cache_clear()
     get_vapid_sub.cache_clear()
     get_push_gone_410_threshold.cache_clear()
+    get_default_timezone.cache_clear()
