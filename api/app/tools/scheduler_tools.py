@@ -2,25 +2,28 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated
 
 from langchain_core.tools import BaseTool, tool
 
 from app.db import async_session_factory
-from app.models import NotificationRule, NotificationRuleState
-from app.services.notification_engine import compute_next_due_utc, get_user_timezone
+from app.models import NotificationRule
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
 
-@tool
-async def list_schedules(
-    membership_id: Annotated[
-        int, "The ID of the project membership to list schedules for"
-    ],
-) -> str:
-    """List all active notification rules for a membership (internal/admin use)."""
+# ---------------------------------------------------------------------------
+# Internal helpers — NOT LangChain tools, never exposed to the LLM.
+# Used by make_scoped_list_schedules_tool and by tests for DB setup.
+# ---------------------------------------------------------------------------
+
+
+async def _list_schedules_for_membership(membership_id: int) -> str:
+    """Return a formatted list of active notification rules for *membership_id*.
+
+    This is a plain async function, not a tool.  It uses the module-level
+    ``async_session_factory`` so tests can monkeypatch it.
+    """
     async with async_session_factory() as db:
         result = await db.execute(
             select(NotificationRule).where(
@@ -41,6 +44,13 @@ async def list_schedules(
         return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Scoped LLM tool — the ONLY tool from this module that may be given to an
+# LLM agent.  It captures membership_id at construction time so the LLM
+# never needs to supply tenant-scoping identifiers.
+# ---------------------------------------------------------------------------
+
+
 def make_scoped_list_schedules_tool(membership_id: int) -> BaseTool:
     """Create a list_schedules tool scoped to a specific membership.
 
@@ -54,67 +64,6 @@ def make_scoped_list_schedules_tool(membership_id: int) -> BaseTool:
 
         Takes no arguments — the project scope is determined automatically.
         """
-        return await list_schedules.ainvoke({"membership_id": membership_id})
+        return await _list_schedules_for_membership(membership_id)
 
     return _scoped_list_schedules
-
-
-@tool
-async def schedule_nudge(
-    membership_id: Annotated[int, "The ID of the project membership"],
-    topic: Annotated[str, "The topic or prompt for the daily nudge"],
-    time: Annotated[str, "The time of day in HH:MM format (24h)"],
-) -> str:
-    """Schedule a new daily nudge via notification rule."""
-    async with async_session_factory() as db:
-        try:
-            rule = NotificationRule(
-                membership_id=membership_id,
-                kind="daily_local_time",
-                config_json=json.dumps({"topic": topic, "time": time}),
-                tz_policy="floating_user_tz",
-                is_active=True,
-            )
-            db.add(rule)
-            await db.flush()
-
-            user_tz = await get_user_timezone(db, membership_id)
-            next_due = compute_next_due_utc(rule, user_tz)
-
-            state = NotificationRuleState(
-                rule_id=rule.id,
-                next_due_at_utc=next_due,
-            )
-            db.add(state)
-            await db.commit()
-            return f"Scheduled nudge ID {rule.id} for {time} daily."
-        except ValueError as e:
-            return f"Error: {e}"
-
-
-@tool
-async def delete_schedule(
-    schedule_id: Annotated[int, "The ID of the notification rule to deactivate"],
-    membership_id: Annotated[
-        int, "The ID of the project membership that owns the rule"
-    ],
-) -> str:
-    """Deactivate a notification rule. Only rules belonging to the given membership can be deactivated."""
-    async with async_session_factory() as db:
-        result = await db.execute(
-            select(NotificationRule).where(
-                NotificationRule.id == schedule_id,
-                NotificationRule.membership_id == membership_id,
-            )
-        )
-        rule = result.scalar_one_or_none()
-        if not rule:
-            logger.warning(
-                "delete_schedule: rule_id=%s not found for membership_id=%s",
-                schedule_id,
-                membership_id,
-            )
-            return "Schedule not found."
-        rule.is_active = False
-        await db.commit()
-        return f"Schedule {schedule_id} deactivated."
