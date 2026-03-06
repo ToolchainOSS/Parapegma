@@ -20,8 +20,7 @@ from datetime import datetime, timezone
 import string
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,23 +60,6 @@ MAX_HISTORY_MESSAGES = 30
 
 ROUTER_SYSTEM_PROMPT = load_prompt("router_system")
 
-_router_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", ROUTER_SYSTEM_PROMPT),
-        (
-            "human",
-            "Current local date: {current_date}\n"
-            "Current local time: {current_time}\n"
-            "Timezone: {timezone}\n"
-            "Profile summary: {profile_summary}\n"
-            "Memory summary: {memory_summary}\n"
-            "Conversation state: {conv_state}\n"
-            "User message: {user_text}\n"
-            "Return the route.",
-        ),
-    ]
-)
-
 
 def route_turn_deterministic(
     profile: UserProfileData,
@@ -109,16 +91,28 @@ def route_turn_llm(
     """Use LLM with structured output for routing."""
     # Pass schema dict to get a dict back, avoiding Pydantic serialization issues in LangChain
     structured = llm.with_structured_output(RouteDecision.model_json_schema())
-    invoke_args = {
-        "profile_summary": profile_summary,
-        "memory_summary": memory_summary,
-        "conv_state": conv_state,
-        "user_text": user_text,
-    }
-    if time_context:
-        invoke_args.update(time_context)
+
+    # Pre-substitute $-variables in the system prompt (safe against any {}
+    # content in the prompt file, e.g. JSON examples).
+    system_text = string.Template(ROUTER_SYSTEM_PROMPT).safe_substitute(
+        time_context or {}
+    )
+
+    tc = time_context or {}
+    human_text = (
+        f"Current local date: {tc.get('current_date', 'unknown')}\n"
+        f"Current local time: {tc.get('current_time', 'unknown')}\n"
+        f"Timezone: {tc.get('timezone', 'unknown')}\n"
+        f"Profile summary: {profile_summary}\n"
+        f"Memory summary: {memory_summary}\n"
+        f"Conversation state: {conv_state}\n"
+        f"User message: {user_text}\n"
+        "Return the route."
+    )
+
+    messages = [SystemMessage(content=system_text), HumanMessage(content=human_text)]
     try:
-        result = (_router_prompt | structured).invoke(invoke_args)
+        result = structured.invoke(messages)
     except Exception:
         logger.exception("Router LLM invocation failed")
         return RouteDecision(route="COACH", reason="LLM invocation failed")
