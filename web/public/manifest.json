@@ -3,6 +3,7 @@
   "short_name": "Flow",
   "start_url": "/dashboard",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#ffffff",
   "theme_color": "#f2f3f5",
   "icons": [{ "src": "/vite.svg", "sizes": "any", "type": "image/svg+xml" }]

@@ -59,7 +59,7 @@ export function Updates() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-bg">
+    <div className="flex flex-col flex-1 bg-bg">
       <PageHeader title="Updates" />
 
       <div className="flex-1">
