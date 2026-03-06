@@ -53,7 +53,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title || "Flow Research", {
       body: payload.body || "",
-      icon: payload.icon || "/vite.svg",
+      icon: payload.icon || "/icons/icon-192.png",
       data: notificationData,
       actions: payload.actions || [],
     }),
