@@ -543,14 +543,14 @@ export function ChatThread() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-chat-bg">
+      <div className="flex items-center justify-center flex-1 bg-chat-bg">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className={`flex flex-col bg-chat-bg ${layoutMode === "side" ? "h-full" : "h-screen"}`}>
+    <div className={`flex flex-col bg-chat-bg ${layoutMode === "side" ? "h-full" : "flex-1 min-h-0"}`}>
       <ChatHeader
         title={chatTitle}
         hideBack={layoutMode === "side"}
@@ -607,18 +607,20 @@ export function ChatThread() {
 
       {/* Jump to bottom */}
       {showJumpToBottom && (
-        <button
-          onClick={scrollToBottom}
-          className={`absolute bottom-[calc(var(--composer-h)+env(safe-area-inset-bottom,0px)+20px)] right-4 w-10 h-10 rounded-full shadow-md flex items-center justify-center transition-colors z-30 ${
-            hasNewMessages
-              ? "bg-primary text-primary-foreground hover:bg-primary/90"
-              : "bg-surface text-text-muted hover:bg-surface-2"
-          }`}
-          aria-label="Jump to bottom"
-          data-testid="jump-to-bottom"
-        >
-          <ChevronDown className="w-5 h-5" />
-        </button>
+        <div className="relative z-30">
+          <button
+            onClick={scrollToBottom}
+            className={`absolute bottom-3 right-4 w-10 h-10 rounded-full shadow-md flex items-center justify-center transition-colors ${
+              hasNewMessages
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "bg-surface text-text-muted hover:bg-surface-2"
+            }`}
+            aria-label="Jump to bottom"
+            data-testid="jump-to-bottom"
+          >
+            <ChevronDown className="w-5 h-5" />
+          </button>
+        </div>
       )}
 
       <Composer onSend={(text) => void handleSend(text)} disabled={sending} />
