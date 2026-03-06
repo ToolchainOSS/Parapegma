@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -56,24 +55,16 @@ class TestWorkerPromptContext:
     @pytest.mark.asyncio
     async def test_worker_uses_actual_current_time_not_preferred_time(self) -> None:
         """Profile preferred_time=11:15, but actual fire time is 17:00 Toronto.
-        The system prompt must contain 17:00 as current_time, not 11:15."""
+        Time and display_name should be baked directly into the SystemMessage —
+        no ChatPromptTemplate involved."""
+        from langchain_core.messages import HumanMessage, SystemMessage
+
         from app.schemas.patches import UserProfileData
 
         profile = UserProfileData(
             prompt_anchor="morning jog",
             preferred_time="11:15",
         )
-
-        captured_invoke_args: dict = {}
-
-        async def fake_ainvoke(args: dict) -> MagicMock:
-            captured_invoke_args.update(args)
-            m = MagicMock()
-            m.content = "Time to run!"
-            return m
-
-        fake_chain = MagicMock()
-        fake_chain.ainvoke = fake_ainvoke
 
         # Simulate unified prompt context (time + display_name)
         fake_prompt_ctx = {
@@ -84,15 +75,16 @@ class TestWorkerPromptContext:
             "current_datetime": "2026-01-15 17:00",
         }
 
-        captured_system_text: list[str] = []
+        captured_messages: list = []
 
-        def spy_from_messages(messages):
-            for role, text in messages:
-                if role == "system":
-                    captured_system_text.append(text)
-            mock_prompt = MagicMock()
-            mock_prompt.__or__ = MagicMock(return_value=fake_chain)
-            return mock_prompt
+        async def fake_ainvoke(messages, **kwargs) -> MagicMock:
+            captured_messages.extend(messages)
+            m = MagicMock()
+            m.content = "Time to run!"
+            return m
+
+        mock_llm = MagicMock()
+        mock_llm.ainvoke = fake_ainvoke
 
         with (
             patch("app.worker.notification_worker.config") as mock_config,
@@ -100,10 +92,10 @@ class TestWorkerPromptContext:
                 "app.worker.notification_worker.load_user_profile",
                 new_callable=AsyncMock,
             ) as mock_load,
-            patch("app.worker.notification_worker.ChatOpenAI"),
             patch(
-                "app.worker.notification_worker.ChatPromptTemplate"
-            ) as mock_prompt_cls,
+                "app.worker.notification_worker.ChatOpenAI",
+                return_value=mock_llm,
+            ),
             patch(
                 "app.worker.notification_worker.get_prompt_context_for_membership",
                 new_callable=AsyncMock,
@@ -114,26 +106,23 @@ class TestWorkerPromptContext:
             mock_config.get_llm_model.return_value = "gpt-4o-mini"
             mock_load.return_value = profile
 
-            mock_prompt_cls.from_messages.side_effect = spy_from_messages
-
             from app.worker.notification_worker import _generate_custom_prompt
 
             fake_db = MagicMock()
             result = await _generate_custom_prompt(fake_db, 1, "Daily Nudge")
 
         assert result == "Time to run!"
-        # Time variables should be baked into the system text, not in ainvoke args
-        assert "current_time" not in captured_invoke_args
-        assert "timezone" not in captured_invoke_args
-        # System text should have the actual time baked in
-        assert len(captured_system_text) == 1
-        assert "17:00" in captured_system_text[0]
-        assert "America/Toronto" in captured_system_text[0]
-        assert "Alice" in captured_system_text[0]
-        # preferred_time should NOT be in the profile_json payload
-        profile_json = captured_invoke_args["profile_json"]
-        profile_data = json.loads(profile_json)
-        assert "preferred_time" not in profile_data
+        # Two messages: SystemMessage + HumanMessage
+        assert len(captured_messages) == 2
+        system_msg, human_msg = captured_messages
+        assert isinstance(system_msg, SystemMessage)
+        assert isinstance(human_msg, HumanMessage)
+        # Time and display_name baked directly into system message content
+        assert "17:00" in system_msg.content
+        assert "America/Toronto" in system_msg.content
+        assert "Alice" in system_msg.content
+        # preferred_time must not appear in the human message
+        assert "preferred_time" not in human_msg.content
 
 
 # ---------------------------------------------------------------------------

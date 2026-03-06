@@ -13,7 +13,7 @@ import string
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pywebpush import WebPushException, webpush
 from sqlalchemy import select
@@ -180,18 +180,19 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
     )
 
     system_text = load_prompt("prompt_generator_system")
-    # Pre-replace $-style template variables (matches engine.py pattern)
+    # Pre-replace $-style template variables before handing to LangChain so
+    # that LangChain never sees any {}-style placeholders in our text.
     system_text = string.Template(system_text).safe_substitute(prompt_ctx)
 
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_text),
-            (
-                "human",
-                "Topic: {topic}\nUser profile: {profile_json}\nGenerate the nudge.",
-            ),
-        ]
-    )
+    # Build messages directly — no ChatPromptTemplate — so LangChain never
+    # scans the prompt text for {variables} and misidentifies content words
+    # like {PromptAnchor} or {1-minute action} as missing template inputs.
+    messages = [
+        SystemMessage(content=system_text),
+        HumanMessage(
+            content=f"Topic: {topic}\nUser profile: {profile_json}\nGenerate the nudge."
+        ),
+    ]
 
     try:
         llm = ChatOpenAI(
@@ -199,14 +200,8 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
             api_key=llm_key,
             callbacks=[LLMLoggingCallbackHandler()],
         )
-        chain = prompt | llm
         res = await asyncio.wait_for(
-            chain.ainvoke(
-                {
-                    "topic": topic,
-                    "profile_json": profile_json,
-                }
-            ),
+            llm.ainvoke(messages),
             timeout=15,
         )
         return str(res.content)
