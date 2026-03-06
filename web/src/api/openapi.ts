@@ -1460,8 +1460,6 @@ export interface components {
          * @description Structured user profile fields (Store A). Pydantic validated.
          */
         UserProfileData: {
-            /** Display Name */
-            display_name?: string | null;
             /**
              * Habit Domain
              * @default
