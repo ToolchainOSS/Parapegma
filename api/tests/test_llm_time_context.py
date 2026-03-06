@@ -208,6 +208,7 @@ class TestSpecialistPromptContext:
 
     def test_specialist_agent_formats_time_into_prompt(self) -> None:
         """Verify _create_specialist_agent applies time context args to prompt text."""
+        from app.agents.engine import _SafeDict
         from app.prompt_loader import load_prompt
 
         raw = load_prompt("coach_system")
@@ -218,8 +219,28 @@ class TestSpecialistPromptContext:
             "timezone": "America/Toronto",
             "current_datetime": "2026-03-05 17:00",
         }
-        formatted = raw.format(**args)
+        formatted = raw.format_map(_SafeDict(args))
         assert "17:00" in formatted
         assert "2026-03-05" in formatted
         assert "America/Toronto" in formatted
         assert "{current_time}" not in formatted
+
+    def test_format_survives_braces_in_display_name(self) -> None:
+        """Regression: curly braces in display_name must not prevent time substitution."""
+        from app.agents.engine import _SafeDict
+        from app.prompt_loader import load_prompt
+
+        raw = load_prompt("coach_system")
+        args = {
+            "display_name": "User {test}",
+            "current_date": "2026-03-05",
+            "current_time": "17:00",
+            "timezone": "America/Toronto",
+            "current_datetime": "2026-03-05 17:00",
+        }
+        # format() would KeyError on {test}; format_map + _SafeDict must survive
+        formatted = raw.format_map(_SafeDict(args))
+        assert "17:00" in formatted
+        assert "{current_time}" not in formatted
+        # Unknown {test} is preserved harmlessly
+        assert "{test}" in formatted

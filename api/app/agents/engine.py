@@ -430,6 +430,13 @@ async def _process_proposals(
 _RECURSION_LIMIT = 22
 
 
+class _SafeDict(dict):
+    """Dict subclass that returns '{key}' for missing keys instead of raising."""
+
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
 def _create_specialist_agent(
     llm: BaseChatModel,
     tools: list,
@@ -442,9 +449,17 @@ def _create_specialist_agent(
     text = load_prompt(prompt_name)
     if prompt_args:
         try:
-            text = text.format(**prompt_args)
-        except KeyError:
-            pass  # Prompt might not use all args, or args might be missing
+            text = text.format_map(_SafeDict(prompt_args))
+        except (ValueError, IndexError) as exc:
+            # format_map can still fail on malformed braces; fall back to
+            # simple per-key replacement so time context is never lost.
+            logger.warning(
+                "Prompt format_map failed for %s: %s; falling back to replace",
+                prompt_name,
+                exc,
+            )
+            for key, value in prompt_args.items():
+                text = text.replace("{" + key + "}", str(value))
 
     return create_react_agent(llm, tools=tools, prompt=text)
 
