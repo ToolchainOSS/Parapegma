@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import string
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -179,6 +180,8 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
     )
 
     system_text = load_prompt("prompt_generator_system")
+    # Pre-replace $-style template variables (matches engine.py pattern)
+    system_text = string.Template(system_text).safe_substitute(time_ctx)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -202,7 +205,6 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
                 {
                     "topic": topic,
                     "profile_json": profile_json,
-                    **time_ctx,
                 }
             ),
             timeout=15,
