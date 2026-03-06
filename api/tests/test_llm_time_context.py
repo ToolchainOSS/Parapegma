@@ -104,7 +104,6 @@ class TestWorkerPromptContext:
         profile = UserProfileData(
             prompt_anchor="morning jog",
             preferred_time="11:15",
-            display_name="Alice",
         )
 
         captured_invoke_args: dict = {}
@@ -244,3 +243,119 @@ class TestSpecialistPromptContext:
         assert "{current_time}" not in formatted
         # Unknown {test} is preserved harmlessly
         assert "{test}" in formatted
+
+    def test_display_name_substituted_into_all_prompts(self) -> None:
+        """Regression: display_name must appear in all specialist prompts."""
+        from app.agents.engine import _SafeDict
+        from app.prompt_loader import load_prompt
+
+        for prompt_name in ("intake_system", "coach_system", "feedback_system"):
+            raw = load_prompt(prompt_name)
+            args = {
+                "display_name": "Alice",
+                "current_date": "2026-03-05",
+                "current_time": "17:00",
+                "timezone": "America/Toronto",
+                "current_datetime": "2026-03-05 17:00",
+            }
+            formatted = raw.format_map(_SafeDict(args))
+            assert "Alice" in formatted, (
+                f"{prompt_name} did not substitute display_name"
+            )
+            assert "{display_name}" not in formatted, (
+                f"{prompt_name} has unsubstituted {{display_name}}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Display name single source of truth (FlowUserProfile)
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayNameFromFlowUserProfile:
+    """Verify display_name is fetched from FlowUserProfile, not UserProfileData."""
+
+    def test_user_profile_data_has_no_display_name_field(self) -> None:
+        """UserProfileData must NOT have a display_name field (single source = FlowUserProfile)."""
+        from app.schemas.patches import UserProfileData
+
+        assert "display_name" not in UserProfileData.model_fields
+
+    @pytest.mark.asyncio
+    async def test_get_display_name_returns_name_from_flow_profile(self) -> None:
+        """get_display_name_for_membership fetches from FlowUserProfile."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from app.id_utils import generate_project_id
+        from app.models import (
+            Base,
+            FlowUserProfile,
+            Project,
+            ProjectMembership,
+        )
+        from app.services.profile_service import get_display_name_for_membership
+
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with session_factory() as db:
+            project = Project(id=generate_project_id(), display_name="Test")
+            db.add(project)
+            await db.flush()
+
+            membership = ProjectMembership(
+                project_id=project.id,
+                user_id="u_testuser_000000000000000000",
+                status="active",
+            )
+            db.add(membership)
+            await db.flush()
+
+            fp = FlowUserProfile(
+                user_id="u_testuser_000000000000000000", display_name="Alice"
+            )
+            db.add(fp)
+            await db.flush()
+
+            name = await get_display_name_for_membership(db, membership.id)
+            assert name == "Alice"
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+
+    @pytest.mark.asyncio
+    async def test_get_display_name_returns_none_when_no_profile(self) -> None:
+        """get_display_name_for_membership returns None when FlowUserProfile is absent."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from app.id_utils import generate_project_id
+        from app.models import Base, Project, ProjectMembership
+        from app.services.profile_service import get_display_name_for_membership
+
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with session_factory() as db:
+            project = Project(id=generate_project_id(), display_name="Test")
+            db.add(project)
+            await db.flush()
+
+            membership = ProjectMembership(
+                project_id=project.id,
+                user_id="u_testuser_000000000000000000",
+                status="active",
+            )
+            db.add(membership)
+            await db.flush()
+
+            name = await get_display_name_for_membership(db, membership.id)
+            assert name is None
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)

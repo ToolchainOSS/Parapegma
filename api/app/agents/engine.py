@@ -39,6 +39,7 @@ from app.schemas.router import RouteDecision
 from app.services.profile_service import (
     add_memory_item,
     apply_profile_patch,
+    get_display_name_for_membership,
     load_memory_items,
     load_user_profile,
     log_patch_audit,
@@ -487,6 +488,9 @@ async def process_turn(
     profile = await load_user_profile(db, membership_id)
     memory_items = await load_memory_items(db, membership_id)
 
+    # Fetch display_name from FlowUserProfile (single source of truth)
+    display_name = await get_display_name_for_membership(db, membership_id)
+
     # Compute localized time context once for all LLM paths this turn
     from app.services.llm_time_context import get_llm_time_context_for_membership
 
@@ -563,7 +567,10 @@ async def process_turn(
             elif msg.role == "assistant":
                 chat_history.append(AIMessage(content=msg.content))
 
-        prompt_args = {"display_name": profile.display_name or "there", **time_context}
+        prompt_args = {
+            "display_name": display_name or "the user (name unknown)",
+            **time_context,
+        }
 
         if decision.route == "INTAKE":
             from app.agents.intake import run_intake
