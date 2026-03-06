@@ -1,10 +1,9 @@
-"""Tests for default timezone config, LLM time context, worker prompt, and specialist prompt context."""
+"""Tests for prompt context: default timezone, worker prompt, specialist prompt context, display name."""
 
 from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -47,47 +46,6 @@ class TestDefaultTimezone:
 
 
 # ---------------------------------------------------------------------------
-# LLM time context helper
-# ---------------------------------------------------------------------------
-
-
-class TestLlmTimeContext:
-    def setup_method(self) -> None:
-        os.environ.pop("TZ", None)
-        clear_config_cache()
-
-    def teardown_method(self) -> None:
-        os.environ.pop("TZ", None)
-        clear_config_cache()
-
-    def test_with_explicit_timezone(self) -> None:
-        from app.services.llm_time_context import get_llm_time_context
-
-        now = datetime(2026, 3, 5, 22, 0, 0, tzinfo=UTC)  # 17:00 Toronto (EST)
-        ctx = get_llm_time_context("America/Toronto", now)
-        assert ctx["timezone"] == "America/Toronto"
-        assert ctx["current_date"] == "2026-03-05"
-        assert ctx["current_time"] == "17:00"
-        assert ctx["current_datetime"] == "2026-03-05 17:00"
-
-    def test_with_none_falls_back_to_default(self) -> None:
-        from app.services.llm_time_context import get_llm_time_context
-
-        now = datetime(2026, 3, 5, 22, 0, 0, tzinfo=UTC)
-        ctx = get_llm_time_context(None, now)
-        # Default is America/Toronto
-        assert ctx["timezone"] == "America/Toronto"
-        assert ctx["current_time"] == "17:00"
-
-    def test_with_invalid_tz_falls_back(self) -> None:
-        from app.services.llm_time_context import get_llm_time_context
-
-        now = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
-        ctx = get_llm_time_context("Invalid/Zone", now)
-        assert ctx["timezone"] == "America/Toronto"
-
-
-# ---------------------------------------------------------------------------
 # Worker prompt-context regression test
 # ---------------------------------------------------------------------------
 
@@ -98,7 +56,7 @@ class TestWorkerPromptContext:
     @pytest.mark.asyncio
     async def test_worker_uses_actual_current_time_not_preferred_time(self) -> None:
         """Profile preferred_time=11:15, but actual fire time is 17:00 Toronto.
-        The LLM input must contain 17:00 as current_time, not 11:15."""
+        The system prompt must contain 17:00 as current_time, not 11:15."""
         from app.schemas.patches import UserProfileData
 
         profile = UserProfileData(
@@ -117,13 +75,24 @@ class TestWorkerPromptContext:
         fake_chain = MagicMock()
         fake_chain.ainvoke = fake_ainvoke
 
-        # Simulate localized time context at 17:00 America/Toronto
-        fake_time_ctx = {
+        # Simulate unified prompt context (time + display_name)
+        fake_prompt_ctx = {
+            "display_name": "Alice",
             "timezone": "America/Toronto",
             "current_date": "2026-01-15",
             "current_time": "17:00",
             "current_datetime": "2026-01-15 17:00",
         }
+
+        captured_system_text: list[str] = []
+
+        def spy_from_messages(messages):
+            for role, text in messages:
+                if role == "system":
+                    captured_system_text.append(text)
+            mock_prompt = MagicMock()
+            mock_prompt.__or__ = MagicMock(return_value=fake_chain)
+            return mock_prompt
 
         with (
             patch("app.worker.notification_worker.config") as mock_config,
@@ -136,18 +105,16 @@ class TestWorkerPromptContext:
                 "app.worker.notification_worker.ChatPromptTemplate"
             ) as mock_prompt_cls,
             patch(
-                "app.worker.notification_worker.get_llm_time_context_for_membership",
+                "app.worker.notification_worker.get_prompt_context_for_membership",
                 new_callable=AsyncMock,
-                return_value=fake_time_ctx,
+                return_value=fake_prompt_ctx,
             ),
         ):
             mock_config.get_openai_api_key.return_value = "fake-key"
             mock_config.get_llm_model.return_value = "gpt-4o-mini"
             mock_load.return_value = profile
 
-            mock_prompt_instance = MagicMock()
-            mock_prompt_cls.from_messages.return_value = mock_prompt_instance
-            mock_prompt_instance.__or__ = MagicMock(return_value=fake_chain)
+            mock_prompt_cls.from_messages.side_effect = spy_from_messages
 
             from app.worker.notification_worker import _generate_custom_prompt
 
@@ -155,9 +122,14 @@ class TestWorkerPromptContext:
             result = await _generate_custom_prompt(fake_db, 1, "Daily Nudge")
 
         assert result == "Time to run!"
-        # The authoritative current_time should be 17:00, not 11:15
-        assert captured_invoke_args["current_time"] == "17:00"
-        assert captured_invoke_args["timezone"] == "America/Toronto"
+        # Time variables should be baked into the system text, not in ainvoke args
+        assert "current_time" not in captured_invoke_args
+        assert "timezone" not in captured_invoke_args
+        # System text should have the actual time baked in
+        assert len(captured_system_text) == 1
+        assert "17:00" in captured_system_text[0]
+        assert "America/Toronto" in captured_system_text[0]
+        assert "Alice" in captured_system_text[0]
         # preferred_time should NOT be in the profile_json payload
         profile_json = captured_invoke_args["profile_json"]
         profile_data = json.loads(profile_json)
@@ -200,14 +172,16 @@ class TestSpecialistPromptContext:
         from app.prompt_loader import load_prompt
 
         text = load_prompt("prompt_generator_system")
-        assert "{current_date}" in text
-        assert "{current_time}" in text
-        assert "{timezone}" in text
+        assert "$current_date" in text
+        assert "$current_time" in text
+        assert "$timezone" in text
+        assert "$display_name" in text
         assert "authoritative" in text.lower()
 
     def test_specialist_agent_formats_time_into_prompt(self) -> None:
         """Verify _create_specialist_agent applies time context args to prompt text."""
         import string
+
         from app.prompt_loader import load_prompt
 
         raw = load_prompt("coach_system")
@@ -227,6 +201,7 @@ class TestSpecialistPromptContext:
     def test_format_survives_braces_in_display_name(self) -> None:
         """Regression: curly braces in display_name must not prevent time substitution."""
         import string
+
         from app.prompt_loader import load_prompt
 
         raw = load_prompt("coach_system")
@@ -247,9 +222,15 @@ class TestSpecialistPromptContext:
     def test_display_name_substituted_into_all_prompts(self) -> None:
         """Regression: display_name must appear in all specialist prompts."""
         import string
+
         from app.prompt_loader import load_prompt
 
-        for prompt_name in ("intake_system", "coach_system", "feedback_system"):
+        for prompt_name in (
+            "intake_system",
+            "coach_system",
+            "feedback_system",
+            "prompt_generator_system",
+        ):
             raw = load_prompt(prompt_name)
             args = {
                 "display_name": "Alice",

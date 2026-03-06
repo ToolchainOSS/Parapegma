@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import string
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -39,7 +40,7 @@ from app.services.notification_engine import (
     get_user_timezone,
     recompute_rule_due_time,
 )
-from app.services.llm_time_context import get_llm_time_context_for_membership
+from app.services.prompt_context import get_prompt_context_for_membership
 from app.services.profile_service import load_user_profile
 from app.prompt_loader import load_prompt
 
@@ -169,7 +170,7 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
         return f"{topic} (LLM not configured)"
 
     profile = await load_user_profile(db, membership_id)
-    time_ctx = await get_llm_time_context_for_membership(db, membership_id)
+    prompt_ctx = await get_prompt_context_for_membership(db, membership_id)
 
     # Exclude preferred_time from worker-side profile to avoid ambiguity
     profile_data = profile.model_dump()
@@ -179,6 +180,8 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
     )
 
     system_text = load_prompt("prompt_generator_system")
+    # Pre-replace $-style template variables (matches engine.py pattern)
+    system_text = string.Template(system_text).safe_substitute(prompt_ctx)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -202,7 +205,6 @@ async def _generate_custom_prompt(db, membership_id: int, topic: str) -> str:
                 {
                     "topic": topic,
                     "profile_json": profile_json,
-                    **time_ctx,
                 }
             ),
             timeout=15,
