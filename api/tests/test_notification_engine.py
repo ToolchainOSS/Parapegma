@@ -177,22 +177,38 @@ class TestComputeNextDueUtc:
         expected = datetime(2026, 11, 1, 5, 30, 0, tzinfo=UTC)
         assert result == expected
 
-    def test_no_timezone_defaults_to_utc(self) -> None:
-        """When no user timezone is set, default to UTC."""
-        rule = NotificationRule(
-            id=1,
-            membership_id=1,
-            kind="daily_local_time",
-            config_json=json.dumps({"topic": "test", "time": "09:00"}),
-            tz_policy="floating_user_tz",
-            is_active=True,
-        )
-        now_utc = datetime(2026, 1, 15, 8, 0, 0, tzinfo=UTC)
-        result = compute_next_due_utc(rule, None, now_utc)
+    def test_no_timezone_defaults_to_app_default(self) -> None:
+        """When no user timezone is set, default to app default (America/Toronto)."""
+        from app.config import clear_config_cache
 
-        assert result is not None
-        expected = datetime(2026, 1, 15, 9, 0, 0, tzinfo=UTC)
-        assert result == expected
+        # Ensure TZ env does not interfere
+        import os
+
+        old_tz = os.environ.pop("TZ", None)
+        clear_config_cache()
+        try:
+            rule = NotificationRule(
+                id=1,
+                membership_id=1,
+                kind="daily_local_time",
+                config_json=json.dumps({"topic": "test", "time": "09:00"}),
+                tz_policy="floating_user_tz",
+                is_active=True,
+            )
+            # 08:00 UTC → 03:00 Toronto (EST, UTC-5), so 09:00 Toronto = 14:00 UTC
+            now_utc = datetime(2026, 1, 15, 8, 0, 0, tzinfo=UTC)
+            result = compute_next_due_utc(rule, None, now_utc)
+
+            assert result is not None
+            # 09:00 America/Toronto in January (EST) = 14:00 UTC
+            expected = datetime(2026, 1, 15, 14, 0, 0, tzinfo=UTC)
+            assert result == expected
+        finally:
+            if old_tz is not None:
+                os.environ["TZ"] = old_tz
+            else:
+                os.environ.pop("TZ", None)
+            clear_config_cache()
 
     def test_pinned_timezone_ignores_user_tz(self) -> None:
         """A pinned-tz rule uses its own timezone, not the user's."""

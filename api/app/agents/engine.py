@@ -65,6 +65,9 @@ _router_prompt = ChatPromptTemplate.from_messages(
         ("system", ROUTER_SYSTEM_PROMPT),
         (
             "human",
+            "Current local date: {current_date}\n"
+            "Current local time: {current_time}\n"
+            "Timezone: {timezone}\n"
             "Profile summary: {profile_summary}\n"
             "Memory summary: {memory_summary}\n"
             "Conversation state: {conv_state}\n"
@@ -100,19 +103,21 @@ def route_turn_llm(
     memory_summary: str,
     conv_state: str,
     user_text: str,
+    time_context: dict[str, str] | None = None,
 ) -> RouteDecision:
     """Use LLM with structured output for routing."""
     # Pass schema dict to get a dict back, avoiding Pydantic serialization issues in LangChain
     structured = llm.with_structured_output(RouteDecision.model_json_schema())
+    invoke_args = {
+        "profile_summary": profile_summary,
+        "memory_summary": memory_summary,
+        "conv_state": conv_state,
+        "user_text": user_text,
+    }
+    if time_context:
+        invoke_args.update(time_context)
     try:
-        result = (_router_prompt | structured).invoke(
-            {
-                "profile_summary": profile_summary,
-                "memory_summary": memory_summary,
-                "conv_state": conv_state,
-                "user_text": user_text,
-            }
-        )
+        result = (_router_prompt | structured).invoke(invoke_args)
     except Exception:
         logger.exception("Router LLM invocation failed")
         return RouteDecision(route="COACH", reason="LLM invocation failed")
@@ -467,6 +472,11 @@ async def process_turn(
     profile = await load_user_profile(db, membership_id)
     memory_items = await load_memory_items(db, membership_id)
 
+    # Compute localized time context once for all LLM paths this turn
+    from app.services.llm_time_context import get_llm_time_context_for_membership
+
+    time_context = await get_llm_time_context_for_membership(db, membership_id)
+
     # Load recent messages for context
     result = await db.execute(
         select(Message)
@@ -496,7 +506,12 @@ async def process_turn(
         profile_summary = _build_profile_summary(profile)
         memory_summary = _build_memory_summary(memory_items)
         decision = route_turn_llm(
-            router_llm, profile_summary, memory_summary, conv_state, user_text
+            router_llm,
+            profile_summary,
+            memory_summary,
+            conv_state,
+            user_text,
+            time_context=time_context,
         )
     else:
         decision = route_turn_deterministic(profile, conv_state)
@@ -533,7 +548,7 @@ async def process_turn(
             elif msg.role == "assistant":
                 chat_history.append(AIMessage(content=msg.content))
 
-        prompt_args = {"display_name": profile.display_name or "there"}
+        prompt_args = {"display_name": profile.display_name or "there", **time_context}
 
         if decision.route == "INTAKE":
             from app.agents.intake import run_intake
