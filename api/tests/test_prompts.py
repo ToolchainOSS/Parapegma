@@ -101,7 +101,7 @@ class TestPromptTimeContext:
 
     def test_prompt_generator_has_authoritative_time_guidance(self) -> None:
         text = load_prompt("prompt_generator_system")
-        assert "{current_time}" in text
+        assert "$current_time" in text
         assert "authoritative" in text.lower()
 
 

@@ -172,9 +172,9 @@ class TestSpecialistPromptContext:
         from app.prompt_loader import load_prompt
 
         text = load_prompt("prompt_generator_system")
-        assert "${current_date}" in text
-        assert "${current_time}" in text
-        assert "${timezone}" in text
+        assert "$current_date" in text
+        assert "$current_time" in text
+        assert "$timezone" in text
         assert "$display_name" in text
         assert "authoritative" in text.lower()
 
