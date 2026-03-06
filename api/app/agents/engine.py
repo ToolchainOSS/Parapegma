@@ -17,6 +17,7 @@ import json
 import logging
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
+import string
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
@@ -449,18 +450,8 @@ def _create_specialist_agent(
 
     text = load_prompt(prompt_name)
     if prompt_args:
-        try:
-            text = text.format_map(_SafeDict(prompt_args))
-        except (ValueError, IndexError) as exc:
-            # format_map can still fail on malformed braces; fall back to
-            # simple per-key replacement so time context is never lost.
-            logger.warning(
-                "Prompt format_map failed for %s: %s; falling back to replace",
-                prompt_name,
-                exc,
-            )
-            for key, value in prompt_args.items():
-                text = text.replace("{" + key + "}", str(value))
+        # Use string.Template to safely interpolate $variables while ignoring {} braces
+        text = string.Template(text).safe_substitute(prompt_args)
 
     return create_react_agent(llm, tools=tools, prompt=text)
 

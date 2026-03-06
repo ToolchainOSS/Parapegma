@@ -176,25 +176,25 @@ class TestSpecialistPromptContext:
         from app.prompt_loader import load_prompt
 
         text = load_prompt("coach_system")
-        assert "{current_date}" in text
-        assert "{current_time}" in text
-        assert "{timezone}" in text
+        assert "$current_date" in text
+        assert "$current_time" in text
+        assert "$timezone" in text
 
     def test_intake_prompt_has_time_placeholders(self) -> None:
         from app.prompt_loader import load_prompt
 
         text = load_prompt("intake_system")
-        assert "{current_date}" in text
-        assert "{current_time}" in text
-        assert "{timezone}" in text
+        assert "$current_date" in text
+        assert "$current_time" in text
+        assert "$timezone" in text
 
     def test_feedback_prompt_has_time_placeholders(self) -> None:
         from app.prompt_loader import load_prompt
 
         text = load_prompt("feedback_system")
-        assert "{current_date}" in text
-        assert "{current_time}" in text
-        assert "{timezone}" in text
+        assert "$current_date" in text
+        assert "$current_time" in text
+        assert "$timezone" in text
 
     def test_prompt_generator_has_authoritative_time_guidance(self) -> None:
         from app.prompt_loader import load_prompt
@@ -207,7 +207,7 @@ class TestSpecialistPromptContext:
 
     def test_specialist_agent_formats_time_into_prompt(self) -> None:
         """Verify _create_specialist_agent applies time context args to prompt text."""
-        from app.agents.engine import _SafeDict
+        import string
         from app.prompt_loader import load_prompt
 
         raw = load_prompt("coach_system")
@@ -218,15 +218,15 @@ class TestSpecialistPromptContext:
             "timezone": "America/Toronto",
             "current_datetime": "2026-03-05 17:00",
         }
-        formatted = raw.format_map(_SafeDict(args))
+        formatted = string.Template(raw).safe_substitute(args)
         assert "17:00" in formatted
         assert "2026-03-05" in formatted
         assert "America/Toronto" in formatted
-        assert "{current_time}" not in formatted
+        assert "$current_time" not in formatted
 
     def test_format_survives_braces_in_display_name(self) -> None:
         """Regression: curly braces in display_name must not prevent time substitution."""
-        from app.agents.engine import _SafeDict
+        import string
         from app.prompt_loader import load_prompt
 
         raw = load_prompt("coach_system")
@@ -237,16 +237,16 @@ class TestSpecialistPromptContext:
             "timezone": "America/Toronto",
             "current_datetime": "2026-03-05 17:00",
         }
-        # format() would KeyError on {test}; format_map + _SafeDict must survive
-        formatted = raw.format_map(_SafeDict(args))
+        # format() would KeyError on {test}; string.Template must survive
+        formatted = string.Template(raw).safe_substitute(args)
         assert "17:00" in formatted
-        assert "{current_time}" not in formatted
+        assert "$current_time" not in formatted
         # Unknown {test} is preserved harmlessly
         assert "{test}" in formatted
 
     def test_display_name_substituted_into_all_prompts(self) -> None:
         """Regression: display_name must appear in all specialist prompts."""
-        from app.agents.engine import _SafeDict
+        import string
         from app.prompt_loader import load_prompt
 
         for prompt_name in ("intake_system", "coach_system", "feedback_system"):
@@ -258,12 +258,12 @@ class TestSpecialistPromptContext:
                 "timezone": "America/Toronto",
                 "current_datetime": "2026-03-05 17:00",
             }
-            formatted = raw.format_map(_SafeDict(args))
+            formatted = string.Template(raw).safe_substitute(args)
             assert "Alice" in formatted, (
                 f"{prompt_name} did not substitute display_name"
             )
-            assert "{display_name}" not in formatted, (
-                f"{prompt_name} has unsubstituted {{display_name}}"
+            assert "$display_name" not in formatted, (
+                f"{prompt_name} has unsubstituted $display_name"
             )
 
 
