@@ -109,6 +109,21 @@ def get_default_timezone() -> str:
     return _FALLBACK_TZ
 
 
+@cache
+def get_port() -> int:
+    """Return the port the API server should listen on."""
+    try:
+        return int(os.environ.get("PORT", "8000"))
+    except (ValueError, TypeError):
+        return 8000
+
+
+@cache
+def get_log_level() -> str:
+    """Return the global log level for the application."""
+    return os.environ.get("LOG_LEVEL", "INFO").upper()
+
+
 def clear_config_cache() -> None:
     """Clear all configuration caches (useful for testing)."""
     get_data_dir.cache_clear()
@@ -122,3 +137,5 @@ def clear_config_cache() -> None:
     get_vapid_sub.cache_clear()
     get_push_gone_410_threshold.cache_clear()
     get_default_timezone.cache_clear()
+    get_port.cache_clear()
+    get_log_level.cache_clear()

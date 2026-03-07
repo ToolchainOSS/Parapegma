@@ -62,5 +62,5 @@ USER app
 
 EXPOSE 8000
 
-# Entrypoint: run uvicorn directly (no uv sync, no network)
-ENTRYPOINT ["/opt/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Entrypoint: run uvicorn through custom launcher script
+ENTRYPOINT ["/opt/venv/bin/python", "-m", "app.serve"]

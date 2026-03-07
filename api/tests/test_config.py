@@ -63,3 +63,25 @@ def test_get_push_gone_410_threshold_invalid(monkeypatch):
     monkeypatch.setenv("FLOW_PUSH_GONE_410_THRESHOLD", "not_a_number")
     config.clear_config_cache()
     assert config.get_push_gone_410_threshold() == 2
+
+
+def test_get_port(monkeypatch):
+    monkeypatch.delenv("PORT", raising=False)
+    assert config.get_port() == 8000
+
+    monkeypatch.setenv("PORT", "9000")
+    config.clear_config_cache()
+    assert config.get_port() == 9000
+
+    monkeypatch.setenv("PORT", "invalid")
+    config.clear_config_cache()
+    assert config.get_port() == 8000
+
+
+def test_get_log_level(monkeypatch):
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    assert config.get_log_level() == "INFO"
+
+    monkeypatch.setenv("LOG_LEVEL", "debug")
+    config.clear_config_cache()
+    assert config.get_log_level() == "DEBUG"
