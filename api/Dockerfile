@@ -63,4 +63,4 @@ USER app
 EXPOSE 8000
 
 # Entrypoint: run uvicorn through custom launcher script
-ENTRYPOINT ["/opt/venv/bin/python", "-m", "app.serve"]
+CMD ["/opt/venv/bin/python", "-m", "app.serve"]
