@@ -379,6 +379,7 @@ Configure in `.env` at the repository root (see `.env.example`):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `H4CKATH0N_ENV` | `development` | Environment mode (`development` / `production`) |
+| `PORT` | `8000` | Port the API server should listen on |
 | `H4CKATH0N_DATABASE_URL` | `sqlite+aiosqlite:///./data/flow-app.db` | SQLAlchemy async database URL |
 | `H4CKATH0N_RP_ID` | `localhost` | WebAuthn relying party ID |
 | `H4CKATH0N_ORIGIN` | (none) | Allowed origin for CORS and WebAuthn |
