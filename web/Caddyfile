@@ -13,7 +13,7 @@
 	}
 }
 
-:{$WEB_PORT:{$PORT:8080}} {
+:{$WEB_PORT:8080} {
 	# Reverse proxy API requests to backend with SSE streaming support.
 	# handle_path strips the /api prefix before forwarding to the backend,
 	# because the backend registers routes at root (e.g. /healthz, /dashboard).

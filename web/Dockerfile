@@ -22,9 +22,18 @@ RUN set -eux; \
     grep -q '^caddy:' /etc/group || addgroup -S caddy; \
     grep -q '^caddy:' /etc/passwd || adduser -S -D -H -G caddy caddy; \
     chmod 0644 /etc/caddy/Caddyfile; \
-    chown -R caddy:caddy /srv /data /config
+    chown -R caddy:caddy /srv /data /config; \
+    printf '%s\n' \
+      '#!/bin/sh' \
+      'set -eu' \
+      'export WEB_PORT="${WEB_PORT:-${PORT:-8080}}"' \
+      'exec "$@"' \
+      > /usr/local/bin/flow-web-entrypoint.sh; \
+    chmod 0755 /usr/local/bin/flow-web-entrypoint.sh
 
 # Run as non-root user
 USER caddy
+
+ENTRYPOINT ["/usr/local/bin/flow-web-entrypoint.sh"]
 
 EXPOSE 8080
