@@ -56,7 +56,7 @@ services:
   flow-worker:
     image: ${FLOW_IMAGE:-ghcr.io/btreemap/flow:latest}
     hostname: flow-worker
-    command:
+    entrypoint:
       [
         "/opt/venv/bin/python",
         "-m",
