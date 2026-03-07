@@ -113,7 +113,7 @@ def get_default_timezone() -> str:
 def get_port() -> int:
     """Return the port the API server should listen on."""
     try:
-        return int(os.environ.get("PORT", "8000"))
+        return int(os.environ.get("API_PORT") or os.environ.get("PORT", "8000"))
     except (ValueError, TypeError):
         return 8000
 

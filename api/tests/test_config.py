@@ -66,14 +66,19 @@ def test_get_push_gone_410_threshold_invalid(monkeypatch):
 
 
 def test_get_port(monkeypatch):
+    monkeypatch.delenv("API_PORT", raising=False)
     monkeypatch.delenv("PORT", raising=False)
     assert config.get_port() == 8000
 
-    monkeypatch.setenv("PORT", "9000")
+    monkeypatch.setenv("PORT", "9001")
+    config.clear_config_cache()
+    assert config.get_port() == 9001
+
+    monkeypatch.setenv("API_PORT", "9000")
     config.clear_config_cache()
     assert config.get_port() == 9000
 
-    monkeypatch.setenv("PORT", "invalid")
+    monkeypatch.setenv("API_PORT", "invalid")
     config.clear_config_cache()
     assert config.get_port() == 8000
 

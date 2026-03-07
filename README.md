@@ -46,13 +46,13 @@ docker build -t flow:local api/
 FLOW_WEB_IMAGE=flow-web:local FLOW_IMAGE=flow:local docker compose up
 ```
 
-The stack runs at `http://localhost:8080`. Caddy serves the frontend and reverse proxies `/api/*` to the backend (stripping the `/api` prefix).
+The stack runs at `http://localhost:${PORT:-8080}`. Caddy serves the frontend and reverse proxies `/api/*` to the backend (stripping the `/api` prefix).
 
 #### Deployment architecture
 
 ```
 Cloudflare Tunnel (terminates TLS)
-  └─→ flow-web :8080 (Caddy, HTTP-only)
+  └─→ flow-web :${PORT:-8080} (Caddy, HTTP-only)
         ├─ /          → static frontend files
         └─ /api/*     → flow :8000 (prefix stripped)
 ```
@@ -153,7 +153,7 @@ Flow/
 │   ├── tests/                    # Backend test suite
 │   └── pyproject.toml
 ├── web/                          # React PWA frontend
-│   ├── Caddyfile                 # Caddy reverse proxy config (HTTP-only, :8080)
+│   ├── Caddyfile                 # Caddy reverse proxy config (HTTP-only, :8080 default)
 │   ├── Dockerfile                # flow-web container image (Caddy + static assets)
 │   ├── public/
 │   │   ├── manifest.json         # PWA web app manifest
@@ -379,7 +379,9 @@ Configure in `.env` at the repository root (see `.env.example`):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `H4CKATH0N_ENV` | `development` | Environment mode (`development` / `production`) |
-| `PORT` | `8000` | Port the API server should listen on |
+| `WEB_PORT` | `8080` | Port the frontend container should listen on (falls back to `PORT`) |
+| `API_PORT` | `8000` | Port the backend API server should listen on (falls back to `PORT`) |
+| `PORT` | (none) | Fallback port for both (useful for platforms like Railway) |
 | `H4CKATH0N_DATABASE_URL` | `sqlite+aiosqlite:///./data/flow-app.db` | SQLAlchemy async database URL |
 | `H4CKATH0N_RP_ID` | `localhost` | WebAuthn relying party ID |
 | `H4CKATH0N_ORIGIN` | (none) | Allowed origin for CORS and WebAuthn |
