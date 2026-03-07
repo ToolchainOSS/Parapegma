@@ -35,5 +35,6 @@ RUN set -eux; \
 USER caddy
 
 ENTRYPOINT ["/usr/local/bin/flow-web-entrypoint.sh"]
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
 
 EXPOSE 8080
