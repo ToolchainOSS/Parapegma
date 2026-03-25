@@ -88,6 +88,8 @@ export function ChatThread() {
     const nid = searchParams.get("nid");
     const parsedNid = nid ? parseInt(nid, 10) : NaN;
     if (!Number.isNaN(parsedNid) && projectId) {
+      // Safe to carry this id client-side: backend re-verifies user+membership scope
+      // before cancelling any scheduled feedback task.
       setCurrentNotificationId(parsedNid);
       // Clear param immediately so we don't re-trigger
       const newParams = new URLSearchParams(searchParams);

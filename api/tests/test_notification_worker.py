@@ -47,10 +47,13 @@ async def seeded_membership(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
     from app.worker import notification_worker as worker_module
 
     monkeypatch.setattr(worker_module, "async_session_factory", _session_factory)
+
     async def _fake_generate_custom_prompt(*args, **kwargs) -> str:
         return "Take a 1-minute action now."
 
-    monkeypatch.setattr(worker_module, "_generate_custom_prompt", _fake_generate_custom_prompt)
+    monkeypatch.setattr(
+        worker_module, "_generate_custom_prompt", _fake_generate_custom_prompt
+    )
 
     async with _session_factory() as db:
         project = Project(id=generate_project_id(), display_name="Worker Test Project")
@@ -112,6 +115,7 @@ async def test_process_rule_enqueues_feedback_task_when_enabled(
         payload = json.loads(task.payload_json)
         assert task.task_type == "feedback_request"
         assert payload["text"] == "How did this nudge feel?"
+        # Web Push actions are intentionally capped to 2 options for broad browser/OS parity.
         assert payload["actions"] == [
             {"action": "fb_0", "title": "Great"},
             {"action": "fb_1", "title": "Needs changes"},
@@ -142,7 +146,9 @@ async def test_process_scheduled_tasks_creates_message_notification_and_delivery
     monkeypatch.setattr(worker_module, "async_session_factory", _session_factory)
 
     async with _session_factory() as db:
-        project = Project(id=generate_project_id(), display_name="Task Execution Project")
+        project = Project(
+            id=generate_project_id(), display_name="Task Execution Project"
+        )
         db.add(project)
         membership = ProjectMembership(
             project_id=project.id,
@@ -199,7 +205,9 @@ async def test_process_scheduled_tasks_creates_message_notification_and_delivery
 
         feedback_notif = (
             await db.execute(
-                select(Notification).where(Notification.dedupe_key == f"feedback:{task_id}")
+                select(Notification).where(
+                    Notification.dedupe_key == f"feedback:{task_id}"
+                )
             )
         ).scalar_one()
 
@@ -256,5 +264,7 @@ async def test_scheduled_task_deleted_when_parent_notification_deleted() -> None
         await db.delete(notification)
         await db.commit()
 
-        remaining = await db.execute(select(ScheduledTask).where(ScheduledTask.id == task_id))
+        remaining = await db.execute(
+            select(ScheduledTask).where(ScheduledTask.id == task_id)
+        )
         assert remaining.scalar_one_or_none() is None

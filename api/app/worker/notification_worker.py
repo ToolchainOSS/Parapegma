@@ -95,7 +95,16 @@ async def _send_push_notifications(
         "data": data or {},
     }
     if actions:
-        payload_dict["actions"] = actions
+        valid_actions: list[dict[str, str]] = []
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            action_id = action.get("action")
+            action_title = action.get("title")
+            if isinstance(action_id, str) and isinstance(action_title, str):
+                valid_actions.append({"action": action_id, "title": action_title})
+        if valid_actions:
+            payload_dict["actions"] = valid_actions
     payload = json.dumps(payload_dict)
 
     vapid_private_key = config.get_vapid_private_key()
@@ -359,11 +368,7 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
             db.add(delivery)
 
             if config.is_feedback_loop_enabled():
-                options = config.get_feedback_options()
-                actions = [
-                    {"action": f"fb_{i}", "title": opt}
-                    for i, opt in enumerate(options)
-                ]
+                actions = config.build_feedback_actions()
                 task = ScheduledTask(
                     membership_id=rule.membership_id,
                     rule_id=rule.id,
@@ -582,8 +587,14 @@ async def _process_scheduled_tasks(worker_id: str) -> int:
         )
 
         tasks = (
-            await db.execute(select(ScheduledTask).where(ScheduledTask.id.in_(task_ids)))
-        ).scalars().all()
+            (
+                await db.execute(
+                    select(ScheduledTask).where(ScheduledTask.id.in_(task_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         for task in tasks:
             try:

@@ -508,6 +508,7 @@ class ScheduledTask(Base):
     rule_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("notification_rules.id", ondelete="CASCADE"), nullable=True
     )
+    # Parent nudge notification id for delayed feedback tasks; null for standalone tasks.
     parent_instance_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("notifications.id", ondelete="CASCADE"), nullable=True
     )

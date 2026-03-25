@@ -67,11 +67,12 @@ self.addEventListener("notificationclick", (event) => {
   const projectId = data.project_id;
   const notificationId = data.notification_id;
 
-   if (event.action) {
+  if (event.action) {
     event.waitUntil(
       fetch("/api/chat/events/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           action_id: event.action,
           notification_id: notificationId,

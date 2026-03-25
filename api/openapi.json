@@ -752,6 +752,36 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "FeedbackEventRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "notification_id": {
+            "title": "Notification Id",
+            "type": "integer"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          }
+        },
+        "required": [
+          "action_id",
+          "notification_id"
+        ],
+        "title": "FeedbackEventRequest",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1442,6 +1472,17 @@
               }
             ],
             "title": "Client Msg Id"
+          },
+          "current_notification_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Notification Id"
           },
           "text": {
             "title": "Text",
@@ -2839,6 +2880,57 @@
         "summary": "Revoke Auth Session",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/chat/events/feedback": {
+      "post": {
+        "description": "Persist push action feedback as an idempotent user message.",
+        "operationId": "submit_feedback_event_chat_events_feedback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Submit Feedback Event Chat Events Feedback Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Submit Feedback Event",
+        "tags": [
+          "notifications"
         ]
       }
     },

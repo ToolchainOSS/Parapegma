@@ -103,6 +103,7 @@ type _AssertAdminPushChannelsGet =
   paths["/admin/projects/{project_id}/push/channels"]["get"];
 type _AssertAdminPushTestPost = paths["/admin/push/test"]["post"];
 type _AssertNotificationsGet = paths["/notifications"]["get"];
+type _AssertFeedbackEventPost = paths["/chat/events/feedback"]["post"];
 type _AssertNotificationsUnreadCountGet =
   paths["/notifications/unread-count"]["get"];
 type _AssertNotificationReadPost =
@@ -135,6 +136,7 @@ export type {
   _AssertAdminPushChannelsGet,
   _AssertAdminPushTestPost,
   _AssertNotificationsGet,
+  _AssertFeedbackEventPost,
   _AssertNotificationsUnreadCountGet,
   _AssertNotificationReadPost,
   _AssertWebpushVapidGet,

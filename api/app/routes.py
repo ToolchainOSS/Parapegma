@@ -1480,6 +1480,7 @@ async def submit_feedback_event(
             .order_by(NotificationDelivery.id.desc())
         )
         action_title = body.action_id
+        title_found = False
         for delivery in delivery_result.scalars().all():
             try:
                 payload = json.loads(delivery.payload_json)
@@ -1488,8 +1489,9 @@ async def submit_feedback_event(
             for action in payload.get("actions", []):
                 if action.get("action") == body.action_id:
                     action_title = str(action.get("title") or body.action_id)
+                    title_found = True
                     break
-            if action_title != body.action_id:
+            if title_found:
                 break
 
         conv_result = await db.execute(

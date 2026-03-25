@@ -126,6 +126,14 @@ def get_feedback_options() -> list[str]:
     return options[:2] if options else ["Works perfectly", "Needs tweaks"]
 
 
+def build_feedback_actions() -> list[dict[str, str]]:
+    """Build canonical push action payloads for feedback options."""
+    return [
+        {"action": f"fb_{i}", "title": opt}
+        for i, opt in enumerate(get_feedback_options())
+    ]
+
+
 _FALLBACK_TZ = "America/Toronto"
 
 

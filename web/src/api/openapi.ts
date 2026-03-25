@@ -409,6 +409,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chat/events/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Feedback Event
+         * @description Persist push action feedback as an idempotent user message.
+         */
+        post: operations["submit_feedback_event_chat_events_feedback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboard": {
         parameters: {
             query?: never;
@@ -1063,6 +1083,15 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** FeedbackEventRequest */
+        FeedbackEventRequest: {
+            /** Action Id */
+            action_id: string;
+            /** Notification Id */
+            notification_id: number;
+            /** Project Id */
+            project_id?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1392,6 +1421,8 @@ export interface components {
         SendMessageRequest: {
             /** Client Msg Id */
             client_msg_id?: string | null;
+            /** Current Notification Id */
+            current_notification_id?: number | null;
             /** Text */
             text: string;
         };
@@ -2305,6 +2336,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthSessionRevokeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_feedback_event_chat_events_feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
             /** @description Validation Error */

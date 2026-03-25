@@ -430,7 +430,9 @@ async def test_send_message_cancels_pending_feedback_task(
     assert resp.status_code == 200
 
     async with _test_session_factory() as db:
-        task_result = await db.execute(select(ScheduledTask).where(ScheduledTask.id == task_id))
+        task_result = await db.execute(
+            select(ScheduledTask).where(ScheduledTask.id == task_id)
+        )
         updated_task = task_result.scalar_one()
         assert updated_task.status == "cancelled"
 
