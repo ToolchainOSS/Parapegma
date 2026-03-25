@@ -489,3 +489,42 @@ class NotificationDelivery(Base):
 
     instance: Mapped[Notification] = relationship()
     membership: Mapped[ProjectMembership] = relationship()
+
+
+class ScheduledTask(Base):
+    """Ephemeral task queue for delayed system actions."""
+
+    __tablename__ = "scheduled_tasks"
+    __table_args__ = (
+        Index("ix_scheduled_task_due", "run_at_utc", "status"),
+        Index("ix_scheduled_task_rule", "rule_id"),
+        Index("ix_scheduled_task_parent", "parent_instance_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    membership_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project_memberships.id"), nullable=False
+    )
+    rule_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("notification_rules.id", ondelete="CASCADE"), nullable=True
+    )
+    parent_instance_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("notifications.id", ondelete="CASCADE"), nullable=True
+    )
+    task_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    run_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locked_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    membership: Mapped[ProjectMembership] = relationship()

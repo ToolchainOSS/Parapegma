@@ -70,6 +70,7 @@ export function ChatThread() {
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const [hasNewMessages, setHasNewMessages] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [currentNotificationId, setCurrentNotificationId] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastEventIdRef = useRef<string | null>(null);
@@ -87,6 +88,7 @@ export function ChatThread() {
     const nid = searchParams.get("nid");
     const parsedNid = nid ? parseInt(nid, 10) : NaN;
     if (!Number.isNaN(parsedNid) && projectId) {
+      setCurrentNotificationId(parsedNid);
       // Clear param immediately so we don't re-trigger
       const newParams = new URLSearchParams(searchParams);
       newParams.delete("nid");
@@ -417,7 +419,11 @@ export function ChatThread() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ text, client_msg_id: tempId }),
+        body: JSON.stringify({
+          text,
+          client_msg_id: tempId,
+          current_notification_id: currentNotificationId,
+        }),
       });
 
       if (!res.ok) {
@@ -491,6 +497,7 @@ export function ChatThread() {
       });
       // Locally update dashboard with final assistant message
       updateDashboardPreview(data.content);
+      setCurrentNotificationId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message");
       setMessages((prev) => prev.filter((m) => m.id !== tempId));

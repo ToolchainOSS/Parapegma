@@ -41,6 +41,7 @@ from app.models import (
     ProjectInvite,
     ProjectMembership,
     PushSubscription,
+    ScheduledTask,
     UserProfileStore,
 )
 from app.schemas.patches import UserProfileData
@@ -154,6 +155,7 @@ class SendMessageRequest(BaseModel):
 
     text: str
     client_msg_id: str | None = None
+    current_notification_id: int | None = None
 
 
 class MessageItem(BaseModel):
@@ -175,6 +177,14 @@ class SendMessageResponse(BaseModel):
 
 class MessageListResponse(BaseModel):
     messages: list[MessageItem]
+
+
+class FeedbackEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str
+    notification_id: int
+    project_id: str | None = None
 
 
 class PushKeys(BaseModel):
@@ -1147,6 +1157,17 @@ async def send_message(
     membership = await _get_membership(db, project_id, user.id)
     conv = await _get_conversation(db, membership.id)
 
+    if body.current_notification_id is not None:
+        await db.execute(
+            update(ScheduledTask)
+            .where(
+                ScheduledTask.parent_instance_id == body.current_notification_id,
+                ScheduledTask.membership_id == membership.id,
+                ScheduledTask.status == "pending",
+            )
+            .values(status="cancelled")
+        )
+
     # Eagerly capture IDs to survive potential rollback
     conv_id = conv.id
     membership_id = membership.id
@@ -1425,6 +1446,81 @@ async def send_message(
             except Exception:
                 logger.exception("Failed to mark turn as failed")
         raise
+
+
+@router.post("/chat/events/feedback", tags=["notifications"])
+async def submit_feedback_event(
+    body: FeedbackEventRequest,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Persist push action feedback as an idempotent user message."""
+    try:
+        notif_result = await db.execute(
+            select(Notification)
+            .join(ProjectMembership, Notification.membership_id == ProjectMembership.id)
+            .where(
+                Notification.id == body.notification_id,
+                ProjectMembership.user_id == user.id,
+            )
+        )
+        notification = notif_result.scalar_one_or_none()
+        if notification is None:
+            raise HTTPException(status_code=404, detail="Notification not found")
+
+        if notification.read_at is None:
+            notification.read_at = datetime.now(UTC)
+
+        delivery_result = await db.execute(
+            select(NotificationDelivery)
+            .where(
+                NotificationDelivery.instance_id == notification.id,
+                NotificationDelivery.channel == "push_notify",
+            )
+            .order_by(NotificationDelivery.id.desc())
+        )
+        action_title = body.action_id
+        for delivery in delivery_result.scalars().all():
+            try:
+                payload = json.loads(delivery.payload_json)
+            except json.JSONDecodeError:
+                continue
+            for action in payload.get("actions", []):
+                if action.get("action") == body.action_id:
+                    action_title = str(action.get("title") or body.action_id)
+                    break
+            if action_title != body.action_id:
+                break
+
+        conv_result = await db.execute(
+            select(Conversation).where(
+                Conversation.membership_id == notification.membership_id
+            )
+        )
+        conv = conv_result.scalar_one_or_none()
+        if conv is None:
+            conv = Conversation(membership_id=notification.membership_id)
+            db.add(conv)
+            await db.flush()
+
+        msg = Message(
+            conversation_id=conv.id,
+            role="user",
+            content=f"Feedback: {action_title}",
+            server_msg_id=generate_server_msg_id(),
+            client_msg_id=f"feedback_action:{notification.id}:{body.action_id}",
+        )
+        db.add(msg)
+        await db.commit()
+        return {"ok": True}
+    except IntegrityError:
+        await db.rollback()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to store feedback event")
+        raise HTTPException(status_code=500, detail="Failed to store feedback event")
 
 
 # ---------------------------------------------------------------------------

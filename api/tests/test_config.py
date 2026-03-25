@@ -90,3 +90,51 @@ def test_get_log_level(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "debug")
     config.clear_config_cache()
     assert config.get_log_level() == "DEBUG"
+
+
+def test_feedback_loop_enabled_default_and_override(monkeypatch):
+    monkeypatch.delenv("ENABLE_AUTOMATED_FEEDBACK", raising=False)
+    assert config.is_feedback_loop_enabled() is True
+
+    monkeypatch.setenv("ENABLE_AUTOMATED_FEEDBACK", "false")
+    config.clear_config_cache()
+    assert config.is_feedback_loop_enabled() is False
+
+
+def test_feedback_delay_minutes(monkeypatch):
+    monkeypatch.delenv("FEEDBACK_DELAY_MINUTES", raising=False)
+    assert config.get_feedback_delay_minutes() == 120
+
+    monkeypatch.setenv("FEEDBACK_DELAY_MINUTES", "45")
+    config.clear_config_cache()
+    assert config.get_feedback_delay_minutes() == 45
+
+    monkeypatch.setenv("FEEDBACK_DELAY_MINUTES", "0")
+    config.clear_config_cache()
+    assert config.get_feedback_delay_minutes() == 1
+
+    monkeypatch.setenv("FEEDBACK_DELAY_MINUTES", "invalid")
+    config.clear_config_cache()
+    assert config.get_feedback_delay_minutes() == 120
+
+
+def test_feedback_prompt_text(monkeypatch):
+    monkeypatch.delenv("FEEDBACK_PROMPT_TEXT", raising=False)
+    assert config.get_feedback_prompt_text() == "How did this prompt work for you?"
+
+    monkeypatch.setenv("FEEDBACK_PROMPT_TEXT", "Did this help?")
+    config.clear_config_cache()
+    assert config.get_feedback_prompt_text() == "Did this help?"
+
+
+def test_feedback_options(monkeypatch):
+    monkeypatch.delenv("FEEDBACK_OPTIONS", raising=False)
+    assert config.get_feedback_options() == ["Works perfectly", "Needs tweaks"]
+
+    monkeypatch.setenv("FEEDBACK_OPTIONS", " Great ,  Okay , Ignore ")
+    config.clear_config_cache()
+    assert config.get_feedback_options() == ["Great", "Okay"]
+
+    monkeypatch.setenv("FEEDBACK_OPTIONS", " , ")
+    config.clear_config_cache()
+    assert config.get_feedback_options() == ["Works perfectly", "Needs tweaks"]

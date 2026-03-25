@@ -67,6 +67,21 @@ self.addEventListener("notificationclick", (event) => {
   const projectId = data.project_id;
   const notificationId = data.notification_id;
 
+   if (event.action) {
+    event.waitUntil(
+      fetch("/api/chat/events/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action_id: event.action,
+          notification_id: notificationId,
+          project_id: projectId,
+        }),
+      }).catch((err) => console.error("Feedback sync failed:", err)),
+    );
+    return;
+  }
+
   // Build deep-link URL
   let urlPath;
   if (data.url) {
