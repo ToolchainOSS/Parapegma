@@ -499,6 +499,12 @@ class ScheduledTask(Base):
         Index("ix_scheduled_task_due", "run_at_utc", "status"),
         Index("ix_scheduled_task_rule", "rule_id"),
         Index("ix_scheduled_task_parent", "parent_instance_id"),
+        Index(
+            "ix_scheduled_task_membership_type_status",
+            "membership_id",
+            "task_type",
+            "status",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -420,7 +420,7 @@ export interface paths {
         put?: never;
         /**
          * Submit Feedback Event
-         * @description Persist push action feedback as an idempotent user message.
+         * @description Persist push action feedback and run an engine turn for contextual follow-up.
          */
         post: operations["submit_feedback_event_chat_events_feedback_post"];
         delete?: never;

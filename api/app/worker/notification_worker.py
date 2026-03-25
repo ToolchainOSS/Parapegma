@@ -41,6 +41,7 @@ from app.services.notification_engine import (
     get_user_timezone,
     recompute_rule_due_time,
 )
+from app.services.event_service import persist_event
 from app.services.prompt_context import get_prompt_context_for_membership
 from app.services.profile_service import load_user_profile
 from app.prompt_loader import load_prompt
@@ -322,6 +323,20 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
             )
             db.add(message)
             await db.flush()
+            await persist_event(
+                db,
+                conversation.id,
+                "message.final",
+                {
+                    "message_id": message.id,
+                    "server_msg_id": message.server_msg_id,
+                    "role": "assistant",
+                    "content": message.content,
+                    "created_at": message.created_at.isoformat()
+                    if message.created_at
+                    else datetime.now(UTC).isoformat(),
+                },
+            )
 
             # Persist notification instance
             notification = Notification(
@@ -598,6 +613,23 @@ async def _process_scheduled_tasks(worker_id: str) -> int:
 
         for task in tasks:
             try:
+                if task.rule_id is not None:
+                    rule_result = await db.execute(
+                        select(NotificationRule).where(
+                            NotificationRule.id == task.rule_id
+                        )
+                    )
+                    parent_rule = rule_result.scalar_one_or_none()
+                    if parent_rule is None or not parent_rule.is_active:
+                        logger.info(
+                            "Cancelling scheduled task %s: parent rule is inactive",
+                            task.id,
+                        )
+                        task.status = "cancelled"
+                        task.locked_by = None
+                        task.locked_until = None
+                        continue
+
                 if task.task_type == "feedback_request":
                     payload = json.loads(task.payload_json)
                     membership_result = await db.execute(
@@ -628,6 +660,20 @@ async def _process_scheduled_tasks(worker_id: str) -> int:
                     )
                     db.add(message)
                     await db.flush()
+                    await persist_event(
+                        db,
+                        conversation.id,
+                        "message.final",
+                        {
+                            "message_id": message.id,
+                            "server_msg_id": message.server_msg_id,
+                            "role": "assistant",
+                            "content": message.content,
+                            "created_at": message.created_at.isoformat()
+                            if message.created_at
+                            else datetime.now(UTC).isoformat(),
+                        },
+                    )
 
                     notification = Notification(
                         membership_id=task.membership_id,

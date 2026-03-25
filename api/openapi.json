@@ -2885,7 +2885,7 @@
     },
     "/chat/events/feedback": {
       "post": {
-        "description": "Persist push action feedback as an idempotent user message.",
+        "description": "Persist push action feedback and run an engine turn for contextual follow-up.",
         "operationId": "submit_feedback_event_chat_events_feedback_post",
         "requestBody": {
           "content": {

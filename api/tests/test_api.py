@@ -20,6 +20,7 @@ from app.id_utils import generate_project_id
 from app.models import (
     Base,
     Conversation,
+    ConversationEvent,
     FlowUserProfile,
     Message,
     NotificationDelivery,
@@ -438,6 +439,59 @@ async def test_send_message_cancels_pending_feedback_task(
 
 
 @pytest.mark.asyncio
+async def test_send_message_cancels_all_pending_feedback_tasks_for_membership(
+    seeded_client: dict[str, Any],
+) -> None:
+    client = seeded_client["client"]
+    project_id = seeded_client["project_id"]
+    invite_code = seeded_client["invite_code"]
+
+    await client.post(
+        f"/p/{project_id}/activate/claim",
+        json={"invite_code": invite_code},
+    )
+
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+
+        task_a = ScheduledTask(
+            membership_id=membership.id,
+            task_type="feedback_request",
+            payload_json=json.dumps({"text": "A"}),
+            run_at_utc=datetime.now(UTC) + timedelta(hours=1),
+            status="pending",
+        )
+        task_b = ScheduledTask(
+            membership_id=membership.id,
+            task_type="feedback_request",
+            payload_json=json.dumps({"text": "B"}),
+            run_at_utc=datetime.now(UTC) + timedelta(hours=2),
+            status="pending",
+        )
+        db.add(task_a)
+        db.add(task_b)
+        await db.commit()
+        task_ids = [task_a.id, task_b.id]
+
+    resp = await client.post(
+        f"/p/{project_id}/messages",
+        json={"text": "Just chatting", "client_msg_id": "cancel-feedback-all-1"},
+    )
+    assert resp.status_code == 200
+
+    async with _test_session_factory() as db:
+        result = await db.execute(
+            select(ScheduledTask).where(ScheduledTask.id.in_(task_ids))
+        )
+        tasks = result.scalars().all()
+        assert len(tasks) == 2
+        assert all(task.status == "cancelled" for task in tasks)
+
+
+@pytest.mark.asyncio
 async def test_feedback_event_endpoint_creates_user_message(
     seeded_client: dict[str, Any],
 ) -> None:
@@ -504,6 +558,29 @@ async def test_feedback_event_endpoint_creates_user_message(
         message = msg_result.scalars().first()
         assert message is not None
         assert message.content == "Feedback: Needs tweaks"
+        asst_result = await db.execute(
+            select(Message)
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(
+                Conversation.membership_id == membership_id,
+                Message.role == "assistant",
+            )
+            .order_by(Message.id.desc())
+        )
+        asst_msg = asst_result.scalars().first()
+        assert asst_msg is not None
+
+        event_result = await db.execute(
+            select(ConversationEvent)
+            .join(Conversation, ConversationEvent.conversation_id == Conversation.id)
+            .where(
+                Conversation.membership_id == membership_id,
+                ConversationEvent.event_type == "message.final",
+            )
+            .order_by(ConversationEvent.id.desc())
+        )
+        event = event_result.scalars().first()
+        assert event is not None
 
 
 @pytest.mark.asyncio

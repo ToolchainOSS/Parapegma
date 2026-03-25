@@ -48,6 +48,7 @@ from app.schemas.patches import UserProfileData
 from app.services.event_service import load_events_since, persist_event
 from app.services.profile_service import load_user_profile, save_user_profile
 from app import config
+from app.agents.engine import process_turn as engine_process_turn
 from h4ckath0n.auth import require_user
 from h4ckath0n.auth.dependencies import require_admin
 from h4ckath0n.auth.models import Device, User
@@ -76,6 +77,21 @@ def _publish_event(conversation_id: int, event: dict[str, Any]) -> None:
     """Push an SSE event to all listeners on a conversation."""
     for q in _sse_queues.get(conversation_id, set()):
         q.put_nowait(event)
+
+
+def _resolve_feedback_action_title(
+    deliveries: list[NotificationDelivery], action_id: str
+) -> str:
+    """Resolve human-readable action title from delivery payload actions."""
+    for delivery in deliveries:
+        try:
+            payload = json.loads(delivery.payload_json)
+        except json.JSONDecodeError:
+            continue
+        for action in payload.get("actions", []):
+            if action.get("action") == action_id:
+                return str(action.get("title") or action_id)
+    return action_id
 
 
 # ---------------------------------------------------------------------------
@@ -1157,6 +1173,15 @@ async def send_message(
     membership = await _get_membership(db, project_id, user.id)
     conv = await _get_conversation(db, membership.id)
 
+    await db.execute(
+        update(ScheduledTask)
+        .where(
+            ScheduledTask.membership_id == membership.id,
+            ScheduledTask.task_type == "feedback_request",
+            ScheduledTask.status == "pending",
+        )
+        .values(status="cancelled")
+    )
     if body.current_notification_id is not None:
         await db.execute(
             update(ScheduledTask)
@@ -1454,7 +1479,7 @@ async def submit_feedback_event(
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
-    """Persist push action feedback as an idempotent user message."""
+    """Persist push action feedback and run an engine turn for contextual follow-up."""
     try:
         notif_result = await db.execute(
             select(Notification)
@@ -1479,20 +1504,10 @@ async def submit_feedback_event(
             )
             .order_by(NotificationDelivery.id.desc())
         )
-        action_title = body.action_id
-        title_found = False
-        for delivery in delivery_result.scalars().all():
-            try:
-                payload = json.loads(delivery.payload_json)
-            except json.JSONDecodeError:
-                continue
-            for action in payload.get("actions", []):
-                if action.get("action") == body.action_id:
-                    action_title = str(action.get("title") or body.action_id)
-                    title_found = True
-                    break
-            if title_found:
-                break
+        action_title = _resolve_feedback_action_title(
+            delivery_result.scalars().all(),
+            body.action_id,
+        )
 
         conv_result = await db.execute(
             select(Conversation).where(
@@ -1505,15 +1520,72 @@ async def submit_feedback_event(
             db.add(conv)
             await db.flush()
 
-        msg = Message(
+        user_msg = Message(
             conversation_id=conv.id,
             role="user",
             content=f"Feedback: {action_title}",
             server_msg_id=generate_server_msg_id(),
             client_msg_id=f"feedback_action:{notification.id}:{body.action_id}",
         )
-        db.add(msg)
+        db.add(user_msg)
+        await db.flush()
+
+        llm_key = os.environ.get("H4CKATH0N_OPENAI_API_KEY") or os.environ.get(
+            "OPENAI_API_KEY"
+        )
+        llm = (
+            ChatOpenAI(
+                model=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
+                api_key=llm_key,
+            )
+            if llm_key
+            else None
+        )
+        assistant_content, decision, _debug_info = await engine_process_turn(
+            db=db,
+            conversation=conv,
+            membership_id=notification.membership_id,
+            user_msg=user_msg,
+            user_text=user_msg.content,
+            llm=llm,
+            router_llm=llm,
+        )
+
+        asst_msg = Message(
+            conversation_id=conv.id,
+            role="assistant",
+            content=assistant_content,
+            server_msg_id=generate_server_msg_id(),
+        )
+        db.add(asst_msg)
+        await db.flush()
+
+        route_to_prompt = {
+            "INTAKE": "intake_system",
+            "FEEDBACK": "feedback_system",
+            "COACH": "coach_system",
+        }
+        prompt_name = route_to_prompt.get(decision.route, "coach_system")
+        sse_payload = {
+            "message_id": asst_msg.id,
+            "server_msg_id": asst_msg.server_msg_id,
+            "role": "assistant",
+            "content": assistant_content,
+            "created_at": asst_msg.created_at.isoformat()
+            if asst_msg.created_at
+            else datetime.now(UTC).isoformat(),
+            "prompt_versions": prompt_version(prompt_name),
+        }
+        conv_event = await persist_event(db, conv.id, "message.final", sse_payload)
         await db.commit()
+        _publish_event(
+            conv.id,
+            {
+                "event": "message.final",
+                "id": str(conv_event.id),
+                "data": json.dumps(sse_payload),
+            },
+        )
         return {"ok": True}
     except IntegrityError:
         await db.rollback()

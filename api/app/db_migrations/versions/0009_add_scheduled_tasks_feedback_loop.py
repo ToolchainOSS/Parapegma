@@ -59,9 +59,17 @@ def upgrade() -> None:
     op.create_index(
         "ix_scheduled_task_parent", "scheduled_tasks", ["parent_instance_id"]
     )
+    op.create_index(
+        "ix_scheduled_task_membership_type_status",
+        "scheduled_tasks",
+        ["membership_id", "task_type", "status"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "ix_scheduled_task_membership_type_status", table_name="scheduled_tasks"
+    )
     op.drop_index("ix_scheduled_task_parent", table_name="scheduled_tasks")
     op.drop_index("ix_scheduled_task_rule", table_name="scheduled_tasks")
     op.drop_index("ix_scheduled_task_due", table_name="scheduled_tasks")

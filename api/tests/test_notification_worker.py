@@ -13,6 +13,7 @@ from app import config
 from app.id_utils import generate_project_id
 from app.models import (
     Base,
+    ConversationEvent,
     Message,
     Notification,
     NotificationDelivery,
@@ -104,6 +105,14 @@ async def test_process_rule_enqueues_feedback_task_when_enabled(
         notif = (
             await db.execute(select(Notification).order_by(Notification.id.desc()))
         ).scalar_one()
+        event = (
+            await db.execute(
+                select(ConversationEvent).where(
+                    ConversationEvent.event_type == "message.final"
+                )
+            )
+        ).scalar_one_or_none()
+        assert event is not None
         task = (
             await db.execute(
                 select(ScheduledTask).where(
@@ -195,6 +204,14 @@ async def test_process_scheduled_tasks_creates_message_notification_and_delivery
             await db.execute(select(ScheduledTask).where(ScheduledTask.id == task_id))
         ).scalar_one()
         assert updated_task.status == "completed"
+        event = (
+            await db.execute(
+                select(ConversationEvent).where(
+                    ConversationEvent.event_type == "message.final"
+                )
+            )
+        ).scalar_one_or_none()
+        assert event is not None
 
         feedback_msg = (
             await db.execute(
@@ -225,6 +242,59 @@ async def test_process_scheduled_tasks_creates_message_notification_and_delivery
         ]
         assert payload["data"]["action"] == "feedback"
         assert payload["url"].endswith(f"/chat?nid={feedback_notif.id}")
+
+
+@pytest.mark.asyncio
+async def test_process_scheduled_tasks_cancels_task_when_parent_rule_inactive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.worker import notification_worker as worker_module
+
+    monkeypatch.setattr(worker_module, "async_session_factory", _session_factory)
+
+    async with _session_factory() as db:
+        project = Project(
+            id=generate_project_id(), display_name="Inactive Rule Project"
+        )
+        db.add(project)
+        membership = ProjectMembership(
+            project_id=project.id,
+            user_id="u_worker_inactive_rule_000000",
+            status="active",
+        )
+        db.add(membership)
+        await db.flush()
+
+        rule = NotificationRule(
+            membership_id=membership.id,
+            kind="daily_local_time",
+            config_json=json.dumps({"topic": "Daily Nudge", "time": "08:00"}),
+            tz_policy="floating_user_tz",
+            is_active=False,
+        )
+        db.add(rule)
+        await db.flush()
+
+        task = ScheduledTask(
+            membership_id=membership.id,
+            rule_id=rule.id,
+            task_type="feedback_request",
+            payload_json=json.dumps({"text": "How did this prompt work for you?"}),
+            run_at_utc=datetime.now(UTC) - timedelta(minutes=1),
+            status="pending",
+        )
+        db.add(task)
+        await db.commit()
+        task_id = task.id
+
+    processed = await _process_scheduled_tasks("worker-test")
+    assert processed == 0
+
+    async with _session_factory() as db:
+        updated_task = (
+            await db.execute(select(ScheduledTask).where(ScheduledTask.id == task_id))
+        ).scalar_one()
+        assert updated_task.status == "cancelled"
 
 
 @pytest.mark.asyncio
