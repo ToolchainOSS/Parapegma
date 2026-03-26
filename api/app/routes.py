@@ -66,6 +66,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MESSAGE_PREVIEW_MAX_LENGTH = 120
+FEEDBACK_ACTION_CLIENT_MSG_PREFIX = "feedback_action:"
 
 # ---------------------------------------------------------------------------
 # In-memory SSE fan-out queues: conversation_id -> set of asyncio.Queue
@@ -92,6 +93,13 @@ def _resolve_feedback_action_title(
             if action.get("action") == action_id:
                 return str(action.get("title") or action_id)
     return action_id
+
+
+def _format_feedback_system_message(action_title: str, notification_id: int) -> str:
+    return (
+        f"[System: User provided feedback '{action_title}' on notification "
+        f"{notification_id}]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1145,7 +1153,9 @@ async def list_messages(
                 Message.conversation_id == conv.id,
                 or_(
                     Message.client_msg_id.is_(None),
-                    ~Message.client_msg_id.startswith("feedback_action:"),
+                    ~Message.client_msg_id.startswith(
+                        FEEDBACK_ACTION_CLIENT_MSG_PREFIX
+                    ),
                 ),
             )
             .order_by(Message.id.asc())
@@ -1529,12 +1539,11 @@ async def submit_feedback_event(
         user_msg = Message(
             conversation_id=conv.id,
             role="user",
-            content=(
-                f"[System: User provided feedback '{action_title}' on notification "
-                f"{notification.id}]"
-            ),
+            content=_format_feedback_system_message(action_title, notification.id),
             server_msg_id=generate_server_msg_id(),
-            client_msg_id=f"feedback_action:{notification.id}:{body.action_id}",
+            client_msg_id=(
+                f"{FEEDBACK_ACTION_CLIENT_MSG_PREFIX}{notification.id}:{body.action_id}"
+            ),
         )
         db.add(user_msg)
         await db.flush()

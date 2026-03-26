@@ -1,5 +1,133 @@
 // Service Worker for Flow Research PWA
 
+const KEYVAL_DB_NAME = "keyval-store";
+const KEYVAL_STORE_NAME = "keyval";
+const DB_PRIVATE_KEY = "h4ckath0n_device_private_key";
+const DB_DEVICE_ID = "h4ckath0n_device_id";
+const DB_USER_ID = "h4ckath0n_user_id";
+const AUD_HTTP = "h4ckath0n:http";
+const TOKEN_LIFETIME_SECONDS = 900;
+
+function base64UrlEncode(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function utf8Base64Url(value) {
+  return base64UrlEncode(new TextEncoder().encode(value));
+}
+
+function derSignatureToJose(derBytes, keySize = 32) {
+  const bytes = derBytes instanceof Uint8Array ? derBytes : new Uint8Array(derBytes);
+  let offset = 0;
+
+  const expect = (value, label) => {
+    const actual = bytes[offset++];
+    if (actual !== value) {
+      throw new Error(`Invalid DER signature (${label})`);
+    }
+  };
+
+  const readLength = () => {
+    let len = bytes[offset++];
+    if ((len & 0x80) === 0) return len;
+    const numBytes = len & 0x7f;
+    if (numBytes === 0 || numBytes > 2) {
+      throw new Error("Invalid DER length");
+    }
+    len = 0;
+    for (let i = 0; i < numBytes; i += 1) {
+      len = (len << 8) | bytes[offset++];
+    }
+    return len;
+  };
+
+  expect(0x30, "sequence tag");
+  readLength(); // total length, validated structurally by parsing below
+
+  expect(0x02, "r integer tag");
+  const rLen = readLength();
+  const r = bytes.slice(offset, offset + rLen);
+  offset += rLen;
+
+  expect(0x02, "s integer tag");
+  const sLen = readLength();
+  const s = bytes.slice(offset, offset + sLen);
+
+  const trimLeadingZeros = (arr) => {
+    let i = 0;
+    while (i < arr.length - 1 && arr[i] === 0) i += 1;
+    return arr.slice(i);
+  };
+
+  const leftPad = (arr) => {
+    const out = new Uint8Array(keySize);
+    out.set(arr.slice(-keySize), keySize - Math.min(arr.length, keySize));
+    return out;
+  };
+
+  const rPadded = leftPad(trimLeadingZeros(r));
+  const sPadded = leftPad(trimLeadingZeros(s));
+  const jose = new Uint8Array(keySize * 2);
+  jose.set(rPadded, 0);
+  jose.set(sPadded, keySize);
+  return jose;
+}
+
+function openKeyvalDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(KEYVAL_DB_NAME);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+
+async function keyvalGet(key) {
+  const db = await openKeyvalDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(KEYVAL_STORE_NAME, "readonly");
+      const store = tx.objectStore(KEYVAL_STORE_NAME);
+      const req = store.get(key);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => resolve(req.result ?? null);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function mintHttpToken() {
+  const [privateKey, deviceId, userId] = await Promise.all([
+    keyvalGet(DB_PRIVATE_KEY),
+    keyvalGet(DB_DEVICE_ID),
+    keyvalGet(DB_USER_ID),
+  ]);
+
+  if (!privateKey) throw new Error("Missing device private key");
+  if (!deviceId) throw new Error("Missing device id");
+  if (!userId) throw new Error("Missing user id");
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "ES256", typ: "JWT", kid: String(deviceId) };
+  const payload = {
+    sub: String(userId),
+    iat: now,
+    exp: now + TOKEN_LIFETIME_SECONDS,
+    aud: AUD_HTTP,
+  };
+
+  const signingInput = `${utf8Base64Url(JSON.stringify(header))}.${utf8Base64Url(JSON.stringify(payload))}`;
+  const signatureDer = await crypto.subtle.sign(
+    { name: "ECDSA", hash: { name: "SHA-256" } },
+    privateKey,
+    new TextEncoder().encode(signingInput),
+  );
+  const signature = base64UrlEncode(derSignatureToJose(signatureDer));
+  return `${signingInput}.${signature}`;
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });
@@ -69,16 +197,21 @@ self.addEventListener("notificationclick", (event) => {
 
   if (event.action) {
     event.waitUntil(
-      fetch("/api/chat/events/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          action_id: event.action,
-          notification_id: notificationId,
-          project_id: projectId,
-        }),
-      }).catch((err) => console.error("Feedback sync failed:", err)),
+      (async () => {
+        const token = await mintHttpToken();
+        await fetch("/api/chat/events/feedback", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            action_id: event.action,
+            notification_id: notificationId,
+            project_id: projectId,
+          }),
+        });
+      })().catch((err) => console.error("Feedback sync failed:", err)),
     );
     return;
   }
