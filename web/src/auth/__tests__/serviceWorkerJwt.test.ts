@@ -1,64 +1,65 @@
 import { describe, it, expect } from "vitest";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-
-const SW_PATH = resolve(process.cwd(), "public/sw.js");
+import swSource from "../../../public/sw.js?raw";
 
 function toBase64Url(bytes: Uint8Array): string {
-  return Buffer.from(bytes)
-    .toString("base64")
+  const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+  return btoa(binary)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
 }
 
 function createIndexedDbMock(values: Record<string, unknown>): IDBFactory {
-  return {
+  return ({
     open: () => {
-      const request: Partial<IDBOpenDBRequest> = {};
+      const request: {
+        result?: unknown;
+        onsuccess?: ((this: unknown, event: Event) => unknown) | null;
+      } = {};
       queueMicrotask(() => {
-        const db: Partial<IDBDatabase> = {
+        const db = {
           transaction: () => {
-            const tx: Partial<IDBTransaction> = {
+            const tx = {
               objectStore: () => {
-                const store: Partial<IDBObjectStore> = {
+                const store = {
                   get: (key: IDBValidKey) => {
-                    const req: Partial<IDBRequest> = {};
+                    const req: {
+                      result?: unknown;
+                      onsuccess?: ((this: unknown, event: Event) => unknown) | null;
+                    } = {};
                     queueMicrotask(() => {
                       req.result = values[String(key)] ?? null;
-                      req.onsuccess?.(new Event("success"));
+                      req.onsuccess?.call(req, new Event("success"));
                     });
-                    return req as IDBRequest;
+                    return req;
                   },
                 };
-                return store as IDBObjectStore;
+                return store;
               },
             };
-            return tx as IDBTransaction;
+            return tx;
           },
           close: () => {},
         };
-        request.result = db as IDBDatabase;
-        request.onsuccess?.(new Event("success"));
+        request.result = db;
+        request.onsuccess?.call(request, new Event("success"));
       });
-      return request as IDBOpenDBRequest;
+      return request;
     },
-  } as IDBFactory;
+  }) as unknown as IDBFactory;
 }
 
 describe("service worker JWT minting", () => {
   it("uses raw crypto.subtle.sign bytes instead of DER conversion", async () => {
-    const source = await readFile(SW_PATH, "utf8");
-    expect(source).not.toContain("derSignatureToJose");
-    expect(source).toContain(
+    expect(swSource).not.toContain("derSignatureToJose");
+    expect(swSource).toContain(
       "const signature = base64UrlEncode(new Uint8Array(signatureRaw));",
     );
   });
 
   it("encodes the JWT signature directly from sign() output bytes", async () => {
-    const source = await readFile(SW_PATH, "utf8");
-    expect(source).toContain("async function mintHttpToken()");
-    expect(source).toContain("const signatureRaw = await crypto.subtle.sign(");
+    expect(swSource).toContain("async function mintHttpToken()");
+    expect(swSource).toContain("const signatureRaw = await crypto.subtle.sign(");
     const signatureBytes = new Uint8Array(Array.from({ length: 64 }, (_, i) => i));
     const indexedDB = createIndexedDbMock({
       h4ckath0n_device_private_key: { mock: "private-key" },
@@ -73,7 +74,7 @@ describe("service worker JWT minting", () => {
     } as unknown as Crypto;
 
     const btoaMock = (value: string): string =>
-      Buffer.from(value, "binary").toString("base64");
+      btoa(value);
 
     const selfMock = {
       location: { origin: "https://example.com" },
@@ -88,7 +89,7 @@ describe("service worker JWT minting", () => {
       "crypto",
       "TextEncoder",
       "btoa",
-      `${source}; return { mintHttpToken };`,
+      `${swSource}; return { mintHttpToken };`,
     ) as (
       self: unknown,
       indexedDB: IDBFactory,
