@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pywebpush import WebPushException, webpush
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app import config
@@ -32,6 +32,7 @@ from app.models import (
     NotificationRuleState,
     ProjectMembership,
     PushSubscription,
+    ScheduledTask,
 )
 from app.services.notification_engine import (
     claim_due_deliveries,
@@ -40,6 +41,7 @@ from app.services.notification_engine import (
     get_user_timezone,
     recompute_rule_due_time,
 )
+from app.services.event_service import persist_event
 from app.services.prompt_context import get_prompt_context_for_membership
 from app.services.profile_service import load_user_profile
 from app.prompt_loader import load_prompt
@@ -68,6 +70,7 @@ async def _send_push_notifications(
     body: str,
     url: str,
     data: dict | None = None,
+    actions: list[dict] | None = None,
 ) -> tuple[int, int]:
     """Send Web Push to all active subscriptions for a user.
 
@@ -86,14 +89,24 @@ async def _send_push_notifications(
     if not subscriptions:
         return 0, 0
 
-    payload = json.dumps(
-        {
-            "title": title,
-            "body": body,
-            "url": url,
-            "data": data or {},
-        }
-    )
+    payload_dict: dict[str, object] = {
+        "title": title,
+        "body": body,
+        "url": url,
+        "data": data or {},
+    }
+    if actions:
+        valid_actions: list[dict[str, str]] = []
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            action_id = action.get("action")
+            action_title = action.get("title")
+            if isinstance(action_id, str) and isinstance(action_title, str):
+                valid_actions.append({"action": action_id, "title": action_title})
+        if valid_actions:
+            payload_dict["actions"] = valid_actions
+    payload = json.dumps(payload_dict)
 
     vapid_private_key = config.get_vapid_private_key()
     vapid_claims = {"sub": config.get_vapid_sub()}
@@ -310,6 +323,20 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
             )
             db.add(message)
             await db.flush()
+            await persist_event(
+                db,
+                conversation.id,
+                "message.final",
+                {
+                    "message_id": message.id,
+                    "server_msg_id": message.server_msg_id,
+                    "role": "assistant",
+                    "content": message.content,
+                    "created_at": message.created_at.isoformat()
+                    if message.created_at
+                    else datetime.now(UTC).isoformat(),
+                },
+            )
 
             # Persist notification instance
             notification = Notification(
@@ -354,6 +381,24 @@ async def _process_rule(rule_id: int, worker_id: str) -> None:
                 run_at_utc=datetime.now(UTC),
             )
             db.add(delivery)
+
+            if config.is_feedback_loop_enabled():
+                actions = config.build_feedback_actions()
+                task = ScheduledTask(
+                    membership_id=rule.membership_id,
+                    rule_id=rule.id,
+                    parent_instance_id=notification.id,
+                    task_type="feedback_request",
+                    payload_json=json.dumps(
+                        {
+                            "text": config.get_feedback_prompt_text(),
+                            "actions": actions,
+                        }
+                    ),
+                    run_at_utc=datetime.now(UTC)
+                    + timedelta(minutes=config.get_feedback_delay_minutes()),
+                )
+                db.add(task)
 
             # Advance rule state to next occurrence
             await recompute_rule_due_time(db, rule, state)
@@ -459,6 +504,7 @@ async def _send_delivery(delivery_id: int, worker_id: str) -> None:
                     body=payload.get("body", ""),
                     url=payload.get("url", ""),
                     data=payload.get("data"),
+                    actions=payload.get("actions"),
                 )
             elif delivery.channel == "push_dismiss":
                 success, total = await _send_push_notifications(
@@ -468,6 +514,7 @@ async def _send_delivery(delivery_id: int, worker_id: str) -> None:
                     body="",
                     url="",
                     data=payload.get("data"),
+                    actions=payload.get("actions"),
                 )
             else:
                 success, total = 0, 0
@@ -517,6 +564,170 @@ async def _send_delivery(delivery_id: int, worker_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Scheduled task processing
+# ---------------------------------------------------------------------------
+
+
+async def _process_scheduled_tasks(worker_id: str) -> int:
+    """Claim and process due delayed tasks."""
+    processed = 0
+    now = datetime.now(UTC)
+    locked_until = now + timedelta(seconds=LOCK_DURATION_SECONDS)
+
+    async with async_session_factory() as db:
+        id_query = (
+            select(ScheduledTask.id)
+            .where(
+                ScheduledTask.run_at_utc <= now,
+                ScheduledTask.status == "pending",
+                or_(
+                    ScheduledTask.locked_until.is_(None),
+                    ScheduledTask.locked_until < now,
+                ),
+            )
+            .order_by(ScheduledTask.run_at_utc.asc())
+            .limit(20)
+        )
+        if db.bind and db.bind.dialect.name == "postgresql":
+            id_query = id_query.with_for_update(skip_locked=True)
+
+        task_ids = [tid for (tid,) in (await db.execute(id_query)).all()]
+        if not task_ids:
+            return 0
+
+        await db.execute(
+            update(ScheduledTask)
+            .where(ScheduledTask.id.in_(task_ids))
+            .values(locked_by=worker_id, locked_until=locked_until)
+        )
+
+        tasks = (
+            (
+                await db.execute(
+                    select(ScheduledTask).where(ScheduledTask.id.in_(task_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        for task in tasks:
+            try:
+                if task.rule_id is not None:
+                    rule_result = await db.execute(
+                        select(NotificationRule).where(
+                            NotificationRule.id == task.rule_id
+                        )
+                    )
+                    parent_rule = rule_result.scalar_one_or_none()
+                    if parent_rule is None or not parent_rule.is_active:
+                        logger.info(
+                            "Cancelling scheduled task %s: parent rule is inactive",
+                            task.id,
+                        )
+                        task.status = "cancelled"
+                        task.locked_by = None
+                        task.locked_until = None
+                        continue
+
+                if task.task_type == "feedback_request":
+                    payload = json.loads(task.payload_json)
+                    membership_result = await db.execute(
+                        select(ProjectMembership).where(
+                            ProjectMembership.id == task.membership_id
+                        )
+                    )
+                    membership = membership_result.scalar_one()
+
+                    conv_result = await db.execute(
+                        select(Conversation).where(
+                            Conversation.membership_id == task.membership_id
+                        )
+                    )
+                    conversation = conv_result.scalar_one_or_none()
+                    if conversation is None:
+                        conversation = Conversation(membership_id=task.membership_id)
+                        db.add(conversation)
+                        await db.flush()
+
+                    server_msg_id = generate_server_msg_id()
+                    message = Message(
+                        conversation_id=conversation.id,
+                        role="assistant",
+                        content=payload.get("text", "Feedback Request"),
+                        server_msg_id=server_msg_id,
+                        client_msg_id=f"feedback:{task.id}",
+                    )
+                    db.add(message)
+                    await db.flush()
+                    await persist_event(
+                        db,
+                        conversation.id,
+                        "message.final",
+                        {
+                            "message_id": message.id,
+                            "server_msg_id": message.server_msg_id,
+                            "role": "assistant",
+                            "content": message.content,
+                            "created_at": message.created_at.isoformat()
+                            if message.created_at
+                            else datetime.now(UTC).isoformat(),
+                        },
+                    )
+
+                    notification = Notification(
+                        membership_id=task.membership_id,
+                        title="Feedback Request",
+                        body=message.content,
+                        payload_json=json.dumps(
+                            {
+                                "server_msg_id": server_msg_id,
+                                "project_id": membership.project_id,
+                                "parent_notification_id": task.parent_instance_id,
+                            }
+                        ),
+                        local_date=now.date(),
+                        dedupe_key=f"feedback:{task.id}",
+                    )
+                    db.add(notification)
+                    await db.flush()
+
+                    chat_url = f"/p/{membership.project_id}/chat?nid={notification.id}"
+                    delivery = NotificationDelivery(
+                        instance_id=notification.id,
+                        membership_id=task.membership_id,
+                        user_id=membership.user_id,
+                        channel="push_notify",
+                        payload_json=json.dumps(
+                            {
+                                "title": "Feedback Request",
+                                "body": message.content,
+                                "url": chat_url,
+                                "actions": payload.get("actions", []),
+                                "data": {
+                                    "notification_id": notification.id,
+                                    "project_id": membership.project_id,
+                                    "action": "feedback",
+                                },
+                            }
+                        ),
+                        run_at_utc=now,
+                    )
+                    db.add(delivery)
+
+                task.status = "completed"
+                processed += 1
+            except Exception as exc:
+                logger.error("Task execution failed for %s: %s", task.id, exc)
+                task.status = "failed"
+                task.locked_by = None
+                task.locked_until = None
+
+        await db.commit()
+    return processed
+
+
+# ---------------------------------------------------------------------------
 # Main worker loop
 # ---------------------------------------------------------------------------
 
@@ -534,6 +745,12 @@ async def run_worker_loop(poll_seconds: int = 5) -> None:
             logger.error("Rule evaluation error: %s", exc)
 
         # 2. Delivery processing
+        try:
+            await _process_scheduled_tasks(worker_id)
+        except Exception as exc:
+            logger.error("Scheduled task processing error: %s", exc)
+
+        # 3. Delivery processing
         try:
             await _process_due_deliveries(worker_id)
         except Exception as exc:

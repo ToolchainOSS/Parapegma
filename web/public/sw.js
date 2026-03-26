@@ -1,5 +1,76 @@
 // Service Worker for Flow Research PWA
 
+const KEYVAL_DB_NAME = "keyval-store";
+const KEYVAL_STORE_NAME = "keyval";
+const DB_PRIVATE_KEY = "h4ckath0n_device_private_key";
+const DB_DEVICE_ID = "h4ckath0n_device_id";
+const DB_USER_ID = "h4ckath0n_user_id";
+const AUD_HTTP = "h4ckath0n:http";
+const TOKEN_LIFETIME_SECONDS = 900;
+
+function base64UrlEncode(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function utf8Base64Url(value) {
+  return base64UrlEncode(new TextEncoder().encode(value));
+}
+
+function openKeyvalDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(KEYVAL_DB_NAME);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+
+async function keyvalGet(key) {
+  const db = await openKeyvalDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(KEYVAL_STORE_NAME, "readonly");
+      const store = tx.objectStore(KEYVAL_STORE_NAME);
+      const req = store.get(key);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => resolve(req.result ?? null);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function mintHttpToken() {
+  const [privateKey, deviceId, userId] = await Promise.all([
+    keyvalGet(DB_PRIVATE_KEY),
+    keyvalGet(DB_DEVICE_ID),
+    keyvalGet(DB_USER_ID),
+  ]);
+
+  if (!privateKey) throw new Error("Missing device private key");
+  if (!deviceId) throw new Error("Missing device id");
+  if (!userId) throw new Error("Missing user id");
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "ES256", typ: "JWT", kid: String(deviceId) };
+  const payload = {
+    sub: String(userId),
+    iat: now,
+    exp: now + TOKEN_LIFETIME_SECONDS,
+    aud: AUD_HTTP,
+  };
+
+  const signingInput = `${utf8Base64Url(JSON.stringify(header))}.${utf8Base64Url(JSON.stringify(payload))}`;
+  const signatureRaw = await crypto.subtle.sign(
+    { name: "ECDSA", hash: { name: "SHA-256" } },
+    privateKey,
+    new TextEncoder().encode(signingInput),
+  );
+  const signature = base64UrlEncode(new Uint8Array(signatureRaw));
+  return `${signingInput}.${signature}`;
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });
@@ -66,6 +137,27 @@ self.addEventListener("notificationclick", (event) => {
   const data = event.notification.data || {};
   const projectId = data.project_id;
   const notificationId = data.notification_id;
+
+  if (event.action) {
+    event.waitUntil(
+      (async () => {
+        const token = await mintHttpToken();
+        await fetch("/api/chat/events/feedback", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            action_id: event.action,
+            notification_id: notificationId,
+            project_id: projectId,
+          }),
+        });
+      })().catch((err) => console.error("Feedback sync failed:", err)),
+    );
+    return;
+  }
 
   // Build deep-link URL
   let urlPath;

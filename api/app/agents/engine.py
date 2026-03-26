@@ -21,10 +21,15 @@ import string
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversation, ConversationRuntimeState, Message
+from app.models import (
+    Conversation,
+    ConversationRuntimeState,
+    Message,
+    ScheduledTask,
+)
 from app.prompt_loader import load_prompt
 from app.schemas.patches import (
     FEEDBACK_ALLOWED_FIELDS,
@@ -392,6 +397,14 @@ async def _process_proposals(
                     rule = rule_result.scalar_one_or_none()
                     if rule:
                         rule.is_active = False
+                        await db.execute(
+                            update(ScheduledTask)
+                            .where(
+                                ScheduledTask.rule_id == rule.id,
+                                ScheduledTask.status == "pending",
+                            )
+                            .values(status="cancelled")
+                        )
                         logger.info(
                             "Committed schedule deletion from %s",
                             proposal.source_bot,

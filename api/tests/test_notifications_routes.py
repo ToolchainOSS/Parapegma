@@ -25,6 +25,7 @@ from app.models import (
     ProjectInvite,
     ProjectMembership,
     PushSubscription,
+    ScheduledTask,
 )
 from h4ckath0n.auth.models import Base as H4ckath0nBase
 from h4ckath0n.realtime import AuthContext
@@ -665,3 +666,77 @@ async def test_cross_project_delete_protection(
             "Rule from membership B must remain active when processed "
             "under membership A's context"
         )
+
+
+@pytest.mark.asyncio
+async def test_schedule_delete_cancels_pending_feedback_tasks(
+    seeded_project: dict[str, Any],
+) -> None:
+    """Deleting a rule via proposal cancels pending scheduled feedback tasks."""
+    from app.agents.engine import _process_proposals
+    from app.schemas.patches import UserProfileData
+    from app.tools.proposal_tools import ProposalCollector
+
+    project_id = seeded_project["project_id"]
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+        rule = NotificationRule(
+            membership_id=membership.id,
+            kind="daily_local_time",
+            config_json=json.dumps({"topic": "Daily Nudge", "time": "08:00"}),
+            tz_policy="floating_user_tz",
+            is_active=True,
+        )
+        db.add(rule)
+        await db.flush()
+        task = ScheduledTask(
+            membership_id=membership.id,
+            rule_id=rule.id,
+            task_type="feedback_request",
+            payload_json='{"text":"How did this prompt work for you?"}',
+            run_at_utc=datetime.now(UTC) + timedelta(hours=2),
+            status="pending",
+        )
+        db.add(task)
+        await db.commit()
+        rule_id = rule.id
+        task_id = task.id
+
+    collector = ProposalCollector()
+    collector.schedule_proposals.append(
+        {
+            "action": "delete",
+            "rule_id": rule_id,
+            "confidence": 0.9,
+            "evidence": {"message_ids": [1], "quotes": ["remove the schedule"]},
+            "source_bot": "COACH",
+        }
+    )
+
+    async with _test_session_factory() as db:
+        await _process_proposals(
+            db=db,
+            membership_id=membership.id,
+            profile=UserProfileData(
+                prompt_anchor="after coffee", preferred_time="08:00"
+            ),
+            collector=collector,
+            recent_message_ids=[1],
+            latest_user_message_id=1,
+        )
+        await db.commit()
+
+    async with _test_session_factory() as db:
+        rule_result = await db.execute(
+            select(NotificationRule).where(NotificationRule.id == rule_id)
+        )
+        updated_rule = rule_result.scalar_one()
+        task_result = await db.execute(
+            select(ScheduledTask).where(ScheduledTask.id == task_id)
+        )
+        updated_task = task_result.scalar_one()
+        assert updated_rule.is_active is False
+        assert updated_task.status == "cancelled"

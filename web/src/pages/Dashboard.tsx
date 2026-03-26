@@ -14,6 +14,11 @@ import type { DashboardResponse, MembershipInfo } from "../api/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
+function getDisplayPreview(preview: string | null | undefined): string {
+  if (!preview) return "No messages yet";
+  return preview.startsWith("[System:") ? "Feedback submitted" : preview;
+}
+
 function getLastOpenedAt(projectId: string): string | null {
   return localStorage.getItem(`chat-opened:${projectId}`);
 }
@@ -220,12 +225,12 @@ export function Dashboard() {
         {filtered.active.length > 0 &&
           filtered.active.map((m) => (
               <Link key={m.project_id} to={`/p/${m.project_id}/chat`}>
-                <ListRow
-                  avatar={<Avatar name={m.display_name ?? ""} />}
-                  primary={m.display_name ?? m.project_id}
-                  secondary={m.last_message_preview ?? "No messages yet"}
-                  unread={isUnread(m)}
-                  trailing={
+                  <ListRow
+                    avatar={<Avatar name={m.display_name ?? ""} />}
+                    primary={m.display_name ?? m.project_id}
+                    secondary={getDisplayPreview(m.last_message_preview)}
+                    unread={isUnread(m)}
+                    trailing={
                     m.last_message_at ? (
                       <span className="text-[11px] text-text-subtle whitespace-nowrap">
                         {formatTime(m.last_message_at)}
@@ -314,4 +319,3 @@ export function Dashboard() {
     </div>
   );
 }
-

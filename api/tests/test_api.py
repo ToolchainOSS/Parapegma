@@ -19,12 +19,18 @@ from app.config import clear_config_cache
 from app.id_utils import generate_project_id
 from app.models import (
     Base,
+    Conversation,
+    ConversationEvent,
     FlowUserProfile,
+    Message,
+    NotificationDelivery,
+    Notification,
     ParticipantContact,
     PushSubscription,
     Project,
     ProjectInvite,
     ProjectMembership,
+    ScheduledTask,
 )
 from h4ckath0n.auth.models import Base as H4ckath0nBase, Device
 from h4ckath0n.realtime import AuthContext
@@ -339,6 +345,56 @@ async def test_dashboard_last_message(seeded_client: dict[str, Any]) -> None:
     assert mem["last_message_at"] is not None
 
 
+@pytest.mark.asyncio
+async def test_dashboard_hides_feedback_action_last_message(
+    seeded_client: dict[str, Any],
+) -> None:
+    client = seeded_client["client"]
+    project_id = seeded_client["project_id"]
+    invite_code = seeded_client["invite_code"]
+
+    # Activate
+    await client.post(
+        f"/p/{project_id}/activate/claim",
+        json={"invite_code": invite_code},
+    )
+
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+        conv_result = await db.execute(
+            select(Conversation).where(Conversation.membership_id == membership.id)
+        )
+        conv = conv_result.scalar_one()
+
+        db.add(
+            Message(
+                conversation_id=conv.id,
+                role="assistant",
+                content="Visible assistant message",
+                server_msg_id="srv-visible-assistant-dashboard",
+            )
+        )
+        db.add(
+            Message(
+                conversation_id=conv.id,
+                role="user",
+                content="[System: User provided feedback 'Needs tweaks' on notification 1]",
+                server_msg_id="srv-feedback-hidden-dashboard",
+                client_msg_id="feedback_action:1:fb_1",
+            )
+        )
+        await db.commit()
+
+    resp = await client.get("/dashboard")
+    assert resp.status_code == 200
+    data = resp.json()
+    mem = data["memberships"][0]
+    assert mem["last_message_preview"] == "Visible assistant message"
+
+
 # ---------------------------------------------------------------------------
 # Messaging
 # ---------------------------------------------------------------------------
@@ -372,6 +428,279 @@ async def test_send_message(seeded_client: dict[str, Any]) -> None:
     assert len(items) == 2
     assert items[0]["role"] == "user"
     assert items[1]["role"] == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_send_message_cancels_pending_feedback_task(
+    seeded_client: dict[str, Any],
+) -> None:
+    client = seeded_client["client"]
+    project_id = seeded_client["project_id"]
+    invite_code = seeded_client["invite_code"]
+
+    await client.post(
+        f"/p/{project_id}/activate/claim",
+        json={"invite_code": invite_code},
+    )
+
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+        notification = Notification(
+            membership_id=membership.id,
+            title="Nudge",
+            body="Do one small step now",
+            payload_json="{}",
+        )
+        db.add(notification)
+        await db.flush()
+
+        task = ScheduledTask(
+            membership_id=membership.id,
+            parent_instance_id=notification.id,
+            task_type="feedback_request",
+            payload_json=json.dumps({"text": "How did this prompt work for you?"}),
+            run_at_utc=datetime.now(UTC) + timedelta(hours=1),
+            status="pending",
+        )
+        db.add(task)
+        await db.commit()
+        task_id = task.id
+        notification_id = notification.id
+
+    resp = await client.post(
+        f"/p/{project_id}/messages",
+        json={
+            "text": "I already acted on it",
+            "client_msg_id": "cancel-feedback-1",
+            "current_notification_id": notification_id,
+        },
+    )
+    assert resp.status_code == 200
+
+    async with _test_session_factory() as db:
+        task_result = await db.execute(
+            select(ScheduledTask).where(ScheduledTask.id == task_id)
+        )
+        updated_task = task_result.scalar_one()
+        assert updated_task.status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_send_message_cancels_all_pending_feedback_tasks_for_membership(
+    seeded_client: dict[str, Any],
+) -> None:
+    client = seeded_client["client"]
+    project_id = seeded_client["project_id"]
+    invite_code = seeded_client["invite_code"]
+
+    await client.post(
+        f"/p/{project_id}/activate/claim",
+        json={"invite_code": invite_code},
+    )
+
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+
+        task_a = ScheduledTask(
+            membership_id=membership.id,
+            task_type="feedback_request",
+            payload_json=json.dumps({"text": "A"}),
+            run_at_utc=datetime.now(UTC) + timedelta(hours=1),
+            status="pending",
+        )
+        task_b = ScheduledTask(
+            membership_id=membership.id,
+            task_type="feedback_request",
+            payload_json=json.dumps({"text": "B"}),
+            run_at_utc=datetime.now(UTC) + timedelta(hours=2),
+            status="pending",
+        )
+        db.add(task_a)
+        db.add(task_b)
+        await db.commit()
+        task_ids = [task_a.id, task_b.id]
+
+    resp = await client.post(
+        f"/p/{project_id}/messages",
+        json={"text": "Just chatting", "client_msg_id": "cancel-feedback-all-1"},
+    )
+    assert resp.status_code == 200
+
+    async with _test_session_factory() as db:
+        result = await db.execute(
+            select(ScheduledTask).where(ScheduledTask.id.in_(task_ids))
+        )
+        tasks = result.scalars().all()
+        assert len(tasks) == 2
+        assert all(task.status == "cancelled" for task in tasks)
+
+
+@pytest.mark.asyncio
+async def test_feedback_event_endpoint_creates_user_message(
+    seeded_client: dict[str, Any],
+) -> None:
+    client = seeded_client["client"]
+    project_id = seeded_client["project_id"]
+    invite_code = seeded_client["invite_code"]
+
+    await client.post(
+        f"/p/{project_id}/activate/claim",
+        json={"invite_code": invite_code},
+    )
+
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+        notification = Notification(
+            membership_id=membership.id,
+            title="Feedback Request",
+            body="How did this prompt work for you?",
+            payload_json="{}",
+        )
+        db.add(notification)
+        await db.flush()
+        delivery = NotificationDelivery(
+            instance_id=notification.id,
+            membership_id=membership.id,
+            user_id="u_testuser_000000000000000000",
+            channel="push_notify",
+            payload_json=json.dumps(
+                {
+                    "actions": [
+                        {"action": "fb_0", "title": "Works perfectly"},
+                        {"action": "fb_1", "title": "Needs tweaks"},
+                    ]
+                }
+            ),
+            run_at_utc=datetime.now(UTC),
+        )
+        db.add(delivery)
+        await db.commit()
+        notification_id = notification.id
+        membership_id = membership.id
+
+    resp = await client.post(
+        "/chat/events/feedback",
+        json={
+            "action_id": "fb_1",
+            "notification_id": notification_id,
+            "project_id": project_id,
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+    async with _test_session_factory() as db:
+        msg_result = await db.execute(
+            select(Message)
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(Conversation.membership_id == membership_id, Message.role == "user")
+            .order_by(Message.id.desc())
+        )
+        message = msg_result.scalars().first()
+        assert message is not None
+        assert (
+            message.content
+            == f"[System: User provided feedback 'Needs tweaks' on notification {notification_id}]"
+        )
+        asst_result = await db.execute(
+            select(Message)
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(
+                Conversation.membership_id == membership_id,
+                Message.role == "assistant",
+            )
+            .order_by(Message.id.desc())
+        )
+        asst_msg = asst_result.scalars().first()
+        assert asst_msg is not None
+
+        event_result = await db.execute(
+            select(ConversationEvent)
+            .join(Conversation, ConversationEvent.conversation_id == Conversation.id)
+            .where(
+                Conversation.membership_id == membership_id,
+                ConversationEvent.event_type == "message.final",
+            )
+            .order_by(ConversationEvent.id.desc())
+        )
+        event = event_result.scalars().first()
+        assert event is not None
+
+    list_resp = await client.get(f"/p/{project_id}/messages")
+    assert list_resp.status_code == 200
+    visible = list_resp.json()["messages"]
+    assert all(
+        "[System: User provided feedback" not in item["content"] for item in visible
+    )
+    assert any(item["role"] == "assistant" for item in visible)
+
+
+@pytest.mark.asyncio
+async def test_list_messages_hides_feedback_action_messages(
+    seeded_client: dict[str, Any],
+) -> None:
+    client = seeded_client["client"]
+    project_id = seeded_client["project_id"]
+    invite_code = seeded_client["invite_code"]
+
+    await client.post(
+        f"/p/{project_id}/activate/claim",
+        json={"invite_code": invite_code},
+    )
+
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+        conv_result = await db.execute(
+            select(Conversation).where(Conversation.membership_id == membership.id)
+        )
+        conv = conv_result.scalar_one()
+
+        db.add(
+            Message(
+                conversation_id=conv.id,
+                role="user",
+                content="Visible user message",
+                server_msg_id="srv-visible-user",
+            )
+        )
+        db.add(
+            Message(
+                conversation_id=conv.id,
+                role="assistant",
+                content="Visible assistant message",
+                server_msg_id="srv-visible-assistant",
+            )
+        )
+        db.add(
+            Message(
+                conversation_id=conv.id,
+                role="user",
+                content="[System: User provided feedback 'Needs tweaks' on notification 1]",
+                server_msg_id="srv-feedback-hidden",
+                client_msg_id="feedback_action:1:fb_1",
+            )
+        )
+        await db.commit()
+
+    resp = await client.get(f"/p/{project_id}/messages")
+    assert resp.status_code == 200
+    messages = resp.json()["messages"]
+    assert len(messages) == 2
+    contents = [m["content"] for m in messages]
+    assert "Visible user message" in contents
+    assert "Visible assistant message" in contents
 
 
 @pytest.mark.asyncio

@@ -38,6 +38,10 @@ interface Message {
   debugInfo?: DebugInfo;
 }
 
+function isSystemContent(content: string): boolean {
+  return content.startsWith("[System:");
+}
+
 function formatBubbleTime(iso?: string): string | undefined {
   if (!iso) return undefined;
   const d = new Date(iso);
@@ -70,6 +74,7 @@ export function ChatThread() {
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const [hasNewMessages, setHasNewMessages] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [currentNotificationId, setCurrentNotificationId] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastEventIdRef = useRef<string | null>(null);
@@ -87,6 +92,9 @@ export function ChatThread() {
     const nid = searchParams.get("nid");
     const parsedNid = nid ? parseInt(nid, 10) : NaN;
     if (!Number.isNaN(parsedNid) && projectId) {
+      // Safe to carry this id client-side: backend re-verifies user+membership scope
+      // before cancelling any scheduled feedback task.
+      setCurrentNotificationId(parsedNid);
       // Clear param immediately so we don't re-trigger
       const newParams = new URLSearchParams(searchParams);
       newParams.delete("nid");
@@ -417,7 +425,11 @@ export function ChatThread() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ text, client_msg_id: tempId }),
+        body: JSON.stringify({
+          text,
+          client_msg_id: tempId,
+          current_notification_id: currentNotificationId,
+        }),
       });
 
       if (!res.ok) {
@@ -491,6 +503,7 @@ export function ChatThread() {
       });
       // Locally update dashboard with final assistant message
       updateDashboardPreview(data.content);
+      setCurrentNotificationId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message");
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
@@ -533,7 +546,9 @@ export function ChatThread() {
     pendingUser.sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
     streamingAssistant.sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-    const sorted = [...persisted, ...pendingUser, ...streamingAssistant];
+    const sorted = [...persisted, ...pendingUser, ...streamingAssistant].filter(
+      (m) => !isSystemContent(m.content),
+    );
 
     return sorted.map((msg, i) => ({
       ...msg,
