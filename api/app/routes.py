@@ -1141,7 +1141,13 @@ async def list_messages(
         conv = await _get_conversation(db, membership.id)
         result = await db.execute(
             select(Message)
-            .where(Message.conversation_id == conv.id)
+            .where(
+                Message.conversation_id == conv.id,
+                or_(
+                    Message.client_msg_id.is_(None),
+                    ~Message.client_msg_id.startswith("feedback_action:"),
+                ),
+            )
             .order_by(Message.id.asc())
         )
         items = [
@@ -1523,7 +1529,10 @@ async def submit_feedback_event(
         user_msg = Message(
             conversation_id=conv.id,
             role="user",
-            content=f"Feedback: {action_title}",
+            content=(
+                f"[System: User provided feedback '{action_title}' on notification "
+                f"{notification.id}]"
+            ),
             server_msg_id=generate_server_msg_id(),
             client_msg_id=f"feedback_action:{notification.id}:{body.action_id}",
         )
