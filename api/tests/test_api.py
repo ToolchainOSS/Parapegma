@@ -345,6 +345,56 @@ async def test_dashboard_last_message(seeded_client: dict[str, Any]) -> None:
     assert mem["last_message_at"] is not None
 
 
+@pytest.mark.asyncio
+async def test_dashboard_hides_feedback_action_last_message(
+    seeded_client: dict[str, Any],
+) -> None:
+    client = seeded_client["client"]
+    project_id = seeded_client["project_id"]
+    invite_code = seeded_client["invite_code"]
+
+    # Activate
+    await client.post(
+        f"/p/{project_id}/activate/claim",
+        json={"invite_code": invite_code},
+    )
+
+    async with _test_session_factory() as db:
+        membership_result = await db.execute(
+            select(ProjectMembership).where(ProjectMembership.project_id == project_id)
+        )
+        membership = membership_result.scalar_one()
+        conv_result = await db.execute(
+            select(Conversation).where(Conversation.membership_id == membership.id)
+        )
+        conv = conv_result.scalar_one()
+
+        db.add(
+            Message(
+                conversation_id=conv.id,
+                role="assistant",
+                content="Visible assistant message",
+                server_msg_id="srv-visible-assistant-dashboard",
+            )
+        )
+        db.add(
+            Message(
+                conversation_id=conv.id,
+                role="user",
+                content="[System: User provided feedback 'Needs tweaks' on notification 1]",
+                server_msg_id="srv-feedback-hidden-dashboard",
+                client_msg_id="feedback_action:1:fb_1",
+            )
+        )
+        await db.commit()
+
+    resp = await client.get("/dashboard")
+    assert resp.status_code == 200
+    data = resp.json()
+    mem = data["memberships"][0]
+    assert mem["last_message_preview"] == "Visible assistant message"
+
+
 # ---------------------------------------------------------------------------
 # Messaging
 # ---------------------------------------------------------------------------

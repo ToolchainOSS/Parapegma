@@ -8,6 +8,11 @@ import type { DashboardResponse, MembershipInfo } from "../../api/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
+function getDisplayPreview(preview: string | null | undefined): string {
+  if (!preview) return "No messages yet";
+  return preview.startsWith("[System:") ? "Feedback submitted" : preview;
+}
+
 function getLastOpenedAt(projectId: string): string | null {
   return localStorage.getItem(`chat-opened:${projectId}`);
 }
@@ -152,7 +157,7 @@ export function ChatListPane({ embedded }: ChatListPaneProps) {
                 <ListRow
                   avatar={<Avatar name={m.display_name ?? ""} />}
                   primary={m.display_name ?? m.project_id}
-                  secondary={m.last_message_preview ?? "No messages yet"}
+                  secondary={getDisplayPreview(m.last_message_preview)}
                   unread={isUnread(m)}
                   className={
                     activeProjectId === m.project_id ? "bg-primary/5" : ""

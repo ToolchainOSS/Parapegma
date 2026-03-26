@@ -38,6 +38,10 @@ interface Message {
   debugInfo?: DebugInfo;
 }
 
+function isSystemContent(content: string): boolean {
+  return content.startsWith("[System:");
+}
+
 function formatBubbleTime(iso?: string): string | undefined {
   if (!iso) return undefined;
   const d = new Date(iso);
@@ -485,15 +489,17 @@ export function ChatThread() {
             debugInfo: data.debug_info,
           };
         } else {
-          next.push({
-            id: String(data.message_id),
-            serverMsgId: data.server_msg_id,
-            role: data.role,
-            content: data.content,
-            created_at: new Date().toISOString(),
-            isStreaming: false,
-            debugInfo: data.debug_info,
-          });
+          if (!isSystemContent(data.content)) {
+            next.push({
+              id: String(data.message_id),
+              serverMsgId: data.server_msg_id,
+              role: data.role,
+              content: data.content,
+              created_at: new Date().toISOString(),
+              isStreaming: false,
+              debugInfo: data.debug_info,
+            });
+          }
         }
         return next;
       });
@@ -542,7 +548,9 @@ export function ChatThread() {
     pendingUser.sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
     streamingAssistant.sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
 
-    const sorted = [...persisted, ...pendingUser, ...streamingAssistant];
+    const sorted = [...persisted, ...pendingUser, ...streamingAssistant].filter(
+      (m) => !isSystemContent(m.content),
+    );
 
     return sorted.map((msg, i) => ({
       ...msg,

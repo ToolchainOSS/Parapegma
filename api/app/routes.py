@@ -458,7 +458,13 @@ async def dashboard(
                     func.max(Message.id).label("max_msg_id"),
                 )
                 .join(Message, Message.conversation_id == Conversation.id)
-                .where(Conversation.membership_id.in_(membership_ids))
+                .where(
+                    Conversation.membership_id.in_(membership_ids),
+                    or_(
+                        Message.client_msg_id.is_(None),
+                        ~Message.client_msg_id.startswith("feedback_action:"),
+                    ),
+                )
                 .group_by(Conversation.membership_id)
                 .subquery()
             )
