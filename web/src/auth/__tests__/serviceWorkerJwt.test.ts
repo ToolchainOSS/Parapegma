@@ -57,6 +57,8 @@ describe("service worker JWT minting", () => {
 
   it("encodes the JWT signature directly from sign() output bytes", async () => {
     const source = await readFile(SW_PATH, "utf8");
+    expect(source).toContain("async function mintHttpToken()");
+    expect(source).toContain("const signatureRaw = await crypto.subtle.sign(");
     const signatureBytes = new Uint8Array(Array.from({ length: 64 }, (_, i) => i));
     const indexedDB = createIndexedDbMock({
       h4ckath0n_device_private_key: { mock: "private-key" },
