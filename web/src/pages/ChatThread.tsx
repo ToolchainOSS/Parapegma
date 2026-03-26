@@ -489,17 +489,15 @@ export function ChatThread() {
             debugInfo: data.debug_info,
           };
         } else {
-          if (!isSystemContent(data.content)) {
-            next.push({
-              id: String(data.message_id),
-              serverMsgId: data.server_msg_id,
-              role: data.role,
-              content: data.content,
-              created_at: new Date().toISOString(),
-              isStreaming: false,
-              debugInfo: data.debug_info,
-            });
-          }
+          next.push({
+            id: String(data.message_id),
+            serverMsgId: data.server_msg_id,
+            role: data.role,
+            content: data.content,
+            created_at: new Date().toISOString(),
+            isStreaming: false,
+            debugInfo: data.debug_info,
+          });
         }
         return next;
       });
