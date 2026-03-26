@@ -399,6 +399,10 @@ Configure in `.env` at the repository root (see `.env.example`):
 | `FLOW_VAPID_PUBLIC_KEY` | (none) | Legacy alias for `VAPID_PUBLIC_KEY` |
 | `FLOW_VAPID_PRIVATE_KEY` | (none) | Legacy alias for `VAPID_PRIVATE_KEY` |
 | `FLOW_PUSH_GONE_410_THRESHOLD` | `2` | Consecutive 410 responses before revoking a push subscription |
+| `ENABLE_AUTOMATED_FEEDBACK` | `true` | Whether automated delayed feedback requests are enabled |
+| `FEEDBACK_DELAY_MINUTES` | `120` | Delay (minutes) before automated feedback is queued |
+| `FEEDBACK_PROMPT_TEXT` | `How did this prompt work for you?` | Global prompt text used for delayed feedback requests |
+| `FEEDBACK_OPTIONS` | `Works perfectly,Needs tweaks` | Up to two global feedback options for push action buttons |
 | `TZ` | `America/Toronto` | Default IANA timezone for the backend (e.g. `America/New_York`) |
 
 <!-- ENV_TABLE_END -->
