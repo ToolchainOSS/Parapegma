@@ -18,63 +18,6 @@ function utf8Base64Url(value) {
   return base64UrlEncode(new TextEncoder().encode(value));
 }
 
-function derSignatureToJose(derBytes, keySize = 32) {
-  const bytes = derBytes instanceof Uint8Array ? derBytes : new Uint8Array(derBytes);
-  let offset = 0;
-
-  const expect = (value, label) => {
-    const actual = bytes[offset++];
-    if (actual !== value) {
-      throw new Error(`Invalid DER signature (${label})`);
-    }
-  };
-
-  const readLength = () => {
-    let len = bytes[offset++];
-    if ((len & 0x80) === 0) return len;
-    const numBytes = len & 0x7f;
-    if (numBytes === 0 || numBytes > 2) {
-      throw new Error("Invalid DER length");
-    }
-    len = 0;
-    for (let i = 0; i < numBytes; i += 1) {
-      len = (len << 8) | bytes[offset++];
-    }
-    return len;
-  };
-
-  expect(0x30, "sequence tag");
-  readLength(); // total length, validated structurally by parsing below
-
-  expect(0x02, "r integer tag");
-  const rLen = readLength();
-  const r = bytes.slice(offset, offset + rLen);
-  offset += rLen;
-
-  expect(0x02, "s integer tag");
-  const sLen = readLength();
-  const s = bytes.slice(offset, offset + sLen);
-
-  const trimLeadingZeros = (arr) => {
-    let i = 0;
-    while (i < arr.length - 1 && arr[i] === 0) i += 1;
-    return arr.slice(i);
-  };
-
-  const leftPad = (arr) => {
-    const out = new Uint8Array(keySize);
-    out.set(arr.slice(-keySize), keySize - Math.min(arr.length, keySize));
-    return out;
-  };
-
-  const rPadded = leftPad(trimLeadingZeros(r));
-  const sPadded = leftPad(trimLeadingZeros(s));
-  const jose = new Uint8Array(keySize * 2);
-  jose.set(rPadded, 0);
-  jose.set(sPadded, keySize);
-  return jose;
-}
-
 function openKeyvalDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(KEYVAL_DB_NAME);
@@ -119,12 +62,12 @@ async function mintHttpToken() {
   };
 
   const signingInput = `${utf8Base64Url(JSON.stringify(header))}.${utf8Base64Url(JSON.stringify(payload))}`;
-  const signatureDer = await crypto.subtle.sign(
+  const signatureRaw = await crypto.subtle.sign(
     { name: "ECDSA", hash: { name: "SHA-256" } },
     privateKey,
     new TextEncoder().encode(signingInput),
   );
-  const signature = base64UrlEncode(derSignatureToJose(signatureDer));
+  const signature = base64UrlEncode(new Uint8Array(signatureRaw));
   return `${signingInput}.${signature}`;
 }
 
