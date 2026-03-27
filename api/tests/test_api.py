@@ -461,7 +461,15 @@ async def test_send_message_cancels_pending_feedback_task(
             membership_id=membership.id,
             parent_instance_id=notification.id,
             task_type="feedback_request",
-            payload_json=json.dumps({"text": "How did this prompt work for you?"}),
+            payload_json=json.dumps(
+                {
+                    "text": "How did this prompt work for you?",
+                    "actions": [
+                        {"action": "fb_0", "title": "Works perfectly"},
+                        {"action": "fb_1", "title": "Needs tweaks"},
+                    ],
+                }
+            ),
             run_at_utc=datetime.now(UTC) + timedelta(hours=1),
             status="pending",
         )
@@ -510,14 +518,30 @@ async def test_send_message_cancels_all_pending_feedback_tasks_for_membership(
         task_a = ScheduledTask(
             membership_id=membership.id,
             task_type="feedback_request",
-            payload_json=json.dumps({"text": "A"}),
+            payload_json=json.dumps(
+                {
+                    "text": "A",
+                    "actions": [
+                        {"action": "fb_0", "title": "Works perfectly"},
+                        {"action": "fb_1", "title": "Needs tweaks"},
+                    ],
+                }
+            ),
             run_at_utc=datetime.now(UTC) + timedelta(hours=1),
             status="pending",
         )
         task_b = ScheduledTask(
             membership_id=membership.id,
             task_type="feedback_request",
-            payload_json=json.dumps({"text": "B"}),
+            payload_json=json.dumps(
+                {
+                    "text": "B",
+                    "actions": [
+                        {"action": "fb_0", "title": "Works perfectly"},
+                        {"action": "fb_1", "title": "Needs tweaks"},
+                    ],
+                }
+            ),
             run_at_utc=datetime.now(UTC) + timedelta(hours=2),
             status="pending",
         )
@@ -586,9 +610,31 @@ async def test_feedback_event_endpoint_creates_user_message(
         await db.commit()
         notification_id = notification.id
         membership_id = membership.id
+        conv_result = await db.execute(
+            select(Conversation).where(Conversation.membership_id == membership_id)
+        )
+        conv = conv_result.scalar_one()
+        poll_message = Message(
+            conversation_id=conv.id,
+            role="assistant",
+            content="How did this prompt work for you?",
+            server_msg_id="srv-feedback-poll-message",
+            client_msg_id="feedback:seeded",
+            metadata_={
+                "type": "feedback_poll",
+                "notification_id": notification_id,
+                "status": "pending",
+                "actions": [
+                    {"id": "fb_0", "title": "Works perfectly"},
+                    {"id": "fb_1", "title": "Needs tweaks"},
+                ],
+            },
+        )
+        db.add(poll_message)
+        await db.commit()
 
     resp = await client.post(
-        "/chat/events/feedback",
+        f"/p/{project_id}/chat/events/feedback",
         json={
             "action_id": "fb_1",
             "notification_id": notification_id,
@@ -596,7 +642,7 @@ async def test_feedback_event_endpoint_creates_user_message(
         },
     )
     assert resp.status_code == 200
-    assert resp.json()["ok"] is True
+    assert resp.json()["status"] == "success"
 
     async with _test_session_factory() as db:
         msg_result = await db.execute(
@@ -623,6 +669,19 @@ async def test_feedback_event_endpoint_creates_user_message(
         asst_msg = asst_result.scalars().first()
         assert asst_msg is not None
 
+        poll_result = await db.execute(
+            select(Message)
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(
+                Conversation.membership_id == membership_id,
+                Message.client_msg_id == "feedback:seeded",
+            )
+        )
+        poll_msg = poll_result.scalar_one()
+        assert poll_msg.metadata_ is not None
+        assert poll_msg.metadata_["status"] == "completed"
+        assert poll_msg.metadata_["selected_action_id"] == "fb_1"
+
         event_result = await db.execute(
             select(ConversationEvent)
             .join(Conversation, ConversationEvent.conversation_id == Conversation.id)
@@ -634,6 +693,17 @@ async def test_feedback_event_endpoint_creates_user_message(
         )
         event = event_result.scalars().first()
         assert event is not None
+        updated_event_result = await db.execute(
+            select(ConversationEvent)
+            .join(Conversation, ConversationEvent.conversation_id == Conversation.id)
+            .where(
+                Conversation.membership_id == membership_id,
+                ConversationEvent.event_type == "message.updated",
+            )
+            .order_by(ConversationEvent.id.desc())
+        )
+        updated_event = updated_event_result.scalars().first()
+        assert updated_event is not None
 
     list_resp = await client.get(f"/p/{project_id}/messages")
     assert list_resp.status_code == 200

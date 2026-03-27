@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -12,11 +13,13 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -167,6 +170,11 @@ class Message(Base):
     )
     client_msg_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     server_msg_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+    )
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 

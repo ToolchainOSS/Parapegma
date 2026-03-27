@@ -1,5 +1,7 @@
 import { memo } from "react";
 import { AssistantMarkdown } from "../chat/AssistantMarkdown";
+import { FeedbackPollWidget } from "../chat/FeedbackPollWidget";
+import type { FeedbackPollMetadata } from "../../api/types";
 
 function safeStringify(value: unknown): string {
   try {
@@ -12,6 +14,8 @@ function safeStringify(value: unknown): string {
 interface MessageBubbleProps {
   role: "user" | "assistant" | "system";
   content: string;
+  projectId?: string;
+  metadata?: FeedbackPollMetadata | Record<string, unknown>;
   timestamp?: string;
   isGroupContinuation?: boolean;
   isStreaming?: boolean;
@@ -32,6 +36,8 @@ interface MessageBubbleProps {
 export const MessageBubble = memo(function MessageBubble({
   role,
   content,
+  projectId,
+  metadata,
   timestamp,
   isGroupContinuation,
   isStreaming,
@@ -76,7 +82,15 @@ export const MessageBubble = memo(function MessageBubble({
         {isUser ? (
           content
         ) : (
-          <AssistantMarkdown markdown={content} isStreaming={isStreaming} />
+          <>
+            <AssistantMarkdown markdown={content} isStreaming={isStreaming} />
+            {projectId && metadata?.type === "feedback_poll" && (
+              <FeedbackPollWidget
+                metadata={metadata as FeedbackPollMetadata}
+                projectId={projectId}
+              />
+            )}
+          </>
         )}
         {timestamp && (
           <span className="block text-[11px] text-text-subtle mt-1 text-right">
