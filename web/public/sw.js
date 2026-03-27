@@ -140,6 +140,10 @@ self.addEventListener("notificationclick", (event) => {
 
   if (event.action) {
     if (!projectId) {
+      console.warn(
+        "Feedback action ignored: missing project_id in notification data",
+        { notificationId, action: event.action },
+      );
       return;
     }
     event.waitUntil(

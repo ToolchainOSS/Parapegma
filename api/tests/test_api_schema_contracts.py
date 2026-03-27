@@ -221,6 +221,7 @@ def test_response_model_dump_json_shape_for_messages() -> None:
                     "type": "feedback_poll",
                     "notification_id": 1042,
                     "status": "pending",
+                    "selected_action_id": None,
                     "actions": [{"id": "fb_0", "title": "Highly Relevant"}],
                 },
             }

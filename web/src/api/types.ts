@@ -60,19 +60,7 @@ export type TimezoneUpdateRequest =
   components["schemas"]["TimezoneUpdateRequest"];
 export type DashboardResponse = components["schemas"]["DashboardResponse"];
 export type MembershipInfo = components["schemas"]["MembershipInfo"];
-
-export interface FeedbackAction {
-  readonly id: string;
-  readonly title: string;
-}
-
-export interface FeedbackPollMetadata {
-  readonly type: "feedback_poll";
-  readonly notification_id: number;
-  readonly status: "pending" | "completed";
-  readonly selected_action_id?: string;
-  readonly actions: readonly FeedbackAction[];
-}
+export type FeedbackPollMetadata = components["schemas"]["FeedbackPollMetadata"];
 
 // ── Notification types (unified) ──────────────────────────────────────────
 

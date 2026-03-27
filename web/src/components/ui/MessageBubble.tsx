@@ -33,6 +33,12 @@ interface MessageBubbleProps {
   showDebug?: boolean;
 }
 
+function isFeedbackPollMetadata(
+  metadata: FeedbackPollMetadata | Record<string, unknown> | undefined,
+): metadata is FeedbackPollMetadata {
+  return metadata?.type === "feedback_poll";
+}
+
 export const MessageBubble = memo(function MessageBubble({
   role,
   content,
@@ -84,9 +90,9 @@ export const MessageBubble = memo(function MessageBubble({
         ) : (
           <>
             <AssistantMarkdown markdown={content} isStreaming={isStreaming} />
-            {projectId && metadata?.type === "feedback_poll" && (
+            {projectId && isFeedbackPollMetadata(metadata) && (
               <FeedbackPollWidget
-                metadata={metadata as FeedbackPollMetadata}
+                metadata={metadata}
                 projectId={projectId}
               />
             )}

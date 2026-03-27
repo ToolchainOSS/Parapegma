@@ -752,6 +752,24 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "FeedbackAction": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "FeedbackAction",
+        "type": "object"
+      },
       "FeedbackEventRequest": {
         "additionalProperties": false,
         "properties": {
@@ -780,6 +798,53 @@
           "notification_id"
         ],
         "title": "FeedbackEventRequest",
+        "type": "object"
+      },
+      "FeedbackPollMetadata": {
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "notification_id": {
+            "title": "Notification Id",
+            "type": "integer"
+          },
+          "selected_action_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Action Id"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "const": "feedback_poll",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "notification_id",
+          "status",
+          "actions"
+        ],
+        "title": "FeedbackPollMetadata",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -922,6 +987,9 @@
           },
           "metadata": {
             "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackPollMetadata"
+              },
               {
                 "additionalProperties": true,
                 "type": "object"

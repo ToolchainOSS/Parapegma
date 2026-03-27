@@ -182,13 +182,26 @@ class SendMessageRequest(BaseModel):
     current_notification_id: int | None = None
 
 
+class FeedbackAction(BaseModel):
+    id: str
+    title: str
+
+
+class FeedbackPollMetadata(BaseModel):
+    type: Literal["feedback_poll"]
+    notification_id: int
+    status: Literal["pending", "completed"]
+    selected_action_id: str | None = None
+    actions: list[FeedbackAction]
+
+
 class MessageItem(BaseModel):
     message_id: int
     server_msg_id: str
     role: str
     content: str
     created_at: str
-    metadata: dict[str, Any] | None = None
+    metadata: FeedbackPollMetadata | dict[str, Any] | None = None
 
 
 class SendMessageResponse(BaseModel):
@@ -1522,8 +1535,8 @@ async def _submit_feedback_event_impl(
             .where(
                 Message.conversation_id == conv.id,
                 Message.metadata_["type"].as_string() == "feedback_poll",
-                Message.metadata_["notification_id"].as_string()
-                == str(body.notification_id),
+                Message.metadata_["notification_id"].as_integer()
+                == body.notification_id,
             )
             .order_by(Message.id.desc())
             .limit(1)

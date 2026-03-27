@@ -1080,6 +1080,13 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** FeedbackAction */
+        FeedbackAction: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+        };
         /** FeedbackEventRequest */
         FeedbackEventRequest: {
             /** Action Id */
@@ -1088,6 +1095,25 @@ export interface components {
             notification_id: number;
             /** Project Id */
             project_id?: string | null;
+        };
+        /** FeedbackPollMetadata */
+        FeedbackPollMetadata: {
+            /** Actions */
+            actions: components["schemas"]["FeedbackAction"][];
+            /** Notification Id */
+            notification_id: number;
+            /** Selected Action Id */
+            selected_action_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
+            /**
+             * Type
+             * @constant
+             */
+            type: "feedback_poll";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1135,7 +1161,7 @@ export interface components {
             /** Message Id */
             message_id: number;
             /** Metadata */
-            metadata?: {
+            metadata?: components["schemas"]["FeedbackPollMetadata"] | {
                 [key: string]: unknown;
             } | null;
             /** Role */
