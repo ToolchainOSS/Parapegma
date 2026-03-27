@@ -139,13 +139,13 @@ self.addEventListener("notificationclick", (event) => {
   const notificationId = data.notification_id;
 
   if (event.action) {
+    if (!projectId) {
+      return;
+    }
     event.waitUntil(
       (async () => {
         const token = await mintHttpToken();
-        const feedbackUrl = projectId
-          ? `/api/p/${projectId}/chat/events/feedback`
-          : "/api/chat/events/feedback";
-        await fetch(feedbackUrl, {
+        await fetch(`/api/p/${projectId}/chat/events/feedback`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

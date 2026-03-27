@@ -2895,56 +2895,6 @@
         ]
       }
     },
-    "/chat/events/feedback": {
-      "post": {
-        "operationId": "submit_feedback_event_chat_events_feedback_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FeedbackEventRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Submit Feedback Event Chat Events Feedback Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
-        "summary": "Submit Feedback Event",
-        "tags": [
-          "notifications"
-        ]
-      }
-    },
     "/dashboard": {
       "get": {
         "description": "Return all memberships with project info for the current user.",
@@ -3622,7 +3572,7 @@
     },
     "/p/{project_id}/chat/events/feedback": {
       "post": {
-        "operationId": "submit_feedback_event_for_project_p__project_id__chat_events_feedback_post",
+        "operationId": "submit_feedback_event_p__project_id__chat_events_feedback_post",
         "parameters": [
           {
             "in": "path",
@@ -3652,7 +3602,7 @@
                   "additionalProperties": {
                     "type": "string"
                   },
-                  "title": "Response Submit Feedback Event For Project P  Project Id  Chat Events Feedback Post",
+                  "title": "Response Submit Feedback Event P  Project Id  Chat Events Feedback Post",
                   "type": "object"
                 }
               }
@@ -3675,7 +3625,7 @@
             "DeviceJWT": []
           }
         ],
-        "summary": "Submit Feedback Event For Project",
+        "summary": "Submit Feedback Event",
         "tags": [
           "notifications"
         ]

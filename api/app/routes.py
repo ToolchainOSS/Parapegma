@@ -1684,7 +1684,7 @@ async def _submit_feedback_event_impl(
 
 
 @router.post("/p/{project_id}/chat/events/feedback", tags=["notifications"])
-async def submit_feedback_event_for_project(
+async def submit_feedback_event(
     project_id: str,
     body: FeedbackEventRequest,
     user: User = require_user(),
@@ -1693,22 +1693,6 @@ async def submit_feedback_event_for_project(
     return await _submit_feedback_event_impl(
         body=body,
         resolved_project_id=project_id,
-        user=user,
-        db=db,
-    )
-
-
-@router.post("/chat/events/feedback", tags=["notifications"])
-async def submit_feedback_event(
-    body: FeedbackEventRequest,
-    user: User = require_user(),
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
-    if not body.project_id:
-        raise HTTPException(status_code=400, detail="project_id is required")
-    return await _submit_feedback_event_impl(
-        body=body,
-        resolved_project_id=body.project_id,
         user=user,
         db=db,
     )
