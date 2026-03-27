@@ -418,10 +418,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Submit Feedback Event
-         * @description Persist push action feedback and run an engine turn for contextual follow-up.
-         */
+        /** Submit Feedback Event */
         post: operations["submit_feedback_event_chat_events_feedback_post"];
         delete?: never;
         options?: never;
@@ -735,6 +732,23 @@ export interface paths {
          * @description Validate invite code, create membership and conversation.
          */
         post: operations["claim_invite_p__project_id__activate_claim_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/p/{project_id}/chat/events/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Feedback Event For Project */
+        post: operations["submit_feedback_event_for_project_p__project_id__chat_events_feedback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1137,6 +1151,10 @@ export interface components {
             created_at: string;
             /** Message Id */
             message_id: number;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
             /** Role */
             role: string;
             /** Server Msg Id */
@@ -2369,7 +2387,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        [key: string]: boolean;
+                        [key: string]: string;
                     };
                 };
             };
@@ -2834,6 +2852,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClaimResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_feedback_event_for_project_p__project_id__chat_events_feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description Validation Error */

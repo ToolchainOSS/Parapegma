@@ -32,7 +32,11 @@ export function FeedbackPollWidget({
         }),
       });
     } catch (err) {
-      console.error("Feedback dispatch failed", err);
+      console.error(
+        "Feedback dispatch failed",
+        { projectId, notificationId: metadata.notification_id, actionId },
+        err,
+      );
       setIsSubmitting(false);
     }
   };

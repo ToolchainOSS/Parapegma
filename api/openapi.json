@@ -920,6 +920,18 @@
             "title": "Message Id",
             "type": "integer"
           },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
           "role": {
             "title": "Role",
             "type": "string"
@@ -2885,7 +2897,6 @@
     },
     "/chat/events/feedback": {
       "post": {
-        "description": "Persist push action feedback and run an engine turn for contextual follow-up.",
         "operationId": "submit_feedback_event_chat_events_feedback_post",
         "requestBody": {
           "content": {
@@ -2903,7 +2914,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": {
-                    "type": "boolean"
+                    "type": "string"
                   },
                   "title": "Response Submit Feedback Event Chat Events Feedback Post",
                   "type": "object"
@@ -3606,6 +3617,67 @@
         "summary": "Claim Invite",
         "tags": [
           "activation"
+        ]
+      }
+    },
+    "/p/{project_id}/chat/events/feedback": {
+      "post": {
+        "operationId": "submit_feedback_event_for_project_p__project_id__chat_events_feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Submit Feedback Event For Project P  Project Id  Chat Events Feedback Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Submit Feedback Event For Project",
+        "tags": [
+          "notifications"
         ]
       }
     },

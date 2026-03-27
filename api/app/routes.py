@@ -1497,19 +1497,14 @@ async def send_message(
         raise
 
 
-@router.post("/p/{project_id}/chat/events/feedback", tags=["notifications"])
-@router.post("/chat/events/feedback", tags=["notifications"])
-async def submit_feedback_event(
+async def _submit_feedback_event_impl(
     body: FeedbackEventRequest,
-    project_id: str | None = None,
+    resolved_project_id: str,
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Persist push action feedback and run an engine turn for contextual follow-up."""
     try:
-        resolved_project_id = project_id or body.project_id
-        if not resolved_project_id:
-            raise HTTPException(status_code=400, detail="project_id is required")
         membership = await _get_membership(db, resolved_project_id, user.id)
         notif_result = await db.execute(
             select(Notification).where(
@@ -1686,6 +1681,37 @@ async def submit_feedback_event(
     except Exception:
         logger.exception("Failed to store feedback event")
         raise HTTPException(status_code=500, detail="Failed to store feedback event")
+
+
+@router.post("/p/{project_id}/chat/events/feedback", tags=["notifications"])
+async def submit_feedback_event_for_project(
+    project_id: str,
+    body: FeedbackEventRequest,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    return await _submit_feedback_event_impl(
+        body=body,
+        resolved_project_id=project_id,
+        user=user,
+        db=db,
+    )
+
+
+@router.post("/chat/events/feedback", tags=["notifications"])
+async def submit_feedback_event(
+    body: FeedbackEventRequest,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    if not body.project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    return await _submit_feedback_event_impl(
+        body=body,
+        resolved_project_id=body.project_id,
+        user=user,
+        db=db,
+    )
 
 
 # ---------------------------------------------------------------------------
