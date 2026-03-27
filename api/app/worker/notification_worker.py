@@ -63,6 +63,18 @@ def _push_enabled() -> bool:
     return bool(config.get_vapid_private_key() and config.get_vapid_public_key())
 
 
+def _to_feedback_poll_actions(actions: list[dict] | None) -> list[dict[str, str]]:
+    valid_actions: list[dict[str, str]] = []
+    for action in actions or []:
+        if not isinstance(action, dict):
+            continue
+        action_id = str(action.get("action") or "").strip()
+        action_title = str(action.get("title") or "").strip()
+        if action_id and action_title:
+            valid_actions.append({"id": action_id, "title": action_title})
+    return valid_actions
+
+
 async def _send_push_notifications(
     db,
     user_id: str,
@@ -650,35 +662,13 @@ async def _process_scheduled_tasks(worker_id: str) -> int:
                         db.add(conversation)
                         await db.flush()
 
+                    content = payload.get("text", "Feedback Request")
                     server_msg_id = generate_server_msg_id()
-                    message = Message(
-                        conversation_id=conversation.id,
-                        role="assistant",
-                        content=payload.get("text", "Feedback Request"),
-                        server_msg_id=server_msg_id,
-                        client_msg_id=f"feedback:{task.id}",
-                    )
-                    db.add(message)
-                    await db.flush()
-                    await persist_event(
-                        db,
-                        conversation.id,
-                        "message.final",
-                        {
-                            "message_id": message.id,
-                            "server_msg_id": message.server_msg_id,
-                            "role": "assistant",
-                            "content": message.content,
-                            "created_at": message.created_at.isoformat()
-                            if message.created_at
-                            else datetime.now(UTC).isoformat(),
-                        },
-                    )
 
                     notification = Notification(
                         membership_id=task.membership_id,
                         title="Feedback Request",
-                        body=message.content,
+                        body=content,
                         payload_json=json.dumps(
                             {
                                 "server_msg_id": server_msg_id,
@@ -692,6 +682,38 @@ async def _process_scheduled_tasks(worker_id: str) -> int:
                     db.add(notification)
                     await db.flush()
 
+                    message_metadata = {
+                        "type": "feedback_poll",
+                        "notification_id": notification.id,
+                        "status": "pending",
+                        "actions": _to_feedback_poll_actions(payload.get("actions")),
+                    }
+                    message = Message(
+                        conversation_id=conversation.id,
+                        role="assistant",
+                        content=content,
+                        server_msg_id=server_msg_id,
+                        client_msg_id=f"feedback:{task.id}",
+                        metadata_=message_metadata,
+                    )
+                    db.add(message)
+                    await db.flush()
+                    await persist_event(
+                        db,
+                        conversation.id,
+                        "message.final",
+                        {
+                            "message_id": message.id,
+                            "server_msg_id": message.server_msg_id,
+                            "role": "assistant",
+                            "content": message.content,
+                            "metadata": message_metadata,
+                            "created_at": message.created_at.isoformat()
+                            if message.created_at
+                            else datetime.now(UTC).isoformat(),
+                        },
+                    )
+
                     chat_url = f"/p/{membership.project_id}/chat?nid={notification.id}"
                     delivery = NotificationDelivery(
                         instance_id=notification.id,
@@ -701,7 +723,7 @@ async def _process_scheduled_tasks(worker_id: str) -> int:
                         payload_json=json.dumps(
                             {
                                 "title": "Feedback Request",
-                                "body": message.content,
+                                "body": content,
                                 "url": chat_url,
                                 "actions": payload.get("actions", []),
                                 "data": {

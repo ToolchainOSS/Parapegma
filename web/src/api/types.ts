@@ -60,6 +60,7 @@ export type TimezoneUpdateRequest =
   components["schemas"]["TimezoneUpdateRequest"];
 export type DashboardResponse = components["schemas"]["DashboardResponse"];
 export type MembershipInfo = components["schemas"]["MembershipInfo"];
+export type FeedbackPollMetadata = components["schemas"]["FeedbackPollMetadata"];
 
 // ── Notification types (unified) ──────────────────────────────────────────
 
@@ -103,7 +104,8 @@ type _AssertAdminPushChannelsGet =
   paths["/admin/projects/{project_id}/push/channels"]["get"];
 type _AssertAdminPushTestPost = paths["/admin/push/test"]["post"];
 type _AssertNotificationsGet = paths["/notifications"]["get"];
-type _AssertFeedbackEventPost = paths["/chat/events/feedback"]["post"];
+type _AssertFeedbackEventPost =
+  paths["/p/{project_id}/chat/events/feedback"]["post"];
 type _AssertNotificationsUnreadCountGet =
   paths["/notifications/unread-count"]["get"];
 type _AssertNotificationReadPost =

@@ -199,6 +199,12 @@ def test_response_model_dump_json_shape_for_messages() -> None:
                 role="assistant",
                 content="Great work",
                 created_at="2026-01-15T09:30:00+00:00",
+                metadata={
+                    "type": "feedback_poll",
+                    "notification_id": 1042,
+                    "status": "pending",
+                    "actions": [{"id": "fb_0", "title": "Highly Relevant"}],
+                },
             )
         ]
     )
@@ -211,6 +217,13 @@ def test_response_model_dump_json_shape_for_messages() -> None:
                 "role": "assistant",
                 "content": "Great work",
                 "created_at": "2026-01-15T09:30:00+00:00",
+                "metadata": {
+                    "type": "feedback_poll",
+                    "notification_id": 1042,
+                    "status": "pending",
+                    "selected_action_id": None,
+                    "actions": [{"id": "fb_0", "title": "Highly Relevant"}],
+                },
             }
         ]
     }

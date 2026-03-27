@@ -220,7 +220,7 @@ All project-scoped endpoints require passkey authentication.
 | `GET` | `/p/{project_id}/messages` | messaging | Get message history |
 | `POST` | `/p/{project_id}/messages` | messaging | Send message, get assistant reply |
 | `GET` | `/p/{project_id}/events` | streaming | SSE event stream for real-time updates |
-| `POST` | `/chat/events/feedback` | notifications | Record push action feedback from service worker |
+| `POST` | `/p/{project_id}/chat/events/feedback` | notifications | Record push action feedback from service worker |
 | `GET` | `/notifications` | notifications | List unified notifications (optional project_id filter) |
 | `GET` | `/notifications/unread-count` | notifications | Get unread notification count (optional project_id filter) |
 | `POST` | `/notifications/{notification_id}/read` | notifications | Mark notification as read, enqueue push_dismiss delivery |

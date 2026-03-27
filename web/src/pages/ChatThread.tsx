@@ -11,7 +11,7 @@ import { MessageBubble } from "../components/ui/MessageBubble";
 import { Composer } from "../components/ui/Composer";
 import { useLayoutMode } from "../hooks/useLayoutMode";
 import { useTimezone } from "../hooks/useTimezone";
-import type { DashboardResponse } from "../api/types";
+import type { DashboardResponse, FeedbackPollMetadata } from "../api/types";
 import api from "../api/client";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
@@ -33,6 +33,7 @@ interface Message {
   serverMsgId: string;
   role: "user" | "assistant";
   content: string;
+  metadata?: FeedbackPollMetadata | Record<string, unknown>;
   created_at?: string;
   isStreaming?: boolean;
   debugInfo?: DebugInfo;
@@ -187,6 +188,7 @@ export function ChatThread() {
                 server_msg_id: string;
                 role: "user" | "assistant";
                 content: string;
+                metadata?: FeedbackPollMetadata | Record<string, unknown>;
                 created_at?: string;
                 debug_info?: DebugInfo;
               }) => ({
@@ -194,6 +196,7 @@ export function ChatThread() {
                 serverMsgId: msg.server_msg_id,
                 role: msg.role,
                 content: msg.content,
+                metadata: msg.metadata,
                 created_at: msg.created_at,
               }),
             ),
@@ -246,6 +249,7 @@ export function ChatThread() {
       server_msg_id: string;
       role: "user" | "assistant";
       content: string;
+      metadata?: FeedbackPollMetadata | Record<string, unknown>;
       created_at?: string;
       debug_info?: DebugInfo;
     }) => {
@@ -258,6 +262,7 @@ export function ChatThread() {
                 ...m,
                 id: String(payload.message_id), // Ensure ID is sync
                 content: payload.content,
+                metadata: payload.metadata,
                 isStreaming: false,
                 created_at: payload.created_at,
                 debugInfo: payload.debug_info,
@@ -272,6 +277,7 @@ export function ChatThread() {
           serverMsgId: payload.server_msg_id,
           role: payload.role,
           content: payload.content,
+          metadata: payload.metadata,
           created_at: payload.created_at,
           isStreaming: false,
           debugInfo: payload.debug_info,
@@ -313,6 +319,24 @@ export function ChatThread() {
       });
     };
 
+    const handleMessageUpdated = (payload: {
+      message_id: number;
+      server_msg_id?: string;
+      metadata: FeedbackPollMetadata | Record<string, unknown>;
+    }) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id === String(payload.message_id)) {
+            return { ...m, metadata: payload.metadata };
+          }
+          if (payload.server_msg_id && m.serverMsgId === payload.server_msg_id) {
+            return { ...m, metadata: payload.metadata };
+          }
+          return m;
+        }),
+      );
+    };
+
     (async () => {
       let retryCount = 0;
       while (active && !ctrl.signal.aborted) {
@@ -341,12 +365,25 @@ export function ChatThread() {
                       server_msg_id: string;
                       role: "user" | "assistant";
                       content: string;
+                      metadata?: FeedbackPollMetadata | Record<string, unknown>;
                       created_at?: string;
                       debug_info?: DebugInfo;
                     },
                   );
                 } catch {
                   // ignore malformed messages
+                }
+              } else if (ev.event === "message.updated") {
+                try {
+                  handleMessageUpdated(
+                    JSON.parse(ev.data) as {
+                      message_id: number;
+                      server_msg_id?: string;
+                      metadata: FeedbackPollMetadata | Record<string, unknown>;
+                    },
+                  );
+                } catch {
+                  // ignore malformed updates
                 }
               } else if (ev.event === "message.chunk") {
                 try {
@@ -608,8 +645,10 @@ export function ChatThread() {
         {groupedMessages.map((msg) => (
           <MessageBubble
             key={msg.id}
+            projectId={projectId}
             role={msg.role}
             content={msg.content}
+            metadata={msg.metadata}
             timestamp={formatBubbleTime(msg.created_at)}
             isGroupContinuation={msg.isGroupContinuation}
             isStreaming={msg.isStreaming}

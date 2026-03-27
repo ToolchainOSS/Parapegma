@@ -182,12 +182,26 @@ class SendMessageRequest(BaseModel):
     current_notification_id: int | None = None
 
 
+class FeedbackAction(BaseModel):
+    id: str
+    title: str
+
+
+class FeedbackPollMetadata(BaseModel):
+    type: Literal["feedback_poll"]
+    notification_id: int
+    status: Literal["pending", "completed"]
+    selected_action_id: str | None = None
+    actions: list[FeedbackAction]
+
+
 class MessageItem(BaseModel):
     message_id: int
     server_msg_id: str
     role: str
     content: str
     created_at: str
+    metadata: FeedbackPollMetadata | dict[str, Any] | None = None
 
 
 class SendMessageResponse(BaseModel):
@@ -1173,6 +1187,7 @@ async def list_messages(
                 role=msg.role,
                 content=msg.content,
                 created_at=msg.created_at.isoformat(),
+                metadata=msg.metadata_,
             )
             for msg in result.scalars().all()
         ]
@@ -1495,25 +1510,63 @@ async def send_message(
         raise
 
 
-@router.post("/chat/events/feedback", tags=["notifications"])
-async def submit_feedback_event(
+async def _submit_feedback_event_impl(
     body: FeedbackEventRequest,
+    resolved_project_id: str,
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, bool]:
+) -> dict[str, str]:
     """Persist push action feedback and run an engine turn for contextual follow-up."""
     try:
+        membership = await _get_membership(db, resolved_project_id, user.id)
         notif_result = await db.execute(
-            select(Notification)
-            .join(ProjectMembership, Notification.membership_id == ProjectMembership.id)
-            .where(
+            select(Notification).where(
                 Notification.id == body.notification_id,
-                ProjectMembership.user_id == user.id,
+                Notification.membership_id == membership.id,
             )
         )
         notification = notif_result.scalar_one_or_none()
         if notification is None:
             raise HTTPException(status_code=404, detail="Notification not found")
+
+        conv = await _get_conversation(db, notification.membership_id)
+        poll_msg_result = await db.execute(
+            select(Message)
+            .where(
+                Message.conversation_id == conv.id,
+                Message.metadata_["type"].as_string() == "feedback_poll",
+                Message.metadata_["notification_id"].as_integer()
+                == body.notification_id,
+            )
+            .order_by(Message.id.desc())
+            .limit(1)
+        )
+        poll_msg = poll_msg_result.scalar_one_or_none()
+        if poll_msg is None:
+            fallback_result = await db.execute(
+                select(Message)
+                .where(
+                    Message.conversation_id == conv.id,
+                    Message.metadata_.is_not(None),
+                )
+                .order_by(Message.id.desc())
+            )
+            for candidate in fallback_result.scalars():
+                metadata = candidate.metadata_ or {}
+                if metadata.get("type") == "feedback_poll" and str(
+                    metadata.get("notification_id")
+                ) == str(body.notification_id):
+                    poll_msg = candidate
+                    break
+        if poll_msg is None:
+            raise HTTPException(status_code=404, detail="Poll message not found")
+
+        poll_metadata = dict(poll_msg.metadata_ or {})
+        if poll_metadata.get("status") == "completed":
+            if notification.read_at is None:
+                notification.read_at = datetime.now(UTC)
+                await db.commit()
+            return {"status": "already_recorded"}
 
         if notification.read_at is None:
             notification.read_at = datetime.now(UTC)
@@ -1530,17 +1583,31 @@ async def submit_feedback_event(
             delivery_result.scalars().all(),
             body.action_id,
         )
+        selected_action_id = None
+        for action in poll_metadata.get("actions", []):
+            if action.get("id") == body.action_id:
+                selected_action_id = body.action_id
+                action_title = str(action.get("title") or action_title)
+                break
+        if selected_action_id is None:
+            raise HTTPException(status_code=400, detail="Invalid feedback action")
 
-        conv_result = await db.execute(
-            select(Conversation).where(
-                Conversation.membership_id == notification.membership_id
-            )
+        poll_metadata["status"] = "completed"
+        poll_metadata["selected_action_id"] = selected_action_id
+        await db.execute(
+            update(Message)
+            .where(Message.id == poll_msg.id)
+            .values({Message.metadata_: poll_metadata})
         )
-        conv = conv_result.scalar_one_or_none()
-        if conv is None:
-            conv = Conversation(membership_id=notification.membership_id)
-            db.add(conv)
-            await db.flush()
+
+        update_payload = {
+            "message_id": poll_msg.id,
+            "server_msg_id": poll_msg.server_msg_id,
+            "metadata": poll_metadata,
+        }
+        update_event = await persist_event(
+            db, conv.id, "message.updated", update_payload
+        )
 
         user_msg = Message(
             conversation_id=conv.id,
@@ -1605,20 +1672,43 @@ async def submit_feedback_event(
         _publish_event(
             conv.id,
             {
+                "event": "message.updated",
+                "id": str(update_event.id),
+                "data": json.dumps(update_payload),
+            },
+        )
+        _publish_event(
+            conv.id,
+            {
                 "event": "message.final",
                 "id": str(conv_event.id),
                 "data": json.dumps(sse_payload),
             },
         )
-        return {"ok": True}
+        return {"status": "success"}
     except IntegrityError:
         await db.rollback()
-        return {"ok": True}
+        return {"status": "success"}
     except HTTPException:
         raise
     except Exception:
         logger.exception("Failed to store feedback event")
         raise HTTPException(status_code=500, detail="Failed to store feedback event")
+
+
+@router.post("/p/{project_id}/chat/events/feedback", tags=["notifications"])
+async def submit_feedback_event(
+    project_id: str,
+    body: FeedbackEventRequest,
+    user: User = require_user(),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    return await _submit_feedback_event_impl(
+        body=body,
+        resolved_project_id=project_id,
+        user=user,
+        db=db,
+    )
 
 
 # ---------------------------------------------------------------------------

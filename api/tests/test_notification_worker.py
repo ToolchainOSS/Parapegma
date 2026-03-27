@@ -219,6 +219,14 @@ async def test_process_scheduled_tasks_creates_message_notification_and_delivery
             )
         ).scalar_one()
         assert feedback_msg.role == "assistant"
+        assert feedback_msg.metadata_ is not None
+        assert feedback_msg.metadata_["type"] == "feedback_poll"
+        assert feedback_msg.metadata_["status"] == "pending"
+        assert feedback_msg.metadata_["notification_id"] > 0
+        assert feedback_msg.metadata_["actions"] == [
+            {"id": "fb_0", "title": "Works perfectly"},
+            {"id": "fb_1", "title": "Needs tweaks"},
+        ]
 
         feedback_notif = (
             await db.execute(
@@ -279,7 +287,15 @@ async def test_process_scheduled_tasks_cancels_task_when_parent_rule_inactive(
             membership_id=membership.id,
             rule_id=rule.id,
             task_type="feedback_request",
-            payload_json=json.dumps({"text": "How did this prompt work for you?"}),
+            payload_json=json.dumps(
+                {
+                    "text": "How did this prompt work for you?",
+                    "actions": [
+                        {"action": "fb_0", "title": "Works perfectly"},
+                        {"action": "fb_1", "title": "Needs tweaks"},
+                    ],
+                }
+            ),
             run_at_utc=datetime.now(UTC) - timedelta(minutes=1),
             status="pending",
         )
