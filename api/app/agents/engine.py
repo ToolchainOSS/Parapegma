@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
 import string
@@ -510,17 +511,27 @@ async def process_turn(
 
     # Synchronous pre-inference context prefetch (not exposed as ReAct tools)
     try:
-        prefetch_context = await execute_prefetch_pipeline(
-            arm=arm,
-            history_messages=recent_msgs,
-            current_msg=user_text,
+        prefetch_context = await asyncio.wait_for(
+            execute_prefetch_pipeline(
+                arm=arm,
+                history_messages=recent_msgs,
+                current_msg=user_text,
+            ),
+            timeout=1.5,
         )
+    except asyncio.TimeoutError:
+        logger.warning("Prefetch pipeline timed out")
+        prefetch_context = {"rag_context": "", "web_context": ""}
     except Exception:
         logger.exception("Prefetch pipeline failed")
         prefetch_context = {"rag_context": "", "web_context": ""}
 
-    prompt_args["rag_context"] = prefetch_context.get("rag_context", "")
-    prompt_args["web_context"] = prefetch_context.get("web_context", "")
+    rag_str = prefetch_context.get("rag_context", "").strip()
+    prompt_args["rag_context"] = (
+        f"### Knowledge Base Context\n{rag_str}" if rag_str else ""
+    )
+    web_str = prefetch_context.get("web_context", "").strip()
+    prompt_args["web_context"] = f"### Web Search Context\n{web_str}" if web_str else ""
 
     # Read conversation state from runtime state if available
     state_result = await db.execute(

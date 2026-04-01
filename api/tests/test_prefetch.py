@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -103,4 +104,63 @@ async def test_prefetch_pipeline_timeout_and_error_fail_silent(monkeypatch):
         current_msg="x",
     )
 
+    assert result == {"rag_context": "", "web_context": ""}
+
+
+@pytest.mark.asyncio
+async def test_fetch_web_normalizes_roles_to_user_assistant_only(monkeypatch):
+    captured = {}
+
+    class _FakeCompletions:
+        async def create(self, **kwargs):
+            captured["messages"] = kwargs["messages"]
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="web ok"))]
+            )
+
+    class _FakeClient:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=_FakeCompletions())
+
+    monkeypatch.setattr(prefetch.config, "get_perplexity_api_key", lambda: "key")
+    monkeypatch.setattr(prefetch, "AsyncOpenAI", _FakeClient)
+
+    result = await prefetch._fetch_web(
+        history_messages=[
+            SimpleNamespace(role="system", content="sys"),
+            SimpleNamespace(role="user", content="u"),
+            SimpleNamespace(role="assistant", content="a"),
+            SimpleNamespace(role="tool", content="t"),
+        ]
+    )
+    assert result == "### Web Search Results\nweb ok"
+    assert captured["messages"] == [
+        {"role": "user", "content": "sys"},
+        {"role": "user", "content": "u"},
+        {"role": "assistant", "content": "a"},
+        {"role": "user", "content": "t"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_prefetch_pipeline_gather_return_exceptions_maps_to_empty(monkeypatch):
+    async def fake_condense_query(history: str, current_msg: str) -> str:
+        return "condensed"
+
+    async def fail_fetch_rag(query: str) -> str:
+        raise RuntimeError("rag failed")
+
+    async def fail_fetch_web(history_messages: list) -> str:
+        raise RuntimeError("web failed")
+
+    monkeypatch.setattr(prefetch, "_condense_query", fake_condense_query)
+    monkeypatch.setattr(prefetch, "_fetch_rag", fail_fetch_rag)
+    monkeypatch.setattr(prefetch, "_fetch_web", fail_fetch_web)
+
+    arm = ArmConfig(arm_id="on", use_memory=True, use_rag=True, use_web=True)
+    result = await prefetch.execute_prefetch_pipeline(
+        arm=arm,
+        history_messages=[{"role": "user", "content": "x"}],
+        current_msg="x",
+    )
     assert result == {"rag_context": "", "web_context": ""}

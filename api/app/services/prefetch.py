@@ -130,9 +130,7 @@ async def _fetch_web(history_messages: list[Any]) -> str:
             content = getattr(msg, "content", "")
             if not content:
                 continue
-            normalized_role = (
-                role if role in {"system", "user", "assistant"} else "user"
-            )
+            normalized_role = role if role in {"user", "assistant"} else "user"
             messages.append({"role": normalized_role, "content": content})
         if not messages:
             return ""
@@ -193,5 +191,11 @@ async def execute_prefetch_pipeline(
             logger.exception("Web prefetch arm failed")
             return ""
 
-    rag_context, web_context = await asyncio.gather(_run_rag(), _run_web())
+    results = await asyncio.gather(_run_rag(), _run_web(), return_exceptions=True)
+    if len(results) != 2:
+        logger.error("Prefetch gather returned unexpected result count: %s", len(results))
+        return {"rag_context": "", "web_context": ""}
+    rag_result, web_result = results
+    rag_context = "" if isinstance(rag_result, Exception) else str(rag_result)
+    web_context = "" if isinstance(web_result, Exception) else str(web_result)
     return {"rag_context": rag_context, "web_context": web_context}

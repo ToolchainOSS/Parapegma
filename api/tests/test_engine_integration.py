@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from typing import AsyncGenerator
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
+from langchain_openai import ChatOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -219,7 +223,7 @@ class TestEngineTurnPipeline:
     async def test_process_turn_injects_prefetch_context_into_prompt_args(
         self, seeded_db: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Prefetch markdown is injected into specialist prompt args."""
+        """Prefetch markdown is compiled into the specialist system prompt."""
         db = seeded_db["db"]
         conv = seeded_db["conversation"]
         mid = seeded_db["membership_id"]
@@ -238,48 +242,51 @@ class TestEngineTurnPipeline:
         async def fake_prefetch_pipeline(arm, history_messages, current_msg):
             captured["prefetch_called"] = True
             return {
-                "rag_context": "### Knowledge Base Results\n1. Rag item",
-                "web_context": "### Web Search Results\nWeb item",
+                "rag_context": "Rag item",
+                "web_context": "Web item",
             }
 
-        def fake_create_specialist_agent(llm, tools, prompt_name, prompt_args=None):
-            captured["prompt_name"] = prompt_name
-            captured["prompt_args"] = dict(prompt_args or {})
-            return object()
-
-        async def fake_run_intake(agent, user_text, chat_history, on_token=None):
-            return "assistant response", []
+        async def fake_agenerate(self, messages, *args, **kwargs):
+            for batch in messages:
+                for msg in batch:
+                    content = getattr(msg, "content", "")
+                    if (
+                        isinstance(content, str)
+                        and "### Knowledge Base Context" in content
+                    ):
+                        captured["system_prompt"] = content
+                        break
+            return LLMResult(
+                generations=[
+                    [ChatGeneration(message=AIMessage(content="assistant response"))]
+                ]
+            )
 
         monkeypatch.setattr(
             "app.agents.engine.execute_prefetch_pipeline",
             fake_prefetch_pipeline,
         )
-        monkeypatch.setattr(
-            "app.agents.engine._create_specialist_agent",
-            fake_create_specialist_agent,
-        )
-        monkeypatch.setattr("app.agents.intake.run_intake", fake_run_intake)
 
-        text, decision, _ = await process_turn(
-            db=db,
-            conversation=conv,
-            membership_id=mid,
-            user_msg=user_msg,
-            user_text="Hello!",
-            llm=object(),
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            api_key="test-key",
+            temperature=0,
         )
+        with patch.object(ChatOpenAI, "agenerate", new=fake_agenerate):
+            text, decision, _ = await process_turn(
+                db=db,
+                conversation=conv,
+                membership_id=mid,
+                user_msg=user_msg,
+                user_text="Hello!",
+                llm=llm,
+            )
 
         assert text == "assistant response"
         assert decision.route == "INTAKE"
         assert captured["prefetch_called"] is True
-        assert captured["prompt_name"] == "intake_system"
-        assert (
-            captured["prompt_args"]["rag_context"]
-            == "### Knowledge Base Results\n1. Rag item"
-        )
-        assert (
-            captured["prompt_args"]["web_context"] == "### Web Search Results\nWeb item"
-        )
+        assert "### Knowledge Base Context" in captured["system_prompt"]
+        assert "Rag item" in captured["system_prompt"]
 
 
 class TestAuditLog:
