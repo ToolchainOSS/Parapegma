@@ -21,6 +21,8 @@ _GROQ_TIMEOUT_SECONDS = 0.8
 _RAG_TIMEOUT_SECONDS = 0.8
 _WEB_TIMEOUT_SECONDS = 0.8
 _DEFAULT_TOP_K = 4
+_RAG_CONDENSATION_MODEL = "llama-3.1-8b-instant"
+_WEB_SEARCH_MODEL = "sonar-pro"
 
 
 def _history_to_text(history_messages: list[Any]) -> str:
@@ -33,6 +35,10 @@ def _history_to_text(history_messages: list[Any]) -> str:
     return "\n".join(lines)
 
 
+def _normalize_text_content(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
 async def _condense_query(history: str, current_msg: str) -> str:
     """Condense multi-turn chat history into one retrieval query using Groq."""
     api_key = config.get_groq_api_key()
@@ -40,7 +46,7 @@ async def _condense_query(history: str, current_msg: str) -> str:
         return ""
     try:
         llm = ChatGroq(
-            model="llama-3.1-8b-instant",
+            model=_RAG_CONDENSATION_MODEL,
             api_key=api_key,
             temperature=0,
             timeout=_GROQ_TIMEOUT_SECONDS,
@@ -63,7 +69,7 @@ async def _condense_query(history: str, current_msg: str) -> str:
             ]
         )
         content = getattr(response, "content", "")
-        return content.strip() if isinstance(content, str) else ""
+        return _normalize_text_content(content)
     except Exception:
         logger.exception("Groq condensation failed")
         return ""
@@ -92,7 +98,8 @@ async def _fetch_rag(query: str) -> str:
             return ""
 
         lines = ["### Knowledge Base Results"]
-        for i, doc in enumerate(docs, start=1):
+        kept = 0
+        for doc in docs:
             source = ""
             metadata = getattr(doc, "metadata", {}) or {}
             if isinstance(metadata, dict):
@@ -100,8 +107,9 @@ async def _fetch_rag(query: str) -> str:
             text = getattr(doc, "page_content", "").strip()
             if not text:
                 continue
+            kept += 1
             source_suffix = f" (source: {source})" if source else ""
-            lines.append(f"{i}. {text}{source_suffix}")
+            lines.append(f"{kept}. {text}{source_suffix}")
         return "\n".join(lines) if len(lines) > 1 else ""
     except Exception:
         logger.exception("RAG retrieval failed")
@@ -130,7 +138,7 @@ async def _fetch_web(history_messages: list[Any]) -> str:
             return ""
 
         response = await client.chat.completions.create(
-            model="sonar-pro",
+            model=_WEB_SEARCH_MODEL,
             messages=messages,
             temperature=0,
             max_tokens=600,
@@ -138,7 +146,7 @@ async def _fetch_web(history_messages: list[Any]) -> str:
         )
         choice = response.choices[0] if response.choices else None
         content = choice.message.content if choice and choice.message else ""
-        content_text = content.strip() if isinstance(content, str) else ""
+        content_text = _normalize_text_content(content)
         if not content_text:
             return ""
         return f"### Web Search Results\n{content_text}"

@@ -483,7 +483,8 @@ async def process_turn(
 
     Returns (assistant_text, route_decision, debug_info).
     """
-    # Step 0: mock arm config (all enabled for now)
+    # Step 0: temporary arm config default for ablation wiring (all enabled for now).
+    # TODO: replace with persisted/runtime bandit-arm assignment source.
     arm = ArmConfig(
         arm_id="default_all_on", use_memory=True, use_rag=True, use_web=True
     )
