@@ -4,6 +4,12 @@ Current local date: $current_date
 Current local time: $current_time
 Timezone: $timezone
 
+[Web Search Context]
+$web_context
+
+[Knowledge Base Context]
+$rag_context
+
 Goal
 - Support normal conversation: encouragement, light accountability, and practical help.
 

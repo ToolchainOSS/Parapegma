@@ -57,6 +57,30 @@ def get_openai_api_key() -> str | None:
 
 
 @cache
+def get_groq_api_key() -> str | None:
+    """Return the Groq API key."""
+    return os.environ.get("GROQ_API_KEY")
+
+
+@cache
+def get_pinecone_api_key() -> str | None:
+    """Return the Pinecone API key."""
+    return os.environ.get("PINECONE_API_KEY")
+
+
+@cache
+def get_pinecone_index_name() -> str:
+    """Return the Pinecone index name."""
+    return os.environ.get("PINECONE_INDEX_NAME", "")
+
+
+@cache
+def get_perplexity_api_key() -> str | None:
+    """Return the Perplexity API key."""
+    return os.environ.get("PERPLEXITY_API_KEY")
+
+
+@cache
 def get_llm_model() -> str:
     """Return the LLM model to use."""
     return os.environ.get("LLM_MODEL", "gpt-4o-mini")
@@ -172,6 +196,10 @@ def clear_config_cache() -> None:
     get_env.cache_clear()
     get_worker_id.cache_clear()
     get_openai_api_key.cache_clear()
+    get_groq_api_key.cache_clear()
+    get_pinecone_api_key.cache_clear()
+    get_pinecone_index_name.cache_clear()
+    get_perplexity_api_key.cache_clear()
     get_llm_model.cache_clear()
     get_vapid_public_key.cache_clear()
     get_vapid_private_key.cache_clear()

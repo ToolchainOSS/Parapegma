@@ -215,6 +215,73 @@ class TestEngineTurnPipeline:
         )
         assert decision.route == "FEEDBACK"
 
+    @pytest.mark.asyncio
+    async def test_process_turn_injects_prefetch_context_into_prompt_args(
+        self, seeded_db: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Prefetch markdown is injected into specialist prompt args."""
+        db = seeded_db["db"]
+        conv = seeded_db["conversation"]
+        mid = seeded_db["membership_id"]
+
+        user_msg = Message(
+            conversation_id=conv.id,
+            role="user",
+            content="Hello!",
+            server_msg_id=generate_server_msg_id(),
+        )
+        db.add(user_msg)
+        await db.flush()
+
+        captured: dict = {}
+
+        async def fake_prefetch_pipeline(arm, history_messages, current_msg):
+            captured["prefetch_called"] = True
+            return {
+                "rag_context": "### Knowledge Base Results\n1. Rag item",
+                "web_context": "### Web Search Results\nWeb item",
+            }
+
+        def fake_create_specialist_agent(llm, tools, prompt_name, prompt_args=None):
+            captured["prompt_name"] = prompt_name
+            captured["prompt_args"] = dict(prompt_args or {})
+            return object()
+
+        async def fake_run_intake(agent, user_text, chat_history, on_token=None):
+            return "assistant response", []
+
+        monkeypatch.setattr(
+            "app.agents.engine.execute_prefetch_pipeline",
+            fake_prefetch_pipeline,
+        )
+        monkeypatch.setattr(
+            "app.agents.engine._create_specialist_agent",
+            fake_create_specialist_agent,
+        )
+        monkeypatch.setattr("app.agents.intake.run_intake", fake_run_intake)
+
+        text, decision, _ = await process_turn(
+            db=db,
+            conversation=conv,
+            membership_id=mid,
+            user_msg=user_msg,
+            user_text="Hello!",
+            llm=object(),
+        )
+
+        assert text == "assistant response"
+        assert decision.route == "INTAKE"
+        assert captured["prefetch_called"] is True
+        assert captured["prompt_name"] == "intake_system"
+        assert (
+            captured["prompt_args"]["rag_context"]
+            == "### Knowledge Base Results\n1. Rag item"
+        )
+        assert (
+            captured["prompt_args"]["web_context"]
+            == "### Web Search Results\nWeb item"
+        )
+
 
 class TestAuditLog:
     @pytest.mark.asyncio
