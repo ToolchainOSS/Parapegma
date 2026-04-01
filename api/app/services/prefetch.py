@@ -122,7 +122,9 @@ async def _fetch_web(history_messages: list[Any]) -> str:
             content = getattr(msg, "content", "")
             if not content:
                 continue
-            normalized_role = role if role in {"system", "user", "assistant"} else "user"
+            normalized_role = (
+                role if role in {"system", "user", "assistant"} else "user"
+            )
             messages.append({"role": normalized_role, "content": content})
         if not messages:
             return ""
@@ -185,4 +187,3 @@ async def execute_prefetch_pipeline(
 
     rag_context, web_context = await asyncio.gather(_run_rag(), _run_web())
     return {"rag_context": rag_context, "web_context": web_context}
-

@@ -69,7 +69,9 @@ async def test_prefetch_pipeline_strict_arm_gating(monkeypatch):
     assert result == {"rag_context": "", "web_context": ""}
     assert calls == {"condense": 0, "rag": 0, "web": 0}
 
-    arm_web_only = ArmConfig(arm_id="web-only", use_memory=True, use_rag=False, use_web=True)
+    arm_web_only = ArmConfig(
+        arm_id="web-only", use_memory=True, use_rag=False, use_web=True
+    )
     result_web_only = await prefetch.execute_prefetch_pipeline(
         arm=arm_web_only,
         history_messages=[{"role": "user", "content": "raw history"}],

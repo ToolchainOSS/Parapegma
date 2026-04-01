@@ -484,7 +484,9 @@ async def process_turn(
     Returns (assistant_text, route_decision, debug_info).
     """
     # Step 0: mock arm config (all enabled for now)
-    arm = ArmConfig(arm_id="default_all_on", use_memory=True, use_rag=True, use_web=True)
+    arm = ArmConfig(
+        arm_id="default_all_on", use_memory=True, use_rag=True, use_web=True
+    )
 
     # Step 1: Load profile + memory + recent history
     profile = await load_user_profile(db, membership_id)

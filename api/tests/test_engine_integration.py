@@ -278,8 +278,7 @@ class TestEngineTurnPipeline:
             == "### Knowledge Base Results\n1. Rag item"
         )
         assert (
-            captured["prompt_args"]["web_context"]
-            == "### Web Search Results\nWeb item"
+            captured["prompt_args"]["web_context"] == "### Web Search Results\nWeb item"
         )
 
 

@@ -12,4 +12,3 @@ class ArmConfig(BaseModel):
     use_memory: bool
     use_rag: bool
     use_web: bool
-
