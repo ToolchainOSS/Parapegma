@@ -92,6 +92,42 @@ def test_get_log_level(monkeypatch):
     assert config.get_log_level() == "DEBUG"
 
 
+def test_get_groq_api_key(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    assert config.get_groq_api_key() is None
+
+    monkeypatch.setenv("GROQ_API_KEY", "groq_test")
+    config.clear_config_cache()
+    assert config.get_groq_api_key() == "groq_test"
+
+
+def test_get_pinecone_api_key(monkeypatch):
+    monkeypatch.delenv("PINECONE_API_KEY", raising=False)
+    assert config.get_pinecone_api_key() is None
+
+    monkeypatch.setenv("PINECONE_API_KEY", "pc_test")
+    config.clear_config_cache()
+    assert config.get_pinecone_api_key() == "pc_test"
+
+
+def test_get_pinecone_index_name(monkeypatch):
+    monkeypatch.delenv("PINECONE_INDEX_NAME", raising=False)
+    assert config.get_pinecone_index_name() == ""
+
+    monkeypatch.setenv("PINECONE_INDEX_NAME", "kb-index")
+    config.clear_config_cache()
+    assert config.get_pinecone_index_name() == "kb-index"
+
+
+def test_get_perplexity_api_key(monkeypatch):
+    monkeypatch.delenv("PERPLEXITY_API_KEY", raising=False)
+    assert config.get_perplexity_api_key() is None
+
+    monkeypatch.setenv("PERPLEXITY_API_KEY", "ppx_test")
+    config.clear_config_cache()
+    assert config.get_perplexity_api_key() == "ppx_test"
+
+
 def test_feedback_loop_enabled_default_and_override(monkeypatch):
     monkeypatch.delenv("ENABLE_AUTOMATED_FEEDBACK", raising=False)
     assert config.is_feedback_loop_enabled() is True

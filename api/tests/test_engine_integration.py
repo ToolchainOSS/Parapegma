@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from typing import AsyncGenerator
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
+from langchain_openai import ChatOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -214,6 +218,75 @@ class TestEngineTurnPipeline:
             user_text="I tried the habit today",
         )
         assert decision.route == "FEEDBACK"
+
+    @pytest.mark.asyncio
+    async def test_process_turn_injects_prefetch_context_into_prompt_args(
+        self, seeded_db: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Prefetch markdown is compiled into the specialist system prompt."""
+        db = seeded_db["db"]
+        conv = seeded_db["conversation"]
+        mid = seeded_db["membership_id"]
+
+        user_msg = Message(
+            conversation_id=conv.id,
+            role="user",
+            content="Hello!",
+            server_msg_id=generate_server_msg_id(),
+        )
+        db.add(user_msg)
+        await db.flush()
+
+        captured: dict = {}
+
+        async def fake_prefetch_pipeline(arm, history_messages, current_msg):
+            captured["prefetch_called"] = True
+            return {
+                "rag_context": "Rag item",
+                "web_context": "Web item",
+            }
+
+        async def fake_agenerate(self, messages, *args, **kwargs):
+            for batch in messages:
+                for msg in batch:
+                    content = getattr(msg, "content", "")
+                    if (
+                        isinstance(content, str)
+                        and "### Knowledge Base Context" in content
+                    ):
+                        captured["system_prompt"] = content
+                        break
+            return LLMResult(
+                generations=[
+                    [ChatGeneration(message=AIMessage(content="assistant response"))]
+                ]
+            )
+
+        monkeypatch.setattr(
+            "app.agents.engine.execute_prefetch_pipeline",
+            fake_prefetch_pipeline,
+        )
+
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            api_key="test-key",
+            temperature=0,
+        )
+        with patch.object(ChatOpenAI, "agenerate", new=fake_agenerate):
+            text, decision, _ = await process_turn(
+                db=db,
+                conversation=conv,
+                membership_id=mid,
+                user_msg=user_msg,
+                user_text="Hello!",
+                llm=llm,
+            )
+
+        assert text == "assistant response"
+        assert decision.route == "INTAKE"
+        assert captured["prefetch_called"] is True
+        assert "### Knowledge Base Context" in captured["system_prompt"]
+        assert "Rag item" in captured["system_prompt"]
 
 
 class TestAuditLog:

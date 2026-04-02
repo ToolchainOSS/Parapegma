@@ -22,3 +22,6 @@ Tool usage
 Constraints
 - Do not run structured feedback collection here.
 - If the user starts reporting detailed outcomes, respond supportively and let the system handle routing.
+
+$web_context
+$rag_context

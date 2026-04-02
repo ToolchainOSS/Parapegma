@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
 import string
@@ -40,6 +41,7 @@ from app.schemas.patches import (
     SchedulePatchProposal,
     UserProfileData,
 )
+from app.schemas.bandit import ArmConfig
 from app.schemas.router import RouteDecision
 from app.services.profile_service import (
     add_memory_item,
@@ -52,6 +54,7 @@ from app.services.profile_service import (
     validate_profile_patch,
 )
 from app.models import NotificationRule, NotificationRuleState
+from app.services.prefetch import execute_prefetch_pipeline
 from app.services.notification_engine import compute_next_due_utc, get_user_timezone
 from app.tools.proposal_tools import ProposalCollector
 
@@ -481,9 +484,15 @@ async def process_turn(
 
     Returns (assistant_text, route_decision, debug_info).
     """
+    # Step 0: temporary arm config default for ablation wiring (all enabled for now).
+    # TODO: replace with persisted/runtime bandit-arm assignment source.
+    arm = ArmConfig(
+        arm_id="default_all_on", use_memory=True, use_rag=True, use_web=True
+    )
+
     # Step 1: Load profile + memory + recent history
     profile = await load_user_profile(db, membership_id)
-    memory_items = await load_memory_items(db, membership_id)
+    memory_items = await load_memory_items(db, membership_id) if arm.use_memory else []
 
     # Build unified prompt context (display_name + time) once for all LLM paths
     from app.services.prompt_context import get_prompt_context_for_membership
@@ -499,6 +508,30 @@ async def process_turn(
     )
     recent_msgs = list(reversed(result.scalars().all()))
     recent_message_ids = [m.id for m in recent_msgs]
+
+    # Synchronous pre-inference context prefetch (not exposed as ReAct tools)
+    try:
+        prefetch_context = await asyncio.wait_for(
+            execute_prefetch_pipeline(
+                arm=arm,
+                history_messages=recent_msgs,
+                current_msg=user_text,
+            ),
+            timeout=1.5,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Prefetch pipeline timed out")
+        prefetch_context = {"rag_context": "", "web_context": ""}
+    except Exception:
+        logger.exception("Prefetch pipeline failed")
+        prefetch_context = {"rag_context": "", "web_context": ""}
+
+    rag_str = prefetch_context.get("rag_context", "").strip()
+    prompt_args["rag_context"] = (
+        f"### Knowledge Base Context\n{rag_str}" if rag_str else ""
+    )
+    web_str = prefetch_context.get("web_context", "").strip()
+    prompt_args["web_context"] = f"### Web Search Context\n{web_str}" if web_str else ""
 
     # Read conversation state from runtime state if available
     state_result = await db.execute(
@@ -517,7 +550,7 @@ async def process_turn(
     # Step 2: Route
     if router_llm is not None:
         profile_summary = _build_profile_summary(profile)
-        memory_summary = _build_memory_summary(memory_items)
+        memory_summary = _build_memory_summary(memory_items) if arm.use_memory else ""
         decision = route_turn_llm(
             router_llm,
             profile_summary,

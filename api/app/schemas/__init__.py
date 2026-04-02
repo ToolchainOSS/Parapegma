@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.schemas.bandit import ArmConfig
 from app.schemas.router import RouteDecision
 from app.schemas.tool_schemas import (
     GenerateHabitPromptArgs,
@@ -15,6 +16,7 @@ from app.schemas.tool_schemas import (
 )
 
 __all__ = [
+    "ArmConfig",
     "GenerateHabitPromptArgs",
     "GenerateHabitPromptResult",
     "ProfileSaveArgs",

@@ -39,3 +39,6 @@ Constraints
 - Do not fabricate user preferences.
 - Do not present a checklist.
 - Do not overfit: if the user gives a vague answer, ask one brief follow-up.
+
+$web_context
+$rag_context
