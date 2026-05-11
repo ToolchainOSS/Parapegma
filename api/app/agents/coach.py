@@ -52,7 +52,7 @@ async def run_coach(
     assistant_text = COACH_FALLBACK
     tool_calls: list[dict[str, Any]] = []
 
-    for _ in range(MAX_CONDITION_C_REWRITE_ATTEMPTS):
+    for attempt in range(MAX_CONDITION_C_REWRITE_ATTEMPTS):
         assistant_text, tool_calls = await run_agent(
             agent=agent,
             user_text=user_text,
@@ -62,7 +62,8 @@ async def run_coach(
         )
         if not CONDITION_C_PATTERN.search(assistant_text):
             return assistant_text, tool_calls
-        gated_history.append(AIMessage(content=assistant_text))
-        gated_history.append(HumanMessage(content=CONDITION_C_REWRITE_INSTRUCTION))
+        if attempt < MAX_CONDITION_C_REWRITE_ATTEMPTS - 1:
+            gated_history.append(AIMessage(content=assistant_text))
+            gated_history.append(HumanMessage(content=CONDITION_C_REWRITE_INSTRUCTION))
 
     return assistant_text, tool_calls

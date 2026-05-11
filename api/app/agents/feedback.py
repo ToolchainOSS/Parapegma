@@ -16,7 +16,7 @@ from app.agents.runner import run_agent
 from app.prompt_loader import load_prompt
 
 FEEDBACK_SYSTEM_PROMPT = load_prompt("feedback_system")
-FEEDBACK_TELEMETRY_CONSTRAINT = (
+FEEDBACK_FACTS_ONLY_CONSTRAINT = (
     "You are a sterile telemetry extractor. Analyze the recent conversation and "
     "output ONLY factual state updates regarding the user's behavior (e.g., steps "
     "completed, barriers encountered, time of activity). You are strictly FORBIDDEN "
@@ -40,7 +40,7 @@ async def run_feedback(
 
     Falls back to ``FEEDBACK_FALLBACK`` if the agent produces no output.
     """
-    constrained_prompt = f"{FEEDBACK_SYSTEM_PROMPT}\n\n{FEEDBACK_TELEMETRY_CONSTRAINT}"
+    constrained_prompt = f"{FEEDBACK_SYSTEM_PROMPT}\n\n{FEEDBACK_FACTS_ONLY_CONSTRAINT}"
     constrained_history = [SystemMessage(content=constrained_prompt), *chat_history]
     return await run_agent(
         agent=agent,
