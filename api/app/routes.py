@@ -1022,7 +1022,10 @@ async def _claim_invite_impl(
                 )
 
                 current_condition = debug_info.get("condition")
-                if not isinstance(current_condition, str) or current_condition == "NONE":
+                if (
+                    not isinstance(current_condition, str)
+                    or current_condition == "NONE"
+                ):
                     current_condition = None
                 # Persist assistant message
                 assistant_msg = Message(

@@ -41,7 +41,10 @@ async def run_feedback(
     filtered_history = [
         message for message in chat_history if not isinstance(message, SystemMessage)
     ]
-    constrained_history = [SystemMessage(content=FEEDBACK_SYSTEM_PROMPT), *filtered_history]
+    constrained_history = [
+        SystemMessage(content=FEEDBACK_SYSTEM_PROMPT),
+        *filtered_history,
+    ]
     return await run_agent(
         agent=agent,
         user_text=user_text,

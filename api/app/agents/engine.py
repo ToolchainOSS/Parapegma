@@ -538,12 +538,14 @@ async def process_turn(
     prompt_args = await get_prompt_context_for_membership(db, membership_id)
 
     # Load recent messages for context
-    current_condition, participation, study_day_index = (
-        await _get_active_condition_context(
-            db=db,
-            membership_id=membership_id,
-            current_date=datetime.now(timezone.utc).date(),
-        )
+    (
+        current_condition,
+        participation,
+        study_day_index,
+    ) = await _get_active_condition_context(
+        db=db,
+        membership_id=membership_id,
+        current_date=datetime.now(timezone.utc).date(),
     )
     prompt_args["active_condition"] = current_condition or "NONE"
     history_query = select(Message).where(Message.conversation_id == conversation.id)
@@ -703,7 +705,9 @@ async def process_turn(
     )
 
     debug_info = {
-        "agent": decision.route if current_condition not in ["A", "B"] else "STATIC_TEMPLATE",
+        "agent": decision.route
+        if current_condition not in ["A", "B"]
+        else "STATIC_TEMPLATE",
         "condition": current_condition or "NONE",
         "prompt_args": prompt_args,
         "tools": tool_names if current_condition not in ["A", "B"] else [],

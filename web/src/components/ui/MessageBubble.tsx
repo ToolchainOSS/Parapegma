@@ -24,6 +24,7 @@ interface MessageBubbleProps {
     condition?: string;
     prompt_args?: Record<string, unknown>;
     tools?: string[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tool_calls?: any[];
   };
   showDebug?: boolean;
