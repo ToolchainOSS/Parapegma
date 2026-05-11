@@ -194,7 +194,11 @@ async def _get_active_condition(
     if participation is None:
         return None
 
-    salt = os.environ.get("FLOW_RANDOMIZATION_SALT", "flow-default-salt")
+    salt = os.environ.get("FLOW_RANDOMIZATION_SALT")
+    if not salt:
+        raise RuntimeError(
+            "FLOW_RANDOMIZATION_SALT must be set for participation randomization"
+        )
     return get_daily_condition(
         participation_id=participation.id,
         study_start_date=participation.study_start_date,

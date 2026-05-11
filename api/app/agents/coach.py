@@ -11,7 +11,7 @@ import re
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from app.agents.runner import run_agent
@@ -20,6 +20,7 @@ from app.prompt_loader import load_prompt
 COACH_SYSTEM_PROMPT = load_prompt("coach_system")
 
 COACH_FALLBACK = "I'm here to support your habit journey. How can I help you today?"
+MAX_CONDITION_C_REWRITE_ATTEMPTS = 3
 CONDITION_C_PATTERN = re.compile(
     r"(?i)\bif\b.*\bthen\b.*\bwill\b|commitment contract|I bet"
 )
@@ -51,7 +52,7 @@ async def run_coach(
     assistant_text = COACH_FALLBACK
     tool_calls: list[dict[str, Any]] = []
 
-    for _ in range(3):
+    for _ in range(MAX_CONDITION_C_REWRITE_ATTEMPTS):
         assistant_text, tool_calls = await run_agent(
             agent=agent,
             user_text=user_text,
@@ -61,6 +62,7 @@ async def run_coach(
         )
         if not CONDITION_C_PATTERN.search(assistant_text):
             return assistant_text, tool_calls
+        gated_history.append(AIMessage(content=assistant_text))
         gated_history.append(HumanMessage(content=CONDITION_C_REWRITE_INSTRUCTION))
 
     return assistant_text, tool_calls
