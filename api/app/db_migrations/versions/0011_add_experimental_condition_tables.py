@@ -28,17 +28,18 @@ def upgrade() -> None:
         ),
         sa.Column("study_id", sa.String(length=50), nullable=False),
         sa.Column("study_start_date", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("timezone", sa.String(length=50), nullable=False, server_default="UTC"),
+        sa.Column(
+            "timezone", sa.String(length=50), nullable=False, server_default="UTC"
+        ),
     )
 
     with op.batch_alter_table("messages") as batch:
-        batch.add_column(
-            sa.Column(
-                "participation_id",
-                sa.Integer(),
-                sa.ForeignKey("participations.id"),
-                nullable=True,
-            )
+        batch.add_column(sa.Column("participation_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key(
+            "fk_messages_participation_id_participations",
+            "participations",
+            ["participation_id"],
+            ["id"],
         )
         batch.add_column(
             sa.Column(
@@ -70,6 +71,10 @@ def downgrade() -> None:
     op.drop_table("daily_intervention_logs")
 
     with op.batch_alter_table("messages") as batch:
+        batch.drop_constraint(
+            "fk_messages_participation_id_participations",
+            type_="foreignkey",
+        )
         batch.drop_index("ix_messages_condition_source")
         batch.drop_column("condition_source")
         batch.drop_column("participation_id")
