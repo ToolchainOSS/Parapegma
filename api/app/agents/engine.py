@@ -16,9 +16,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import string
 from collections.abc import Callable, Coroutine
 from datetime import date, datetime, timezone
-import string
+from functools import lru_cache
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -178,6 +179,20 @@ def _build_memory_summary(items: list[MemoryItemData]) -> str:
     return "; ".join(summaries)
 
 
+@lru_cache(maxsize=1)
+def _get_randomization_salt() -> str:
+    salt = os.environ.get("FLOW_RANDOMIZATION_SALT")
+    if not salt:
+        raise RuntimeError(
+            "FLOW_RANDOMIZATION_SALT must be set for participation randomization"
+        )
+    if len(salt) < 32:
+        raise RuntimeError(
+            "FLOW_RANDOMIZATION_SALT must be at least 32 characters for experimental integrity"
+        )
+    return salt
+
+
 async def _get_active_condition(
     db: AsyncSession,
     membership_id: int,
@@ -194,15 +209,7 @@ async def _get_active_condition(
     if participation is None:
         return None
 
-    salt = os.environ.get("FLOW_RANDOMIZATION_SALT")
-    if not salt:
-        raise RuntimeError(
-            "FLOW_RANDOMIZATION_SALT must be set for participation randomization"
-        )
-    if len(salt) < 32:
-        raise RuntimeError(
-            "FLOW_RANDOMIZATION_SALT must be at least 32 characters for experimental integrity"
-        )
+    salt = _get_randomization_salt()
     return get_daily_condition(
         participation_id=participation.id,
         study_start_date=participation.study_start_date,

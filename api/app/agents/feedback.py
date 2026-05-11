@@ -23,6 +23,9 @@ FEEDBACK_FACTS_ONLY_CONSTRAINT = (
     "from recording, summarizing, or emulating the coaching style, implementation "
     "intentions, structural phrasing, or advice provided by the system assistant."
 )
+FEEDBACK_CONSTRAINED_PROMPT = (
+    f"{FEEDBACK_SYSTEM_PROMPT}\n\n{FEEDBACK_FACTS_ONLY_CONSTRAINT}"
+)
 
 FEEDBACK_FALLBACK = (
     "I'd love to hear how things went with your habit today. "
@@ -40,8 +43,10 @@ async def run_feedback(
 
     Falls back to ``FEEDBACK_FALLBACK`` if the agent produces no output.
     """
-    constrained_prompt = f"{FEEDBACK_SYSTEM_PROMPT}\n\n{FEEDBACK_FACTS_ONLY_CONSTRAINT}"
-    constrained_history = [SystemMessage(content=constrained_prompt), *chat_history]
+    constrained_history = [
+        SystemMessage(content=FEEDBACK_CONSTRAINED_PROMPT),
+        *chat_history,
+    ]
     return await run_agent(
         agent=agent,
         user_text=user_text,
