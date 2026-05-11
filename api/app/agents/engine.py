@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Callable, Coroutine
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import string
 
 from langchain_core.language_models import BaseChatModel
@@ -28,6 +29,7 @@ from app.models import (
     Conversation,
     ConversationRuntimeState,
     Message,
+    Participation,
     ScheduledTask,
 )
 from app.prompt_loader import load_prompt
@@ -53,6 +55,7 @@ from app.services.profile_service import (
 )
 from app.models import NotificationRule, NotificationRuleState
 from app.services.notification_engine import compute_next_due_utc, get_user_timezone
+from app.services.randomization import get_daily_condition
 from app.tools.proposal_tools import ProposalCollector
 
 logger = logging.getLogger(__name__)
@@ -173,6 +176,31 @@ def _build_memory_summary(items: list[MemoryItemData]) -> str:
         return "No memory items yet."
     summaries = [item.content[:100] for item in items[-5:]]
     return "; ".join(summaries)
+
+
+async def _get_active_condition(
+    db: AsyncSession,
+    membership_id: int,
+    current_date: date,
+) -> str | None:
+    """Resolve the active experimental condition for a membership on a given date."""
+    participation_result = await db.execute(
+        select(Participation)
+        .where(Participation.membership_id == membership_id)
+        .order_by(Participation.id.desc())
+        .limit(1)
+    )
+    participation = participation_result.scalar_one_or_none()
+    if participation is None:
+        return None
+
+    salt = os.environ.get("FLOW_RANDOMIZATION_SALT", "flow-default-salt")
+    return get_daily_condition(
+        participation_id=participation.id,
+        study_start_date=participation.study_start_date,
+        current_date=current_date,
+        salt=salt,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -491,11 +519,19 @@ async def process_turn(
     prompt_args = await get_prompt_context_for_membership(db, membership_id)
 
     # Load recent messages for context
+    current_condition = await _get_active_condition(
+        db=db,
+        membership_id=membership_id,
+        current_date=datetime.now(timezone.utc).date(),
+    )
+    history_query = select(Message).where(Message.conversation_id == conversation.id)
+    if current_condition == "C":
+        history_query = history_query.where(
+            Message.condition_source.notin_(["COND_B", "COND_D"])
+        )
+
     result = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation.id)
-        .order_by(Message.id.desc())
-        .limit(MAX_HISTORY_MESSAGES)
+        history_query.order_by(Message.id.desc()).limit(MAX_HISTORY_MESSAGES)
     )
     recent_msgs = list(reversed(result.scalars().all()))
     recent_message_ids = [m.id for m in recent_msgs]
@@ -592,6 +628,7 @@ async def process_turn(
                 ),
                 user_text,
                 chat_history,
+                active_condition=current_condition,
                 on_token=on_token,
             )
     else:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -149,6 +149,20 @@ class Conversation(Base):
     )
 
 
+class Participation(Base):
+    __tablename__ = "participations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    membership_id: Mapped[int] = mapped_column(
+        ForeignKey("project_memberships.id"), nullable=False
+    )
+    study_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    study_start_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    timezone: Mapped[str] = mapped_column(String(50), nullable=False, default="UTC")
+
+
 class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
@@ -170,6 +184,12 @@ class Message(Base):
     )
     client_msg_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     server_msg_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    participation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("participations.id"), nullable=True
+    )
+    condition_source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="SYSTEM", index=True
+    )
     metadata_: Mapped[dict[str, Any] | None] = mapped_column(
         "metadata",
         JSON().with_variant(JSONB, "postgresql"),
@@ -194,6 +214,22 @@ class ConversationRuntimeState(Base):
     )
 
     conversation: Mapped[Conversation] = relationship(back_populates="runtime_state")
+
+
+class DailyInterventionLog(Base):
+    __tablename__ = "daily_intervention_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    participation_id: Mapped[int] = mapped_column(
+        ForeignKey("participations.id"), nullable=False
+    )
+    intervention_date: Mapped[date] = mapped_column(Date, nullable=False)
+    study_day_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    assigned_condition: Mapped[str] = mapped_column(String(1), nullable=False)
+    extracted_state: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+    )
 
 
 class PushSubscription(Base):
