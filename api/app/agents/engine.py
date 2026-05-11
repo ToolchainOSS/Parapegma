@@ -199,6 +199,10 @@ async def _get_active_condition(
         raise RuntimeError(
             "FLOW_RANDOMIZATION_SALT must be set for participation randomization"
         )
+    if len(salt) < 32:
+        raise RuntimeError(
+            "FLOW_RANDOMIZATION_SALT must be at least 32 characters for experimental integrity"
+        )
     return get_daily_condition(
         participation_id=participation.id,
         study_start_date=participation.study_start_date,
