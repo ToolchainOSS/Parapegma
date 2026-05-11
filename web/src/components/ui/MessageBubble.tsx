@@ -3,6 +3,17 @@ import { AssistantMarkdown } from "../chat/AssistantMarkdown";
 import { FeedbackPollWidget } from "../chat/FeedbackPollWidget";
 import type { FeedbackPollMetadata } from "../../api/types";
 
+const conditionPillClass = {
+  A: "bg-blue-100 text-blue-800",
+  B: "bg-purple-100 text-purple-800",
+  C: "bg-amber-100 text-amber-800",
+  D: "bg-emerald-100 text-emerald-800",
+} as const;
+
+function isKnownCondition(value: unknown): value is keyof typeof conditionPillClass {
+  return typeof value === "string" && value in conditionPillClass;
+}
+
 function safeStringify(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
@@ -47,13 +58,6 @@ export const MessageBubble = memo(function MessageBubble({
   debugInfo,
   showDebug,
 }: MessageBubbleProps) {
-  const conditionPillClass = {
-    A: "bg-blue-100 text-blue-800",
-    B: "bg-purple-100 text-purple-800",
-    C: "bg-amber-100 text-amber-800",
-    D: "bg-emerald-100 text-emerald-800",
-  } as const;
-
   if (role === "system") {
     return (
       <div className="flex justify-center my-2">
@@ -117,9 +121,9 @@ export const MessageBubble = memo(function MessageBubble({
             {debugInfo.condition && (
               <span
                 className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
-                  conditionPillClass[
-                    debugInfo.condition as keyof typeof conditionPillClass
-                  ] ?? "bg-muted text-text-subtle"
+                  isKnownCondition(debugInfo.condition)
+                    ? conditionPillClass[debugInfo.condition]
+                    : "bg-muted text-text-subtle"
                 }`}
               >
                 {debugInfo.condition}

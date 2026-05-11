@@ -63,6 +63,7 @@ from app.tools.proposal_tools import ProposalCollector
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_MESSAGES = 30
+CONDITION_C_EXCLUDED_SOURCES = ["COND_B", "COND_D"]
 
 # ---------------------------------------------------------------------------
 # Router (structured output, no user-visible text)
@@ -551,7 +552,7 @@ async def process_turn(
     history_query = select(Message).where(Message.conversation_id == conversation.id)
     if current_condition == "C":
         history_query = history_query.where(
-            Message.condition_source.notin_(["COND_B", "COND_D"])
+            Message.condition_source.notin_(CONDITION_C_EXCLUDED_SOURCES)
         )
 
     result = await db.execute(
@@ -704,14 +705,13 @@ async def process_turn(
         latest_user_message_id=user_msg.id if user_msg else None,
     )
 
+    is_static_template = current_condition in {"A", "B"}
     debug_info = {
-        "agent": decision.route
-        if current_condition not in ["A", "B"]
-        else "STATIC_TEMPLATE",
+        "agent": decision.route if not is_static_template else "STATIC_TEMPLATE",
         "condition": current_condition or "NONE",
         "prompt_args": prompt_args,
-        "tools": tool_names if current_condition not in ["A", "B"] else [],
-        "tool_calls": tool_calls if current_condition not in ["A", "B"] else [],
+        "tools": tool_names if not is_static_template else [],
+        "tool_calls": tool_calls if not is_static_template else [],
     }
 
     return assistant_text, decision, debug_info

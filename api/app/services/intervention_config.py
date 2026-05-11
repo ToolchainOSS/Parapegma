@@ -38,10 +38,10 @@ def _load_interventions_config() -> dict[str, list[str]]:
 
 def _condition_key(condition: str) -> str:
     normalized = condition.strip().upper()
-    if normalized in {"A", "B"}:
-        return f"condition_{normalized}"
-    if normalized in {"CONDITION_A", "CONDITION_B"}:
-        return normalized.lower()
+    if normalized in {"A", "CONDITION_A"}:
+        return "condition_A"
+    if normalized in {"B", "CONDITION_B"}:
+        return "condition_B"
     return f"condition_{normalized}"
 
 
