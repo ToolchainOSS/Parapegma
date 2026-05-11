@@ -21,14 +21,10 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
   debugInfo?: {
     agent?: string;
+    condition?: string;
+    prompt_args?: Record<string, unknown>;
     tools?: string[];
-    tool_calls?: Array<{
-      tool: string;
-      args?: unknown;
-      output?: unknown;
-      error?: string;
-      run_id?: string;
-    }>;
+    tool_calls?: any[];
   };
   showDebug?: boolean;
 }
@@ -50,6 +46,13 @@ export const MessageBubble = memo(function MessageBubble({
   debugInfo,
   showDebug,
 }: MessageBubbleProps) {
+  const conditionPillClass = {
+    A: "bg-blue-100 text-blue-800",
+    B: "bg-purple-100 text-purple-800",
+    C: "bg-amber-100 text-amber-800",
+    D: "bg-emerald-100 text-emerald-800",
+  } as const;
+
   if (role === "system") {
     return (
       <div className="flex justify-center my-2">
@@ -106,10 +109,32 @@ export const MessageBubble = memo(function MessageBubble({
       </div>
 
       {showDebug && debugInfo && !isUser && (
-        <div className="max-w-[78%] md:max-w-[65%] px-1 mt-1 text-[10px] text-text-subtle font-mono">
-          <span className="font-semibold">{debugInfo.agent}</span>
+        <div className="max-w-[78%] md:max-w-[65%] px-2 py-1.5 mt-1 text-[10px] text-text-subtle font-mono rounded border border-border bg-surface">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="opacity-75">Route:</span>
+            <span className="font-semibold">{debugInfo.agent ?? "UNKNOWN"}</span>
+            {debugInfo.condition && (
+              <span
+                className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                  conditionPillClass[
+                    debugInfo.condition as keyof typeof conditionPillClass
+                  ] ?? "bg-muted text-text-subtle"
+                }`}
+              >
+                {debugInfo.condition}
+              </span>
+            )}
+          </div>
           {debugInfo.tools && debugInfo.tools.length > 0 && (
-            <span className="opacity-75"> using {debugInfo.tools.join(", ")}</span>
+            <div className="opacity-75 mt-1">Tools: {debugInfo.tools.join(", ")}</div>
+          )}
+          {debugInfo.prompt_args && (
+            <details className="mt-1">
+              <summary className="cursor-pointer opacity-75">prompt_args</summary>
+              <pre className="whitespace-pre-wrap break-all opacity-75 mt-0.5">
+                {safeStringify(debugInfo.prompt_args)}
+              </pre>
+            </details>
           )}
           {debugInfo.tool_calls && debugInfo.tool_calls.length > 0 && (
             <details className="mt-1">
@@ -118,14 +143,19 @@ export const MessageBubble = memo(function MessageBubble({
               </summary>
               <ul className="mt-0.5 space-y-1 list-none pl-0">
                 {debugInfo.tool_calls.map((tc, i) => (
-                  <li key={tc.run_id ?? i} className="border-l border-text-subtle pl-1.5">
-                    <span className="font-semibold">{tc.tool}</span>
-                    {tc.args !== undefined && (
+                  <li
+                    key={typeof tc?.run_id === "string" ? tc.run_id : i}
+                    className="border-l border-text-subtle pl-1.5"
+                  >
+                    <span className="font-semibold">
+                      {typeof tc?.tool === "string" ? tc.tool : "unknown_tool"}
+                    </span>
+                    {tc?.args !== undefined && (
                       <pre className="whitespace-pre-wrap break-all opacity-75 mt-0.5">
                         {safeStringify(tc.args)}
                       </pre>
                     )}
-                    {tc.error && (
+                    {typeof tc?.error === "string" && (
                       <span className="text-red-500 block">error: {tc.error}</span>
                     )}
                   </li>

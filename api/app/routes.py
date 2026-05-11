@@ -1011,7 +1011,7 @@ async def _claim_invite_impl(
                 from app.agents.engine import process_turn as engine_process_turn
 
                 # Run engine with system trigger
-                assistant_content, _decision, _debug_info = await engine_process_turn(
+                assistant_content, _decision, debug_info = await engine_process_turn(
                     db=db,
                     conversation=conv,
                     membership_id=membership.id,
@@ -1021,12 +1021,19 @@ async def _claim_invite_impl(
                     router_llm=llm,
                 )
 
+                current_condition = debug_info.get("condition")
+                if not isinstance(current_condition, str) or current_condition == "NONE":
+                    current_condition = None
                 # Persist assistant message
                 assistant_msg = Message(
                     conversation_id=conv.id,
                     role="assistant",
                     content=assistant_content,
                     server_msg_id=generate_server_msg_id(),
+                    condition_source=(
+                        f"COND_{current_condition}" if current_condition else "SYSTEM"
+                    ),
+                    metadata_={"debug_info": debug_info},
                 )
                 db.add(assistant_msg)
                 await db.flush()
@@ -1420,11 +1427,18 @@ async def send_message(
             logger.exception("Engine process_turn failed")
             raise
 
+        current_condition = debug_info.get("condition")
+        if not isinstance(current_condition, str) or current_condition == "NONE":
+            current_condition = None
         assistant_msg = Message(
             conversation_id=conv.id,
             role="assistant",
             content=assistant_content,
             server_msg_id=asst_server_msg_id,
+            condition_source=(
+                f"COND_{current_condition}" if current_condition else "SYSTEM"
+            ),
+            metadata_={"debug_info": debug_info},
         )
         db.add(assistant_msg)
         await db.flush()
@@ -1632,7 +1646,7 @@ async def _submit_feedback_event_impl(
             if llm_key
             else None
         )
-        assistant_content, decision, _debug_info = await engine_process_turn(
+        assistant_content, decision, debug_info = await engine_process_turn(
             db=db,
             conversation=conv,
             membership_id=notification.membership_id,
@@ -1642,11 +1656,18 @@ async def _submit_feedback_event_impl(
             router_llm=llm,
         )
 
+        current_condition = debug_info.get("condition")
+        if not isinstance(current_condition, str) or current_condition == "NONE":
+            current_condition = None
         asst_msg = Message(
             conversation_id=conv.id,
             role="assistant",
             content=assistant_content,
             server_msg_id=generate_server_msg_id(),
+            condition_source=(
+                f"COND_{current_condition}" if current_condition else "SYSTEM"
+            ),
+            metadata_={"debug_info": debug_info},
         )
         db.add(asst_msg)
         await db.flush()

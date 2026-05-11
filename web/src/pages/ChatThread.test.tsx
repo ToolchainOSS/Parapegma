@@ -62,16 +62,24 @@ describe("MessageBubble", () => {
     expect(container.textContent).toContain("world");
   });
 
-  it("renders debug info with agent and tools when showDebug is true", () => {
+  it("renders debug info with route, condition, and prompt args when showDebug is true", () => {
     render(
       <MessageBubble
         role="assistant"
         content="Hello"
         showDebug={true}
-        debugInfo={{ agent: "COACH", tools: ["propose_profile_patch"] }}
+        debugInfo={{
+          agent: "COACH",
+          condition: "C",
+          prompt_args: { active_condition: "C", timezone: "UTC" },
+          tools: ["propose_profile_patch"],
+        }}
       />,
     );
+    expect(screen.getByText("Route:")).toBeInTheDocument();
     expect(screen.getByText("COACH")).toBeInTheDocument();
+    expect(screen.getByText("C")).toBeInTheDocument();
+    expect(screen.getByText("prompt_args")).toBeInTheDocument();
     expect(screen.getByText(/propose_profile_patch/)).toBeInTheDocument();
   });
 

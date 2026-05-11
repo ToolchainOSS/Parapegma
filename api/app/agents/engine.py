@@ -55,6 +55,7 @@ from app.services.profile_service import (
     validate_profile_patch,
 )
 from app.models import NotificationRule, NotificationRuleState
+from app.services.intervention_config import get_static_intervention
 from app.services.notification_engine import compute_next_due_utc, get_user_timezone
 from app.services.randomization import get_daily_condition
 from app.tools.proposal_tools import ProposalCollector
@@ -193,11 +194,11 @@ def _get_randomization_salt() -> str:
     return salt
 
 
-async def _get_active_condition(
+async def _get_active_condition_context(
     db: AsyncSession,
     membership_id: int,
     current_date: date,
-) -> str | None:
+) -> tuple[str | None, Participation | None, int | None]:
     """Resolve the active experimental condition for a membership on a given date."""
     participation_result = await db.execute(
         select(Participation)
@@ -207,15 +208,18 @@ async def _get_active_condition(
     )
     participation = participation_result.scalar_one_or_none()
     if participation is None:
-        return None
+        return None, None, None
+
+    study_day_index = (current_date - participation.study_start_date.date()).days
 
     salt = _get_randomization_salt()
-    return get_daily_condition(
+    condition = get_daily_condition(
         participation_id=participation.id,
         study_start_date=participation.study_start_date,
         current_date=current_date,
         salt=salt,
     )
+    return condition, participation, study_day_index
 
 
 # ---------------------------------------------------------------------------
@@ -534,11 +538,14 @@ async def process_turn(
     prompt_args = await get_prompt_context_for_membership(db, membership_id)
 
     # Load recent messages for context
-    current_condition = await _get_active_condition(
-        db=db,
-        membership_id=membership_id,
-        current_date=datetime.now(timezone.utc).date(),
+    current_condition, participation, study_day_index = (
+        await _get_active_condition_context(
+            db=db,
+            membership_id=membership_id,
+            current_date=datetime.now(timezone.utc).date(),
+        )
     )
+    prompt_args["active_condition"] = current_condition or "NONE"
     history_query = select(Message).where(Message.conversation_id == conversation.id)
     if current_condition == "C":
         history_query = history_query.where(
@@ -634,6 +641,21 @@ async def process_turn(
                 chat_history,
                 on_token=on_token,
             )
+        elif (
+            current_condition in {"A", "B"}
+            and participation is not None
+            and study_day_index is not None
+        ):
+            assistant_text = get_static_intervention(
+                current_condition,
+                participation.id,
+                study_day_index,
+            )
+            tool_calls = []
+            decision = RouteDecision(
+                route="STATIC_TEMPLATE",
+                reason=f"static template for condition {current_condition}",
+            )
         else:
             from app.agents.coach import run_coach
 
@@ -648,9 +670,27 @@ async def process_turn(
             )
     else:
         # Stub mode (no LLM)
-        assistant_text, collector = _run_specialist_stub(decision.route, user_text)
-        tool_names = ["stub_tools"]  # simplified for stub
-        tool_calls: list[dict] = []
+        if (
+            current_condition in {"A", "B"}
+            and participation is not None
+            and study_day_index is not None
+        ):
+            assistant_text = get_static_intervention(
+                current_condition,
+                participation.id,
+                study_day_index,
+            )
+            collector = ProposalCollector()
+            tool_names = []
+            tool_calls = []
+            decision = RouteDecision(
+                route="STATIC_TEMPLATE",
+                reason=f"static template for condition {current_condition}",
+            )
+        else:
+            assistant_text, collector = _run_specialist_stub(decision.route, user_text)
+            tool_names = ["stub_tools"]  # simplified for stub
+            tool_calls = []
 
     # Step 4: Process proposals through Router validator
     await _process_proposals(
@@ -663,9 +703,11 @@ async def process_turn(
     )
 
     debug_info = {
-        "agent": decision.route,
-        "tools": tool_names,
-        "tool_calls": tool_calls,
+        "agent": decision.route if current_condition not in ["A", "B"] else "STATIC_TEMPLATE",
+        "condition": current_condition or "NONE",
+        "prompt_args": prompt_args,
+        "tools": tool_names if current_condition not in ["A", "B"] else [],
+        "tool_calls": tool_calls if current_condition not in ["A", "B"] else [],
     }
 
     return assistant_text, decision, debug_info
