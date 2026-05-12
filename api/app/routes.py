@@ -1011,7 +1011,12 @@ async def _claim_invite_impl(
                 from app.agents.engine import process_turn as engine_process_turn
 
                 # Run engine with system trigger
-                assistant_content, _decision, debug_info = await engine_process_turn(
+                (
+                    assistant_content,
+                    _decision,
+                    debug_info,
+                    participation_id,
+                ) = await engine_process_turn(
                     db=db,
                     conversation=conv,
                     membership_id=membership.id,
@@ -1037,6 +1042,7 @@ async def _claim_invite_impl(
                         f"COND_{current_condition}" if current_condition else "SYSTEM"
                     ),
                     metadata_={"debug_info": debug_info},
+                    participation_id=participation_id,
                 )
                 db.add(assistant_msg)
                 await db.flush()
@@ -1416,7 +1422,12 @@ async def send_message(
             )
 
         try:
-            assistant_content, _decision, debug_info = await engine_process_turn(
+            (
+                assistant_content,
+                _decision,
+                debug_info,
+                participation_id,
+            ) = await engine_process_turn(
                 db=db,
                 conversation=conv,
                 membership_id=membership_id,
@@ -1442,6 +1453,7 @@ async def send_message(
                 f"COND_{current_condition}" if current_condition else "SYSTEM"
             ),
             metadata_={"debug_info": debug_info},
+            participation_id=participation_id,
         )
         db.add(assistant_msg)
         await db.flush()
@@ -1649,7 +1661,12 @@ async def _submit_feedback_event_impl(
             if llm_key
             else None
         )
-        assistant_content, decision, debug_info = await engine_process_turn(
+        (
+            assistant_content,
+            decision,
+            debug_info,
+            participation_id,
+        ) = await engine_process_turn(
             db=db,
             conversation=conv,
             membership_id=notification.membership_id,
@@ -1671,6 +1688,7 @@ async def _submit_feedback_event_impl(
                 f"COND_{current_condition}" if current_condition else "SYSTEM"
             ),
             metadata_={"debug_info": debug_info},
+            participation_id=participation_id,
         )
         db.add(asst_msg)
         await db.flush()

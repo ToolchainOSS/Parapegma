@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Conversation,
     ConversationRuntimeState,
+    DailyInterventionLog,
     Message,
     Participation,
     ScheduledTask,
@@ -470,6 +471,31 @@ async def _process_proposals(
         except Exception:
             logger.exception("Failed to process schedule proposal: %s", raw)
 
+    # Process telemetry proposals (FEEDBACK bot only)
+    for proposal in collector.telemetry_proposals:
+        try:
+            today = datetime.now(timezone.utc).date()
+            log_result = await db.execute(
+                select(DailyInterventionLog)
+                .join(
+                    Participation,
+                    DailyInterventionLog.participation_id == Participation.id,
+                )
+                .where(
+                    Participation.membership_id == membership_id,
+                    DailyInterventionLog.intervention_date == today,
+                )
+            )
+            log = log_result.scalar_one_or_none()
+            if log is not None:
+                log.extracted_state = {
+                    **(log.extracted_state or {}),
+                    **proposal.get("state_updates", {}),
+                }
+                db.add(log)
+        except Exception:
+            logger.exception("Failed to process telemetry proposal: %s", proposal)
+
     if profile_changed:
         await save_user_profile(db, membership_id, profile, flush=False)
 
@@ -524,10 +550,10 @@ async def process_turn(
     llm: BaseChatModel | None = None,
     router_llm: BaseChatModel | None = None,
     on_token: Callable[[str], Coroutine[None, None, None]] | None = None,
-) -> tuple[str, RouteDecision, dict]:
+) -> tuple[str, RouteDecision, dict, int | None]:
     """Process one user turn through the new Router + specialist architecture.
 
-    Returns (assistant_text, route_decision, debug_info).
+    Returns (assistant_text, route_decision, debug_info, participation_id).
     """
     # Step 1: Load profile + memory + recent history
     profile = await load_user_profile(db, membership_id)
@@ -591,6 +617,60 @@ async def process_turn(
         decision = route_turn_deterministic(profile, conv_state)
 
     logger.info("Route decision: %s (reason: %s)", decision.route, decision.reason)
+
+    # Auto-enrollment: create Participation when the user is past INTAKE
+    if decision.route != "INTAKE" and participation is None:
+        participation = Participation(
+            membership_id=membership_id,
+            study_id="microcoach_v1",
+            study_start_date=datetime.now(timezone.utc),
+            timezone="UTC",
+        )
+        db.add(participation)
+        await db.flush()
+        # Recalculate condition now that a Participation record exists.
+        # If the randomization salt is not configured (e.g. in tests) we keep
+        # the previous None values rather than crashing.
+        try:
+            (
+                current_condition,
+                participation,
+                study_day_index,
+            ) = await _get_active_condition_context(
+                db=db,
+                membership_id=membership_id,
+                current_date=datetime.now(timezone.utc).date(),
+            )
+            prompt_args["active_condition"] = current_condition or "NONE"
+        except RuntimeError:
+            logger.warning(
+                "Could not determine condition after auto-enrollment "
+                "(FLOW_RANDOMIZATION_SALT not configured)"
+            )
+
+    # Daily-log heartbeat: ensure a DailyInterventionLog exists for today
+    if participation is not None and current_condition is not None:
+        today = datetime.now(timezone.utc).date()
+        log_result = await db.execute(
+            select(DailyInterventionLog).where(
+                DailyInterventionLog.participation_id == participation.id,
+                DailyInterventionLog.intervention_date == today,
+            )
+        )
+        if log_result.scalar_one_or_none() is None:
+            log = DailyInterventionLog(
+                participation_id=participation.id,
+                intervention_date=today,
+                study_day_index=study_day_index or 0,
+                assigned_condition=current_condition,
+                extracted_state={},
+            )
+            db.add(log)
+            await db.flush()
+
+    # Link user message to participation
+    if user_msg is not None and participation is not None:
+        user_msg.participation_id = participation.id
 
     # Collect tool names for debugging
     tool_names = []
@@ -714,4 +794,9 @@ async def process_turn(
         "tool_calls": tool_calls if not is_static_template else [],
     }
 
-    return assistant_text, decision, debug_info
+    return (
+        assistant_text,
+        decision,
+        debug_info,
+        participation.id if participation else None,
+    )
