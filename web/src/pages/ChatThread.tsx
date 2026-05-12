@@ -18,14 +18,11 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 interface DebugInfo {
   agent?: string;
+  condition?: string;
+  prompt_args?: Record<string, unknown>;
   tools?: string[];
-  tool_calls?: Array<{
-    tool: string;
-    args?: unknown;
-    output?: unknown;
-    error?: string;
-    run_id?: string;
-  }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tool_calls?: any[];
 }
 
 interface Message {
@@ -55,6 +52,15 @@ function shouldGroup(prev: Message | undefined, curr: Message): boolean {
   const diff =
     new Date(curr.created_at).getTime() - new Date(prev.created_at).getTime();
   return diff < 2 * 60 * 1000; // 2 minutes
+}
+
+function debugInfoFromMetadata(
+  metadata: FeedbackPollMetadata | Record<string, unknown> | undefined,
+): DebugInfo | undefined {
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const debugInfo = (metadata as Record<string, unknown>).debug_info;
+  if (!debugInfo || typeof debugInfo !== "object") return undefined;
+  return debugInfo as DebugInfo;
 }
 
 export function ChatThread() {
@@ -198,6 +204,7 @@ export function ChatThread() {
                 content: msg.content,
                 metadata: msg.metadata,
                 created_at: msg.created_at,
+                debugInfo: msg.debug_info ?? debugInfoFromMetadata(msg.metadata),
               }),
             ),
           );
@@ -258,16 +265,17 @@ export function ChatThread() {
         if (prev.some((m) => m.serverMsgId === payload.server_msg_id)) {
           return prev.map((m) => {
             if (m.serverMsgId === payload.server_msg_id) {
-              return {
-                ...m,
-                id: String(payload.message_id), // Ensure ID is sync
-                content: payload.content,
-                metadata: payload.metadata,
-                isStreaming: false,
-                created_at: payload.created_at,
-                debugInfo: payload.debug_info,
-              };
-            }
+                return {
+                  ...m,
+                  id: String(payload.message_id), // Ensure ID is sync
+                  content: payload.content,
+                  metadata: payload.metadata,
+                  isStreaming: false,
+                  created_at: payload.created_at,
+                  debugInfo:
+                    payload.debug_info ?? debugInfoFromMetadata(payload.metadata),
+                };
+              }
             return m;
           });
         }
@@ -280,7 +288,7 @@ export function ChatThread() {
           metadata: payload.metadata,
           created_at: payload.created_at,
           isStreaming: false,
-          debugInfo: payload.debug_info,
+          debugInfo: payload.debug_info ?? debugInfoFromMetadata(payload.metadata),
         };
         return [...prev, next];
       });

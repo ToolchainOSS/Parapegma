@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Coroutine
-from datetime import datetime, timezone
+import os
 import string
+from collections.abc import Callable, Coroutine
+from datetime import date, datetime, timezone
+from functools import lru_cache
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -27,7 +29,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Conversation,
     ConversationRuntimeState,
+    DailyInterventionLog,
     Message,
+    Participation,
     ScheduledTask,
 )
 from app.prompt_loader import load_prompt
@@ -52,12 +56,15 @@ from app.services.profile_service import (
     validate_profile_patch,
 )
 from app.models import NotificationRule, NotificationRuleState
+from app.services.intervention_config import get_static_intervention
 from app.services.notification_engine import compute_next_due_utc, get_user_timezone
+from app.services.randomization import get_daily_condition
 from app.tools.proposal_tools import ProposalCollector
 
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_MESSAGES = 30
+CONDITION_C_EXCLUDED_SOURCES = ["COND_B", "COND_D"]
 
 # ---------------------------------------------------------------------------
 # Router (structured output, no user-visible text)
@@ -173,6 +180,48 @@ def _build_memory_summary(items: list[MemoryItemData]) -> str:
         return "No memory items yet."
     summaries = [item.content[:100] for item in items[-5:]]
     return "; ".join(summaries)
+
+
+@lru_cache(maxsize=1)
+def _get_randomization_salt() -> str:
+    salt = os.environ.get("FLOW_RANDOMIZATION_SALT")
+    if not salt:
+        raise RuntimeError(
+            "FLOW_RANDOMIZATION_SALT must be set for participation randomization"
+        )
+    if len(salt) < 32:
+        raise RuntimeError(
+            "FLOW_RANDOMIZATION_SALT must be at least 32 characters for experimental integrity"
+        )
+    return salt
+
+
+async def _get_active_condition_context(
+    db: AsyncSession,
+    membership_id: int,
+    current_date: date,
+) -> tuple[str | None, Participation | None, int | None]:
+    """Resolve the active experimental condition for a membership on a given date."""
+    participation_result = await db.execute(
+        select(Participation)
+        .where(Participation.membership_id == membership_id)
+        .order_by(Participation.id.desc())
+        .limit(1)
+    )
+    participation = participation_result.scalar_one_or_none()
+    if participation is None:
+        return None, None, None
+
+    study_day_index = (current_date - participation.study_start_date.date()).days
+
+    salt = _get_randomization_salt()
+    condition = get_daily_condition(
+        participation_id=participation.id,
+        study_start_date=participation.study_start_date,
+        current_date=current_date,
+        salt=salt,
+    )
+    return condition, participation, study_day_index
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +471,31 @@ async def _process_proposals(
         except Exception:
             logger.exception("Failed to process schedule proposal: %s", raw)
 
+    # Process telemetry proposals (FEEDBACK bot only)
+    for proposal in collector.telemetry_proposals:
+        try:
+            today = datetime.now(timezone.utc).date()
+            log_result = await db.execute(
+                select(DailyInterventionLog)
+                .join(
+                    Participation,
+                    DailyInterventionLog.participation_id == Participation.id,
+                )
+                .where(
+                    Participation.membership_id == membership_id,
+                    DailyInterventionLog.intervention_date == today,
+                )
+            )
+            log = log_result.scalar_one_or_none()
+            if log is not None:
+                log.extracted_state = {
+                    **(log.extracted_state or {}),
+                    **proposal.get("state_updates", {}),
+                }
+                db.add(log)
+        except Exception:
+            logger.exception("Failed to process telemetry proposal: %s", proposal)
+
     if profile_changed:
         await save_user_profile(db, membership_id, profile, flush=False)
 
@@ -476,10 +550,10 @@ async def process_turn(
     llm: BaseChatModel | None = None,
     router_llm: BaseChatModel | None = None,
     on_token: Callable[[str], Coroutine[None, None, None]] | None = None,
-) -> tuple[str, RouteDecision, dict]:
+) -> tuple[str, RouteDecision, dict, int | None]:
     """Process one user turn through the new Router + specialist architecture.
 
-    Returns (assistant_text, route_decision, debug_info).
+    Returns (assistant_text, route_decision, debug_info, participation_id).
     """
     # Step 1: Load profile + memory + recent history
     profile = await load_user_profile(db, membership_id)
@@ -491,11 +565,24 @@ async def process_turn(
     prompt_args = await get_prompt_context_for_membership(db, membership_id)
 
     # Load recent messages for context
+    (
+        current_condition,
+        participation,
+        study_day_index,
+    ) = await _get_active_condition_context(
+        db=db,
+        membership_id=membership_id,
+        current_date=datetime.now(timezone.utc).date(),
+    )
+    prompt_args["active_condition"] = current_condition or "NONE"
+    history_query = select(Message).where(Message.conversation_id == conversation.id)
+    if current_condition == "C":
+        history_query = history_query.where(
+            Message.condition_source.notin_(CONDITION_C_EXCLUDED_SOURCES)
+        )
+
     result = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation.id)
-        .order_by(Message.id.desc())
-        .limit(MAX_HISTORY_MESSAGES)
+        history_query.order_by(Message.id.desc()).limit(MAX_HISTORY_MESSAGES)
     )
     recent_msgs = list(reversed(result.scalars().all()))
     recent_message_ids = [m.id for m in recent_msgs]
@@ -530,6 +617,60 @@ async def process_turn(
         decision = route_turn_deterministic(profile, conv_state)
 
     logger.info("Route decision: %s (reason: %s)", decision.route, decision.reason)
+
+    # Auto-enrollment: create Participation when the user is past INTAKE
+    if decision.route != "INTAKE" and participation is None:
+        participation = Participation(
+            membership_id=membership_id,
+            study_id="microcoach_v1",
+            study_start_date=datetime.now(timezone.utc),
+            timezone="UTC",
+        )
+        db.add(participation)
+        await db.flush()
+        # Recalculate condition now that a Participation record exists.
+        # If the randomization salt is not configured (e.g. in tests) we keep
+        # the previous None values rather than crashing.
+        try:
+            (
+                current_condition,
+                participation,
+                study_day_index,
+            ) = await _get_active_condition_context(
+                db=db,
+                membership_id=membership_id,
+                current_date=datetime.now(timezone.utc).date(),
+            )
+            prompt_args["active_condition"] = current_condition or "NONE"
+        except RuntimeError:
+            logger.warning(
+                "Could not determine condition after auto-enrollment "
+                "(FLOW_RANDOMIZATION_SALT not configured)"
+            )
+
+    # Daily-log heartbeat: ensure a DailyInterventionLog exists for today
+    if participation is not None and current_condition is not None:
+        today = datetime.now(timezone.utc).date()
+        log_result = await db.execute(
+            select(DailyInterventionLog).where(
+                DailyInterventionLog.participation_id == participation.id,
+                DailyInterventionLog.intervention_date == today,
+            )
+        )
+        if log_result.scalar_one_or_none() is None:
+            log = DailyInterventionLog(
+                participation_id=participation.id,
+                intervention_date=today,
+                study_day_index=study_day_index or 0,
+                assigned_condition=current_condition,
+                extracted_state={},
+            )
+            db.add(log)
+            await db.flush()
+
+    # Link user message to participation
+    if user_msg is not None and participation is not None:
+        user_msg.participation_id = participation.id
 
     # Collect tool names for debugging
     tool_names = []
@@ -583,6 +724,21 @@ async def process_turn(
                 chat_history,
                 on_token=on_token,
             )
+        elif (
+            current_condition in {"A", "B"}
+            and participation is not None
+            and study_day_index is not None
+        ):
+            assistant_text = get_static_intervention(
+                current_condition,
+                participation.id,
+                study_day_index,
+            )
+            tool_calls = []
+            decision = RouteDecision(
+                route="STATIC_TEMPLATE",
+                reason=f"static template for condition {current_condition}",
+            )
         else:
             from app.agents.coach import run_coach
 
@@ -592,13 +748,32 @@ async def process_turn(
                 ),
                 user_text,
                 chat_history,
+                active_condition=current_condition,
                 on_token=on_token,
             )
     else:
         # Stub mode (no LLM)
-        assistant_text, collector = _run_specialist_stub(decision.route, user_text)
-        tool_names = ["stub_tools"]  # simplified for stub
-        tool_calls: list[dict] = []
+        if (
+            current_condition in {"A", "B"}
+            and participation is not None
+            and study_day_index is not None
+        ):
+            assistant_text = get_static_intervention(
+                current_condition,
+                participation.id,
+                study_day_index,
+            )
+            collector = ProposalCollector()
+            tool_names = []
+            tool_calls = []
+            decision = RouteDecision(
+                route="STATIC_TEMPLATE",
+                reason=f"static template for condition {current_condition}",
+            )
+        else:
+            assistant_text, collector = _run_specialist_stub(decision.route, user_text)
+            tool_names = ["stub_tools"]  # simplified for stub
+            tool_calls = []
 
     # Step 4: Process proposals through Router validator
     await _process_proposals(
@@ -610,10 +785,18 @@ async def process_turn(
         latest_user_message_id=user_msg.id if user_msg else None,
     )
 
+    is_static_template = current_condition in {"A", "B"}
     debug_info = {
-        "agent": decision.route,
-        "tools": tool_names,
-        "tool_calls": tool_calls,
+        "agent": decision.route if not is_static_template else "STATIC_TEMPLATE",
+        "condition": current_condition or "NONE",
+        "prompt_args": prompt_args,
+        "tools": tool_names if not is_static_template else [],
+        "tool_calls": tool_calls if not is_static_template else [],
     }
 
-    return assistant_text, decision, debug_info
+    return (
+        assistant_text,
+        decision,
+        debug_info,
+        participation.id if participation else None,
+    )
