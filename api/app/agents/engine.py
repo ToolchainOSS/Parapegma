@@ -624,7 +624,7 @@ async def process_turn(
             membership_id=membership_id,
             study_id="microcoach_v1",
             study_start_date=datetime.now(timezone.utc),
-            timezone=profile.timezone or "UTC",
+            timezone=getattr(profile, "timezone", None) or "UTC",
         )
         db.add(participation)
         await db.flush()
@@ -661,7 +661,7 @@ async def process_turn(
             log = DailyInterventionLog(
                 participation_id=participation.id,
                 intervention_date=today,
-                study_day_index=study_day_index or 0,
+                study_day_index=study_day_index,
                 assigned_condition=current_condition,
                 extracted_state={},
             )
