@@ -624,7 +624,7 @@ async def process_turn(
             membership_id=membership_id,
             study_id="microcoach_v1",
             study_start_date=datetime.now(timezone.utc),
-            timezone="UTC",
+            timezone=profile.timezone or "UTC",
         )
         db.add(participation)
         await db.flush()
