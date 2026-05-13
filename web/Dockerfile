@@ -1,4 +1,4 @@
-FROM caddy:2.11.2-alpine
+FROM caddy:2.11.3-alpine
 
 # OCI labels for traceability
 ARG BUILD_DATE
