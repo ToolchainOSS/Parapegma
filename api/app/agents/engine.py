@@ -18,7 +18,7 @@ import logging
 import os
 import string
 from collections.abc import Callable, Coroutine
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 
 from langchain_core.language_models import BaseChatModel
@@ -131,14 +131,24 @@ def route_turn_llm(
 
     if isinstance(result, dict):
         try:
-            return RouteDecision.model_validate(result)
+            decision = RouteDecision.model_validate(result)
         except Exception:
             logger.warning("Failed to parse RouteDecision from dict: %s", result)
+            return RouteDecision(route="COACH", reason="LLM fallback (parse error)")
+    elif isinstance(result, RouteDecision):
+        decision = result
+    else:
+        return RouteDecision(route="COACH", reason="LLM fallback (unknown type)")
 
-    if isinstance(result, RouteDecision):
-        return result
-
-    return RouteDecision(route="COACH", reason="LLM fallback")
+    # The LLM is never allowed to assign the synthetic STATIC_* routes —
+    # those are markers the engine itself sets when bypassing the LLM.
+    if decision.route not in {"INTAKE", "FEEDBACK", "COACH"}:
+        logger.warning(
+            "Router LLM returned non-specialist route %s; coercing to COACH",
+            decision.route,
+        )
+        return RouteDecision(route="COACH", reason=f"coerced from {decision.route}")
+    return decision
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +190,28 @@ def _build_memory_summary(items: list[MemoryItemData]) -> str:
         return "No memory items yet."
     summaries = [item.content[:100] for item in items[-5:]]
     return "; ".join(summaries)
+
+
+def _strip_feedback_plan_line(text: str) -> str:
+    """Remove the internal PLAN line from the Feedback bot's reply.
+
+    The upgraded feedback prompt requires the model to emit a single PLAN
+    line followed by a ``---`` separator and the user-visible reply. The
+    PLAN line is internal-only and must never be shown to the user.
+    """
+    if not text:
+        return text
+    # Match an optional leading PLAN line and the following separator.
+    if "---" in text:
+        head, _, rest = text.partition("---")
+        head_stripped = head.strip()
+        if not head_stripped or head_stripped.upper().startswith("PLAN:"):
+            return rest.lstrip("\n").strip()
+    # Fallback: drop a single leading line that starts with "PLAN:".
+    lines = text.splitlines()
+    if lines and lines[0].strip().upper().startswith("PLAN:"):
+        return "\n".join(lines[1:]).strip()
+    return text
 
 
 @lru_cache(maxsize=1)
@@ -577,9 +609,15 @@ async def process_turn(
     prompt_args["active_condition"] = current_condition or "NONE"
     history_query = select(Message).where(Message.conversation_id == conversation.id)
     if current_condition == "C":
+        # Anti-contamination: never let Condition C see messages produced under
+        # Conditions B or D (which contain explicit If/Then framing) and
+        # restrict history to the trailing 24h so longer-term drift cannot
+        # leak framing back into the LLM's context window.
         history_query = history_query.where(
             Message.condition_source.notin_(CONDITION_C_EXCLUDED_SOURCES)
         )
+        window_start = datetime.now(timezone.utc) - timedelta(hours=24)
+        history_query = history_query.where(Message.created_at >= window_start)
 
     result = await db.execute(
         history_query.order_by(Message.id.desc()).limit(MAX_HISTORY_MESSAGES)
@@ -714,16 +752,32 @@ async def process_turn(
                 on_token=on_token,
             )
         elif decision.route == "FEEDBACK":
-            from app.agents.feedback import run_feedback
+            if current_condition in {"A", "B"}:
+                # Experimental control: in conditions A and B the feedback
+                # path must NOT touch the LLM (and must not propose any
+                # profile/memory patches). Run the deterministic script.
+                from app.services.feedback_script import run_static_feedback
 
-            assistant_text, tool_calls = await run_feedback(
-                _create_specialist_agent(
-                    llm, proposal_tools, "feedback_system", prompt_args
-                ),
-                user_text,
-                chat_history,
-                on_token=on_token,
-            )
+                assistant_text = await run_static_feedback(
+                    db, membership_id, user_text, current_condition
+                )
+                tool_calls = []
+                decision = RouteDecision(
+                    route="STATIC_FEEDBACK",
+                    reason=f"static feedback script for condition {current_condition}",
+                )
+            else:
+                from app.agents.feedback import run_feedback
+
+                assistant_text, tool_calls = await run_feedback(
+                    _create_specialist_agent(
+                        llm, proposal_tools, "feedback_system", prompt_args
+                    ),
+                    user_text,
+                    chat_history,
+                    on_token=on_token,
+                )
+                assistant_text = _strip_feedback_plan_line(assistant_text)
         elif (
             current_condition in {"A", "B"}
             and participation is not None
@@ -753,7 +807,20 @@ async def process_turn(
             )
     else:
         # Stub mode (no LLM)
-        if (
+        if decision.route == "FEEDBACK" and current_condition in {"A", "B"}:
+            from app.services.feedback_script import run_static_feedback
+
+            assistant_text = await run_static_feedback(
+                db, membership_id, user_text, current_condition
+            )
+            collector = ProposalCollector()
+            tool_names = []
+            tool_calls = []
+            decision = RouteDecision(
+                route="STATIC_FEEDBACK",
+                reason=f"static feedback script for condition {current_condition}",
+            )
+        elif (
             current_condition in {"A", "B"}
             and participation is not None
             and study_day_index is not None
@@ -785,7 +852,7 @@ async def process_turn(
         latest_user_message_id=user_msg.id if user_msg else None,
     )
 
-    is_static_template = current_condition in {"A", "B"}
+    is_static_template = decision.route in {"STATIC_TEMPLATE", "STATIC_FEEDBACK"}
     debug_info = {
         "agent": decision.route if not is_static_template else "STATIC_TEMPLATE",
         "condition": current_condition or "NONE",

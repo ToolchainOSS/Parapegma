@@ -101,6 +101,11 @@ class TestWorkerPromptContext:
                 new_callable=AsyncMock,
                 return_value=fake_prompt_ctx,
             ),
+            patch(
+                "app.worker.notification_worker._resolve_condition_for_membership",
+                new_callable=AsyncMock,
+                return_value=(None, None, None),
+            ),
         ):
             mock_config.get_openai_api_key.return_value = "fake-key"
             mock_config.get_llm_model.return_value = "gpt-4o-mini"

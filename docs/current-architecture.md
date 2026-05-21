@@ -275,3 +275,105 @@ The outbox worker (`app.worker.outbox_worker`) processes scheduled events:
 - The legacy conversation flow engine (`api/app/engine/`) has been fully removed. 
 - The legacy behavioral contract (`docs/legacy-conversation-flow-contract.md`) is deprecated and for historical reference only.
 - New work should use the Router + specialist architecture defined here.
+
+---
+
+## 4-Condition Randomized Block Experiment
+
+The platform supports a four-condition microcoaching study (codenamed
+`microcoach_v1`). Conditions vary the prompt-generation source and the
+psychological framing applied to nudges:
+
+| Code | Prompt source | Framing | Feedback path |
+|------|---------------|---------|---------------|
+| **A** | Static template (`api/config/interventions.json` → `condition_A`) | None | Deterministic script, no LLM, no profile/memory writes |
+| **B** | Static template (`condition_B`) | Implementation Intention + Commitment Contract | Deterministic script, no LLM, no profile/memory writes |
+| **C** | LLM (`prompts/prompt_generator_condition_c.txt`) | **Strictly forbidden** (regex-gated post-filter + regen) | LLM (`feedback_system.txt`) with profile/memory adaptation |
+| **D** | LLM (`prompts/prompt_generator_condition_d.txt`) | Required (If/Then + Commitment in every nudge) | LLM (`feedback_system.txt`) with profile/memory adaptation |
+
+### Assignment
+
+Every participant is enrolled in a `Participation` row when they pass the
+INTAKE phase. The daily condition is computed deterministically by
+`app/services/randomization.py::get_daily_condition()` using a SHA-256 over
+`(participation_id, block_index, FLOW_RANDOMIZATION_SALT)` to pick a Latin
+square from the 24 possible 4-day permutations. This guarantees:
+
+- balanced exposure (every block uses each condition exactly once),
+- reproducible audit (the same inputs always produce the same assignment),
+- independence between participants.
+
+`FLOW_RANDOMIZATION_SALT` must be at least 32 characters in production.
+
+### Anti-contamination guardrails
+
+The dominant validity threat is the LLM in Condition C implicitly mimicking
+the framing it produced under Conditions B / D. Three independent
+guardrails protect against this:
+
+1. **Condition-source tagging.** Every assistant `Message` and every
+   nudge created by the worker is tagged with `condition_source`
+   (`COND_A` / `COND_B` / `COND_C` / `COND_D` / `SYSTEM`).
+2. **History filtering.** When the engine assembles chat history for a
+   Condition C turn it (a) drops any message whose `condition_source` is
+   `COND_B` or `COND_D`, and (b) restricts the window to the trailing 24
+   hours. See `CONDITION_C_EXCLUDED_SOURCES` and the `timedelta(hours=24)`
+   filter in `app/agents/engine.py::process_turn`.
+3. **Regex framing filter.** Both the Coach turn path
+   (`app/agents/coach.py`) and the worker nudge path
+   (`app/worker/notification_worker.py::_generate_condition_nudge`) run
+   Condition C output through
+   `app/services/condition_filters.py::contains_condition_c_framing`. On
+   match the prompt is regenerated up to three times with an explicit
+   "remove the framing" instruction; if the model still drifts, the worker
+   falls back to a safe neutral string (`CONDITION_C_SAFE_FALLBACK`) and
+   the Coach returns its last attempt while logging the failure.
+
+### Static-feedback bypass for A / B
+
+The research design forbids any LLM intervention on the feedback path for
+the two control conditions (otherwise the dynamic user model would
+silently adapt and confound the comparison). The engine therefore short-
+circuits the FEEDBACK route under conditions A and B and calls
+`app/services/feedback_script.py::run_static_feedback` instead of the
+`run_feedback` LangChain agent. The script:
+
+- asks one fixed question at a time (attempt → yes/no follow-up → close),
+- stores raw answers in `DailyInterventionLog.extracted_state["script"]`
+  for observational analysis,
+- **never** emits a `propose_profile_patch` or `propose_memory_patch`.
+
+The turn is tagged `RouteDecision(route="STATIC_FEEDBACK", ...)`. The
+`STATIC_TEMPLATE` and `STATIC_FEEDBACK` route literals are engine-internal
+markers — the Router LLM is post-validated and is **never** allowed to
+emit them (see `route_turn_llm` coercion).
+
+### Telemetry
+
+`DailyInterventionLog` rows are heartbeated once per day per participant
+with `(intervention_date, study_day_index, assigned_condition,
+extracted_state)`. The FEEDBACK bot in conditions C and D may push
+factual state into `extracted_state` via the `record_daily_telemetry`
+tool; the static A / B script writes its raw answers there directly.
+
+### Configuration knobs
+
+| Setting | Where | Purpose |
+|---------|-------|---------|
+| `FLOW_RANDOMIZATION_SALT` | env | Per-deployment secret; ≥32 chars; missing on the engine side raises, missing on the worker side downgrades to the default prompt. |
+| `api/config/interventions.json` | repo | Lists of static nudge templates for A and B. Underscore-prefixed keys (e.g. `_comment`) are ignored. |
+| `MAX_CONDITION_C_REGEN_ATTEMPTS` | `notification_worker.py` | Worker-side regen budget before the safe fallback fires. |
+| `MAX_CONDITION_C_REWRITE_ATTEMPTS` | `coach.py` | Coach-side regen budget for chat turns. |
+
+### Key code entry points (experiment-specific)
+
+| File | Purpose |
+|------|---------|
+| `api/app/services/randomization.py` | Deterministic 4-day block assignment |
+| `api/app/services/intervention_config.py` | Loads + samples static templates for A/B |
+| `api/app/services/condition_filters.py` | Shared Condition-C framing regex |
+| `api/app/services/feedback_script.py` | Deterministic A/B feedback script |
+| `api/prompts/prompt_generator_condition_c.txt` | Condition C nudge prompt (no framing) |
+| `api/prompts/prompt_generator_condition_d.txt` | Condition D nudge prompt (If/Then + commitment) |
+| `api/app/worker/notification_worker.py::_generate_condition_nudge` | Worker-side condition dispatcher |
+| `api/tests/test_four_condition_experiment.py` | Coverage for all of the above |

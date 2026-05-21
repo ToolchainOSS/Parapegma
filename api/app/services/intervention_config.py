@@ -24,6 +24,10 @@ def _load_interventions_config() -> dict[str, list[str]]:
     for key, value in raw.items():
         if not isinstance(key, str):
             raise ValueError("Intervention config keys must be strings")
+        # Allow leading-underscore keys (e.g. "_comment") as JSON-friendly
+        # metadata that the loader ignores.
+        if key.startswith("_"):
+            continue
         if not isinstance(value, list):
             raise ValueError(f"Intervention config key '{key}' must map to a list")
         parsed[key] = []
