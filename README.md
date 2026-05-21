@@ -141,13 +141,18 @@ Flow/
 │   │   │   └── tool_schemas.py   # Tool argument schemas
 │   │   ├── services/             # Business logic layer
 │   │   │   ├── profile_service.py    # Profile/memory persistence, validation, audit
-│   │   │   ├── event_service.py      # Event handling
-│   │   │   ├── outbox_service.py     # Outbox event persistence
-│   │   │   └── scheduler_service.py  # Scheduling logic
+│   │   │   ├── event_service.py      # SSE event persistence + replay
+│   │   │   ├── notification_engine.py # Scheduling, dedupe, lease, push delivery
+│   │   │   ├── randomization.py      # Deterministic 4-day block condition assignment
+│   │   │   ├── intervention_config.py # Static A/B nudge templates
+│   │   │   ├── feedback_script.py    # Deterministic A/B feedback state machine
+│   │   │   ├── condition_filters.py  # Condition-C framing regex filter
+│   │   │   ├── eod_summarizer.py     # End-of-day sterilized memory summaries
+│   │   │   └── prompt_context.py     # Prompt template context builder
 │   │   ├── tools/                # LangChain tools
 │   │   │   ├── proposal_tools.py     # propose_profile_patch, propose_memory_patch
 │   │   │   └── scheduler_tools.py    # Scheduling LangChain tools
-│   │   └── worker/               # Outbox event worker
+│   │   └── worker/               # Scheduled-task / notification worker
 │   ├── Dockerfile                # Backend container image
 │   ├── prompts/                  # System prompt templates
 │   ├── tests/                    # Backend test suite
@@ -175,9 +180,9 @@ Flow/
 │   └── package.json
 ├── docker-compose.yml            # Production-like local stack (flow-web + flow + postgres)
 ├── docs/
-│   ├── current-architecture.md           # Current architecture (authoritative)
-│   ├── legacy-conversation-flow-contract.md   # Legacy behavior reference (deprecated)
-│   └── parity-matrix.md                       # Legacy → new code mapping
+│   ├── README.md                 # Documentation index
+│   ├── current-architecture.md   # Conversation engine, experiment, EOD firewall
+│   └── release-process.md        # CI/CD, versioning, image signing
 ├── .env.example
 └── AGENTS.md                     # Agent behavior rules
 ```
@@ -255,11 +260,17 @@ All project-scoped endpoints require passkey authentication.
 | `conversations` | auto-increment int | 1:1 with membership |
 | `messages` | auto-increment int | Chat history with `server_msg_id` (36-char string: `m` + 35 lowercase base32 chars; UUID-length for DB schema compatibility) |
 | `conversation_runtime_state` | FK to conversation | JSON blob for engine state |
+| `participations` | auto-increment int | One row per participant in a study; carries `study_start_date`, condition assignment salt |
+| `daily_intervention_logs` | auto-increment int | Per-day telemetry (condition assigned, extracted state, script answers) |
+| `daily_summaries` | auto-increment int | EOD sterilized cross-day memory (1 row per participation/day) |
 | `user_profiles` | auto-increment int | **Store A** — structured profile JSON (1:1 with membership) |
 | `memory_items` | auto-increment int | **Store B** — semi-structured memory items per membership |
 | `patch_audit_log` | auto-increment int | Audit trail: proposals, decisions, commits |
+| `conversation_events` | auto-increment int | Durable SSE events for replay via `Last-Event-ID` |
+| `conversation_turns` | auto-increment int | Idempotent messaging (unique `client_msg_id` per conversation) |
 | `push_subscriptions` | auto-increment int | Web Push endpoints + crypto keys per device |
-| `outbox_events` | auto-increment int | Durable scheduled events with dedupe keys |
+| `scheduled_tasks` | auto-increment int | Durable scheduled work with lease + dedupe keys |
+| `notifications` / `notification_rules` / `notification_rule_state` / `notification_deliveries` | auto-increment int | Notification rule engine + delivery audit |
 
 ## Conversation Engine
 
@@ -295,10 +306,6 @@ Specialist bots propose changes via `propose_profile_patch` and `propose_memory_
 
 All proposals and decisions are logged in the `patch_audit_log` table.
 
-### Legacy Engine
-
-The legacy conversation flow engine was fully removed. The legacy behavioral contract (`docs/legacy-conversation-flow-contract.md`) is deprecated and retained for historical reference only.
-
 ## Frontend Pages
 
 | Route | Page | Description |
@@ -308,9 +315,13 @@ The legacy conversation flow engine was fully removed. The legacy behavioral con
 | `/login` | Login | Passkey login with return_to support |
 | `/dashboard` | Dashboard | List project threads (active/ended) |
 | `/p/:projectId/activate` | Activation | Join project via invite link; requests email only if missing |
+| `/p/:projectId/onboarding` | Onboarding | Post-activation onboarding flow |
+| `/p/:projectId/onboarding/notifications` | OnboardingNotifications | Enable push as part of onboarding |
 | `/p/:projectId/chat` | ChatThread | Send messages via POST, receive via SSE |
 | `/p/:projectId/notifications` | Notifications | PWA install guidance, enable push notifications |
-| `/settings` | Settings | User profile (email, display name), theme, devices, passkeys |
+| `/p/:projectId/updates` | ProjectUpdates | Per-project notification feed |
+| `/updates` | Updates | Global notification feed across projects |
+| `/settings` | Settings | User profile, theme, devices, passkeys |
 | `/admin` | Admin | Project management, invite generation, push testing, debug tools |
 
 ## PWA & Push Notifications
@@ -330,31 +341,14 @@ The legacy conversation flow engine was fully removed. The legacy behavioral con
 cd api && uv run pytest tests/ -v --tb=short
 ```
 
-Test modules:
+Key test areas (`api/tests/`):
 
-- `test_api.py` — API endpoint integration tests (messaging wired to new engine)
-- `test_api_schema_contracts.py` — OpenAPI schema contract tests
-- `test_admin_push_perf.py` — Admin push notification performance tests
-- `test_config.py` — Configuration loading and validation
-- `test_engine_integration.py` — Full turn pipeline with async DB, profile persistence, memory persistence, audit log
-- `test_id_utils.py` — Custom ID generation utilities
-- `test_langchain_agents.py` — Agent tool permissions and orchestrator pipeline
-- `test_langchain_tools.py` — LangChain tool schemas and invocation
-- `test_logging_middleware.py` — Logging middleware behavior
-- `test_migrations.py` — Database migration tests
-- `test_milestone2.py` — Milestone 2 feature integration tests
-- `test_new_architecture.py` — Router permissions, confidence thresholds, evidence spans, profile/memory validation, proposal tools, deterministic routing
-- `test_notifications_routes.py` — Notification endpoint tests
-- `test_nudge_integration.py` — Nudge scheduling integration tests
-- `test_outbox_worker.py` — Outbox worker processing tests
-- `test_prompts.py` — System prompt template tests
-- `test_read_receipt_logic.py` — Read receipt logic tests
-- `test_tool_trace.py` — Tool call tracing tests
-- `test_worker_logic.py` — Worker logic unit tests
-
-### Verify Patch Audit Behavior
-
-The audit trail can be inspected by querying the `patch_audit_log` table after processing messages. The `test_engine_integration.py::TestAuditLog` tests verify that proposals and commit decisions are properly recorded.
+- **Engine + Router**: `test_engine_integration.py`, `test_new_architecture.py`, `test_langchain_agents.py`, `test_langchain_tools.py`, `test_tool_trace.py`
+- **4-condition experiment**: `test_four_condition_experiment.py`, `test_prompt_context.py`
+- **EOD memory firewall**: `test_eod_summarizer.py`
+- **Notification worker / scheduling**: `test_notification_engine.py`, `test_notification_worker.py`, `test_notifications_routes.py`, `test_admin_push_perf.py`
+- **API + contracts**: `test_api.py`, `test_api_schema_contracts.py`, `test_timezone_endpoint.py`
+- **Infrastructure**: `test_config.py`, `test_logging_middleware.py`, `test_migrations.py`, `test_id_utils.py`, `test_prompts.py`, `test_milestone2.py`
 
 ### Frontend
 
@@ -363,13 +357,10 @@ cd web && npm test         # Unit tests (Vitest)
 cd web && npm run test:e2e # E2E tests (Playwright)
 ```
 
-## What Is Stubbed
+## Runtime Modes
 
-This is a prototype. The following are mocked or incomplete:
-
-- **LLM calls** — In stub mode (no `OPENAI_API_KEY`), specialist agents return fixed responses. Connect a real LLM (OpenAI, Anthropic, etc.) by passing `llm` and `router_llm` parameters to the engine.
-- **Web Push delivery** — Push delivery is implemented via `pywebpush` in the outbox worker. Configure `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` to enable it.
-- **Message endpoint** — `POST /p/{project_id}/messages` runs the full Router + specialist pipeline. Without an OpenAI API key it operates in stub mode (deterministic routing, fixed responses); with a real API key it produces contextual LLM responses.
+- **LLM** — without `OPENAI_API_KEY` (or `H4CKATH0N_OPENAI_API_KEY`), specialist agents run in **stub mode** with deterministic responses. With a key set, the engine uses `ChatOpenAI` via LangChain.
+- **Web Push** — delivery is implemented via `pywebpush` in `app/worker/notification_worker.py`. Without both VAPID keys, push delivery is disabled and the rest of the stack still functions.
 
 ## Environment Variables
 

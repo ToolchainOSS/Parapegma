@@ -33,15 +33,7 @@ This file defines the project structure and how agents should behave when workin
 
 ## Source of truth
 
-### Current architecture
-The current architecture is defined by the "State, authority, and write-path rules" section in this file. Any additional architecture documents in `docs/` must match it.
-
-### Legacy Conversation Flow contract (deprecated)
-The legacy behavior contract lives here:
-
-- `docs/legacy-conversation-flow-contract.md`
-
-Status: deprecated and for historical reference only. It must not be treated as the behavioral source of truth for new work. If legacy behaviors are preserved for continuity, document that explicitly in current design docs and tests.
+The "State, authority, and write-path rules" section in this file is authoritative for the conversation engine. [`docs/current-architecture.md`](docs/current-architecture.md) elaborates on the active engine, the 4-condition randomized block experiment, and the EOD memory firewall, and must stay consistent with this file.
 
 ---
 
@@ -257,8 +249,8 @@ Scaffolded from h4ckath0n:
 - `docker-compose.yml` production-like local stack (flow-web + flow + postgres)
 
 - `docs/`
-  - `legacy-conversation-flow-contract.md` deprecated reference
-  - architecture and operational docs as added
+  - `current-architecture.md` conversation engine, experiment, EOD memory firewall
+  - `release-process.md` CI/CD, image signing, runtime hardening
 
 Optional:
 - `prompts/` system prompts if needed (keep minimal and versioned)

@@ -193,12 +193,15 @@ All proposals are logged in the `patch_audit_log` table:
 | `user_profiles` | Store A — structured profile JSON (1:1 with membership) |
 | `memory_items` | Store B — individual memory items per membership |
 | `patch_audit_log` | Audit trail for all proposals and decisions |
-| `conversations` | Chat conversations (1:1 with membership) |
-| `messages` | Chat message history |
-| `conversation_runtime_state` | Runtime state for conversation protocol (JSON blob) |
+| `conversations` / `messages` | Chat history (1:1 conversation per membership) |
+| `conversation_runtime_state` | Runtime state for conversation protocol (JSON) |
 | `conversation_events` | Persisted SSE events for durable replay |
-| `conversation_turns` | Idempotent messaging deduplication (client_msg_id) |
-| `outbox_events` | Scheduled/async event queue with dedup and leasing |
+| `conversation_turns` | Idempotent messaging dedupe (`client_msg_id`) |
+| `participations` | One row per participant in a study (carries `study_start_date`) |
+| `daily_intervention_logs` | Per-day telemetry per participation |
+| `daily_summaries` | EOD sterilized cross-day memory (see below) |
+| `scheduled_tasks` | Durable scheduled work with lease + dedupe keys |
+| `notifications` / `notification_rules` / `notification_rule_state` / `notification_deliveries` | Notification engine state + delivery audit |
 
 ---
 
@@ -234,15 +237,14 @@ The `/p/{project_id}/events` SSE endpoint supports durable replay:
 
 ---
 
-## Worker Semantics
+## Notification Worker
 
-The outbox worker (`app.worker.outbox_worker`) processes scheduled events:
+Scheduled nudges and notifications are driven by two cooperating components:
 
-- After persisting a scheduled prompt message and committing, **push delivery is best-effort**.
-- Push failures or timeouts are logged per-subscription but do **not** cause the outbox event to retry.
-- This prevents duplicate messages from push delivery failures.
-- Events are claimed with lease fields (`locked_until`, `locked_by`, `claimed_at`) and use 5-minute lock TTL.
-- Failed events retry with exponential backoff; dead-letter after max attempts.
+- `app/services/notification_engine.py` — inserts `scheduled_tasks` rows with idempotent dedupe keys and 5-minute leases (`locked_until`, `locked_by`, `claimed_at`); handles retry with exponential backoff and dead-letter after max attempts.
+- `app/worker/notification_worker.py` — claims due tasks, generates the nudge (static template for A/B, LLM with regex-gated regen for C, framed LLM for D), persists the assistant `Message` with `condition_source` tagging, then attempts Web Push delivery.
+
+**Push delivery is best-effort.** Push failures or timeouts after the message is persisted are logged per-subscription but do **not** retry the scheduled task. This prevents duplicate messages when push transport fails after the message has already been written.
 
 ---
 
@@ -253,7 +255,7 @@ The outbox worker (`app.worker.outbox_worker`) processes scheduled events:
 | `api/app/agents/engine.py` | Main turn engine: `process_turn()` |
 | `api/app/agents/intake.py` | Intake specialist agent |
 | `api/app/agents/feedback.py` | Feedback specialist agent |
-| `api/app/agents/coach.py` | Coach specialist agent |
+| `api/app/agents/coach.py` | Coach specialist agent (incl. Condition-C regex rewrite) |
 | `api/app/agents/runner.py` | Agent runner (LangChain invoke wrapper + tool trace) |
 | `api/app/agents/tool_trace.py` | Tool call tracing callback |
 | `api/app/tools/proposal_tools.py` | Proposal tools + ProposalCollector |
@@ -261,20 +263,11 @@ The outbox worker (`app.worker.outbox_worker`) processes scheduled events:
 | `api/app/prompt_loader.py` | Prompt file loader with caching and versioning |
 | `api/app/services/profile_service.py` | Profile/memory persistence + validation |
 | `api/app/services/event_service.py` | SSE event persistence and replay |
-| `api/app/services/outbox_service.py` | Outbox event persistence |
-| `api/app/services/scheduler_service.py` | Scheduling logic |
-| `api/app/schemas/patches.py` | All Pydantic schemas for proposals |
-| `api/app/schemas/router.py` | RouteDecision (INTAKE/FEEDBACK/COACH) |
-| `api/app/worker/outbox_worker.py` | Outbox event processing worker |
+| `api/app/services/notification_engine.py` | Scheduled-task scheduling, lease, retry, push delivery |
+| `api/app/worker/notification_worker.py` | Worker loop: claims tasks, generates nudges, persists, pushes |
+| `api/app/schemas/patches.py` | Pydantic schemas for proposals |
+| `api/app/schemas/router.py` | RouteDecision schema |
 | `api/app/db_migrations/migrate.py` | Alembic migration runner |
-
----
-
-## Deprecation Notes
-
-- The legacy conversation flow engine (`api/app/engine/`) has been fully removed. 
-- The legacy behavioral contract (`docs/legacy-conversation-flow-contract.md`) is deprecated and for historical reference only.
-- New work should use the Router + specialist architecture defined here.
 
 ---
 
