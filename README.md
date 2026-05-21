@@ -384,6 +384,7 @@ Configure in `.env` at the repository root (see `.env.example`):
 | `LLM_MODEL` | `gpt-4o-mini` | LLM model name for OpenAI |
 | `OPENAI_API_KEY` | (none) | OpenAI API key for live LLM responses |
 | `H4CKATH0N_OPENAI_API_KEY` | (none) | Optional alternate name for the OpenAI key |
+| `FLOW_RANDOMIZATION_SALT` | (none) | Per-deployment salt for deterministic 4-condition daily assignment (≥32 chars in production) |
 | `VAPID_PUBLIC_KEY` | `""` | VAPID public key for Web Push |
 | `VAPID_PRIVATE_KEY` | `""` | VAPID private key for Web Push (never log) |
 | `VAPID_CLAIM_SUB` | `mailto:flow@oss.joefang.org` | VAPID subject claim |
