@@ -74,6 +74,7 @@ _EXPECTED_TABLES = {
     "notification_rule_state",
     "notification_deliveries",
     "scheduled_tasks",
+    "daily_summaries",
 }
 
 

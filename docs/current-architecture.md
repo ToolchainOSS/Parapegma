@@ -377,3 +377,99 @@ tool; the static A / B script writes its raw answers there directly.
 | `api/prompts/prompt_generator_condition_d.txt` | Condition D nudge prompt (If/Then + commitment) |
 | `api/app/worker/notification_worker.py::_generate_condition_nudge` | Worker-side condition dispatcher |
 | `api/tests/test_four_condition_experiment.py` | Coverage for all of the above |
+
+## Daily Memory Condensation (EOD Semantic Firewall)
+
+### Problem
+
+Conditions C and D both need access to multi-day participant context (anchor,
+barrier, last successful prompt, etc.) so the LLM can stay coherent across the
+study. Feeding raw `chat_history` from prior days reintroduces exactly the
+framing the experiment is trying to isolate: a Condition D message ("If it's
+8am and I'm at my desk, then I will do one pushup. We agreed.") would leak into
+Condition C's context window on the next day and contaminate the comparison.
+
+The fix is a per-day **sterilized rolling summary** that both C and D read in
+place of raw history. Both arms see identical condensed memory, so cross-day
+recall is preserved while framing differences remain isolated to that day's
+generation step.
+
+### Storage
+
+A dedicated table `daily_summaries` (migration `0012`) stores one row per
+`(participation_id, summary_date)` with columns:
+
+- `summary_text` (≤60 words, 1-2 sentences)
+- `previous_summary_text` (what was fed in as prior context — for audit)
+- `message_count` (raw turns synthesized that day)
+- `sterilization_status` ∈ `{clean, regenerated, fallback}`
+- `prompt_sha256` (anchors the row to a specific prompt version)
+
+This store has its **own writer** (the summarizer service) and is **not**
+subject to the Router single-writer rule that governs `UserProfile` and
+`Memory`. The summarizer is treated as a deterministic transformation of
+already-committed chat history, not as a behavior-changing patch.
+
+### Lazy hot-path catch-up
+
+There is no cron. Before the engine or worker invokes the C/D code path for a
+participant, it calls:
+
+```
+await ensure_summaries_up_to(db, participation, yesterday)
+summary = await load_latest_summary(db, participation.id)
+```
+
+`ensure_summaries_up_to` walks day-by-day from the last committed summary
+(or `study_start_date`) up to `yesterday`, producing one row per day. It is
+idempotent (existing rows are skipped) and bounded (30-day safety budget per
+call). Days with no participant activity write a placeholder row so the chain
+never has gaps.
+
+A/B days are summarized too, even though A/B themselves never read summaries —
+this keeps the **incremental synthesis** chain unbroken so that when a
+participant rotates back to C or D the next block, the summary still reflects
+the full study.
+
+### Sterilization pipeline
+
+`summarize_day` →
+
+1. Format that day's chat log (`_format_chat_log`, assistant turns truncated).
+2. Render `eod_summarizer_system.txt` with `$previous_memory`,
+   `$daily_chat_log`, etc. The prompt explicitly forbids framing vocabulary
+   (`promise`, `commit`, `if/then`, `reward`, `bet`, ...).
+3. LLM call (15-20s timeout, `ChatOpenAI`).
+4. **Regex-gated regen** via `contains_condition_c_framing` (the same filter
+   the worker uses on Condition C nudges). On a hit, retry up to
+   `MAX_REGEN_ATTEMPTS=2` with an "ADDITIONAL INSTRUCTION" reminder.
+5. On persistent framing or LLM failure, fall back to a **deterministic
+   skeleton** built from `DailyInterventionLog.extracted_state.script.attempted`
+   ("User completed the habit." / "User did not complete the habit.").
+6. `_truncate_to_word_cap` enforces the 60-word cap as a final safety net.
+
+Every row records which path produced it via `sterilization_status`, so the
+analysis pipeline can drop or downweight non-`clean` rows if needed.
+
+### Consumption
+
+- **Engine (chat turns):** for C/D, the latest summary is prepended as a
+  `SystemMessage` ("Sterilized cross-day memory ...") in front of the day's
+  filtered chat history. The existing 24h + `condition_source` filter for C is
+  kept as defense-in-depth.
+- **Worker (nudges):** `_llm_generate_nudge` accepts `daily_summary=` and
+  appends it to the `HumanMessage` for the prompt-generator. A/B static
+  templates ignore the summary entirely.
+
+Both arms read the **same** sterilized text — that is the firewall.
+
+### Key code entry points (summarizer)
+
+| File | Purpose |
+|------|---------|
+| `api/prompts/eod_summarizer_system.txt` | Sterilization system prompt + forbidden-word list |
+| `api/app/services/eod_summarizer.py` | `summarize_day` / `ensure_summaries_up_to` / `load_latest_summary` + fallback chain |
+| `api/app/models.py::DailySummary` | ORM model |
+| `api/app/db_migrations/versions/0012_add_daily_summaries_table.py` | Migration |
+| `api/tests/test_eod_summarizer.py` | Coverage (clean, regen, fallback, idempotency, chaining, engine/worker injection) |
+

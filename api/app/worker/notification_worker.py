@@ -164,6 +164,7 @@ async def _llm_generate_nudge(
     profile_json: str,
     topic: str,
     extra_instruction: str | None = None,
+    daily_summary: str | None = None,
 ) -> str:
     """Invoke the LLM with the given prompt template. Raises on failure."""
     llm_key = config.get_openai_api_key()
@@ -175,13 +176,16 @@ async def _llm_generate_nudge(
     if extra_instruction:
         system_text = f"{system_text}\n\nADDITIONAL INSTRUCTION:\n{extra_instruction}"
 
+    human_parts = [f"Topic: {topic}", f"User profile: {profile_json}"]
+    if daily_summary:
+        human_parts.append(
+            "Sterilized cross-day memory (clinical, no framing) — use for "
+            f"continuity but do not imitate its phrasing:\n{daily_summary}"
+        )
+    human_parts.append("Generate the nudge.")
     messages = [
         SystemMessage(content=system_text),
-        HumanMessage(
-            content=(
-                f"Topic: {topic}\nUser profile: {profile_json}\nGenerate the nudge."
-            )
-        ),
+        HumanMessage(content="\n".join(human_parts)),
     ]
     llm = ChatOpenAI(
         model=config.get_llm_model(),
@@ -236,6 +240,24 @@ async def _generate_condition_nudge(
         PROMPT_GENERATOR_BY_CONDITION.get(condition) if condition else None
     ) or PROMPT_GENERATOR_DEFAULT
 
+    # For Conditions C and D, fetch the sterilized cross-day memory so the
+    # nudge generator has multi-day context without seeing raw assistant
+    # framing from prior days. This is the "semantic firewall" — both
+    # conditions read the same clinical summary.
+    daily_summary: str | None = None
+    if condition in {"C", "D"} and participation is not None:
+        try:
+            from app.services.eod_summarizer import (
+                ensure_summaries_up_to,
+                load_latest_summary,
+            )
+
+            yesterday = datetime.now(UTC).date() - timedelta(days=1)
+            await ensure_summaries_up_to(db, participation, yesterday)
+            daily_summary = await load_latest_summary(db, participation.id)
+        except Exception:
+            logger.exception("Failed to ensure/load EOD summary for nudge generation")
+
     # Condition D and the default path: single LLM call, return as-is.
     if condition != "C":
         if (
@@ -248,7 +270,11 @@ async def _generate_condition_nudge(
             )
         try:
             content = await _llm_generate_nudge(
-                prompt_name, prompt_ctx, profile_json, topic
+                prompt_name,
+                prompt_ctx,
+                profile_json,
+                topic,
+                daily_summary=daily_summary,
             )
         except Exception as exc:
             logger.error("LLM nudge generation failed (%s): %s", prompt_name, exc)
@@ -267,7 +293,12 @@ async def _generate_condition_nudge(
     for attempt in range(MAX_CONDITION_C_REGEN_ATTEMPTS):
         try:
             candidate = await _llm_generate_nudge(
-                prompt_name, prompt_ctx, profile_json, topic, extra_instruction=extra
+                prompt_name,
+                prompt_ctx,
+                profile_json,
+                topic,
+                extra_instruction=extra,
+                daily_summary=daily_summary,
             )
         except Exception as exc:
             logger.error("Condition C LLM call failed on attempt %d: %s", attempt, exc)

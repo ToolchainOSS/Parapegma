@@ -232,6 +232,54 @@ class DailyInterventionLog(Base):
     )
 
 
+class DailySummary(Base):
+    """End-of-day clinical summary acting as the cross-condition semantic firewall.
+
+    One short, sterilized row per ``(participation_id, summary_date)``. The
+    summary is produced by the EOD Memory Condensation Agent (see
+    ``app/services/eod_summarizer.py``) and is read by both Condition C
+    and Condition D so the LLM retains multi-day memory without ever
+    seeing the raw framing produced under the other condition.
+
+    This table has its own writer (the summarizer) — it is NOT subject to
+    the Router single-writer rule that governs ``UserProfileStore`` and
+    ``MemoryItem``.
+    """
+
+    __tablename__ = "daily_summaries"
+    __table_args__ = (
+        UniqueConstraint(
+            "participation_id",
+            "summary_date",
+            name="uq_daily_summary_participation_date",
+        ),
+        Index(
+            "ix_daily_summary_participation_date", "participation_id", "summary_date"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    participation_id: Mapped[int] = mapped_column(
+        ForeignKey("participations.id"), nullable=False
+    )
+    summary_date: Mapped[date] = mapped_column(Date, nullable=False)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    previous_summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # One of: "clean" (passed regex first try), "regenerated" (passed after
+    # one or more retries), "fallback" (regex still failed; deterministic
+    # skeleton written instead of LLM output).
+    sterilization_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="clean", server_default="clean"
+    )
+    prompt_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
     __table_args__ = (

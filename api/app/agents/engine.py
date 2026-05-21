@@ -710,6 +710,29 @@ async def process_turn(
     if user_msg is not None and participation is not None:
         user_msg.participation_id = participation.id
 
+    # Step 2.5: For Conditions C and D, ensure the cross-condition
+    # sterilized memory is up to date and inject the latest summary as a
+    # SystemMessage at the head of the chat history. This is the "semantic
+    # firewall" — both conditions read the same clinical summary so
+    # Condition C never sees Condition D's framing while still keeping
+    # multi-day memory.
+    daily_summary_text: str | None = None
+    if participation is not None and current_condition in {"C", "D"}:
+        try:
+            from app.services.eod_summarizer import (
+                ensure_summaries_up_to,
+                load_latest_summary,
+            )
+
+            yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
+            await ensure_summaries_up_to(db, participation, yesterday)
+            daily_summary_text = await load_latest_summary(db, participation.id)
+        except Exception:
+            logger.exception(
+                "Failed to ensure/load EOD summary for participation %s",
+                participation.id,
+            )
+
     # Collect tool names for debugging
     tool_names = []
 
@@ -730,9 +753,19 @@ async def process_turn(
         # Collect tool names for debug info
         tool_names = [t.name for t in proposal_tools]
 
-        chat_history: list[HumanMessage | AIMessage] = []
+        chat_history: list[HumanMessage | AIMessage | SystemMessage] = []
         # When creating history, exclude the just-added user message (which is last)
         # IF user_msg is present. If user_msg is None (system trigger), use all history.
+        if daily_summary_text:
+            chat_history.append(
+                SystemMessage(
+                    content=(
+                        "Sterilized cross-day memory (clinical, no framing) — "
+                        "use this for continuity but do not quote or imitate its "
+                        f"style:\n{daily_summary_text}"
+                    )
+                )
+            )
         history_msgs = recent_msgs[:-1] if user_msg else recent_msgs
         for msg in history_msgs:
             if msg.role == "user":

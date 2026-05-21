@@ -518,7 +518,12 @@ class TestWorkerConditionNudge:
         captured: dict[str, str] = {}
 
         async def _llm(
-            prompt_name, prompt_ctx, profile_json, topic, extra_instruction=None
+            prompt_name,
+            prompt_ctx,
+            profile_json,
+            topic,
+            extra_instruction=None,
+            daily_summary=None,
         ):  # noqa: ARG001
             captured["prompt_name"] = prompt_name
             return "When I have coffee, then I will move. If I complete this, I will smile."
