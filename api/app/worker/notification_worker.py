@@ -90,7 +90,9 @@ def _randomization_salt() -> str | None:
     generic prompt) so that an unconfigured environment still produces
     useful nudges instead of failing every fire.
     """
-    salt = os.environ.get("FLOW_RANDOMIZATION_SALT")
+    from app.config import get_randomization_salt
+
+    salt = get_randomization_salt()
     if salt and len(salt) >= 32:
         return salt
     return None

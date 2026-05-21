@@ -165,6 +165,18 @@ def get_log_level() -> str:
     return os.environ.get("LOG_LEVEL", "INFO").upper()
 
 
+@cache
+def get_randomization_salt() -> str | None:
+    """Return the per-deployment salt used for deterministic 4-condition assignment.
+
+    Returns None when unset. Callers that require the salt (engine) raise; the
+    worker downgrades to the default prompt when missing. Must be ≥32 chars in
+    production deployments.
+    """
+    val = os.environ.get("FLOW_RANDOMIZATION_SALT")
+    return val if val else None
+
+
 def clear_config_cache() -> None:
     """Clear all configuration caches (useful for testing)."""
     get_data_dir.cache_clear()
@@ -184,3 +196,4 @@ def clear_config_cache() -> None:
     get_default_timezone.cache_clear()
     get_port.cache_clear()
     get_log_level.cache_clear()
+    get_randomization_salt.cache_clear()

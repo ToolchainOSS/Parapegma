@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import string
 from collections.abc import Callable, Coroutine
 from datetime import date, datetime, timedelta, timezone
@@ -216,7 +215,9 @@ def _strip_feedback_plan_line(text: str) -> str:
 
 @lru_cache(maxsize=1)
 def _get_randomization_salt() -> str:
-    salt = os.environ.get("FLOW_RANDOMIZATION_SALT")
+    from app.config import get_randomization_salt
+
+    salt = get_randomization_salt()
     if not salt:
         raise RuntimeError(
             "FLOW_RANDOMIZATION_SALT must be set for participation randomization"

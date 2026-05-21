@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 import secrets
 import time
 from collections import defaultdict
@@ -23,6 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.db import async_session_factory, get_db
+from app.config import get_llm_model, get_openai_api_key
 from app.id_utils import generate_server_msg_id
 from app.prompt_loader import prompt_version
 from app.models import (
@@ -423,9 +423,7 @@ class AdminDebugStatusResponse(BaseModel):
 class AdminLLMConnectivityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    model: str = Field(
-        default_factory=lambda: os.environ.get("LLM_MODEL", "gpt-4o-mini")
-    )
+    model: str = Field(default_factory=get_llm_model)
     prompt: str = "Reply with exactly: OK"
     max_tokens: int = 128
     temperature: float = 0.0
@@ -773,9 +771,7 @@ async def admin_debug_llm_connectivity(
     body: AdminLLMConnectivityRequest,
     _admin_user: User = require_admin(),
 ) -> AdminLLMConnectivityResponse:
-    llm_key = os.environ.get("OPENAI_API_KEY") or os.environ.get(
-        "H4CKATH0N_OPENAI_API_KEY"
-    )
+    llm_key = get_openai_api_key()
     if not llm_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1000,13 +996,9 @@ async def _claim_invite_impl(
         msg_count = msg_count_res.scalar() or 0
 
         if msg_count == 0:
-            llm_key = os.environ.get("H4CKATH0N_OPENAI_API_KEY") or os.environ.get(
-                "OPENAI_API_KEY"
-            )
+            llm_key = get_openai_api_key()
             if llm_key:
-                llm = ChatOpenAI(
-                    model=os.environ.get("LLM_MODEL", "gpt-4o-mini"), api_key=llm_key
-                )
+                llm = ChatOpenAI(model=get_llm_model(), api_key=llm_key)
 
                 from app.agents.engine import process_turn as engine_process_turn
 
@@ -1373,16 +1365,8 @@ async def send_message(
 
     # --- Process the turn (winner path) -----------------------------------
     try:
-        llm_key = os.environ.get("H4CKATH0N_OPENAI_API_KEY") or os.environ.get(
-            "OPENAI_API_KEY"
-        )
-        llm = (
-            ChatOpenAI(
-                model=os.environ.get("LLM_MODEL", "gpt-4o-mini"), api_key=llm_key
-            )
-            if llm_key
-            else None
-        )
+        llm_key = get_openai_api_key()
+        llm = ChatOpenAI(model=get_llm_model(), api_key=llm_key) if llm_key else None
 
         # Persist user message
         user_msg = Message(
@@ -1650,12 +1634,10 @@ async def _submit_feedback_event_impl(
         db.add(user_msg)
         await db.flush()
 
-        llm_key = os.environ.get("H4CKATH0N_OPENAI_API_KEY") or os.environ.get(
-            "OPENAI_API_KEY"
-        )
+        llm_key = get_openai_api_key()
         llm = (
             ChatOpenAI(
-                model=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
+                model=get_llm_model(),
                 api_key=llm_key,
             )
             if llm_key

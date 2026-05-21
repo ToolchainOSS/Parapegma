@@ -1147,6 +1147,9 @@ async def test_admin_llm_connectivity_uses_model_and_h4ckath0n_key(
     )
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("H4CKATH0N_OPENAI_API_KEY", "h4-key")
+    from app.config import clear_config_cache
+
+    clear_config_cache()
 
     captured: dict[str, Any] = {}
 
