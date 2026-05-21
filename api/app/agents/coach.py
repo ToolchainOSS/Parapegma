@@ -22,9 +22,12 @@ COACH_SYSTEM_PROMPT = load_prompt("coach_system")
 COACH_FALLBACK = "I'm here to support your habit journey. How can I help you today?"
 MAX_CONDITION_C_REWRITE_ATTEMPTS = 3
 CONDITION_C_REWRITE_INSTRUCTION = (
-    "Your previous response contained explicit conditional planning. Rewrite the "
-    "message to be encouraging but remove any explicit 'if-then' structures or "
-    "strict behavioral framing."
+    "Your previous reply contained forbidden conditional planning, commitment, "
+    "or reward framing. Rewrite the reply so it is encouraging but contains "
+    "NO if/then or when/then structure, NO commitment contract, NO promise, "
+    "and NONE of these words: if-then, when-then, commit, commitment, contract, "
+    "promise, reward yourself, bet. Keep the same intent, the same length, "
+    "and the same supportive tone."
 )
 
 

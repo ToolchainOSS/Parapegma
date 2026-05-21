@@ -60,10 +60,11 @@ PUSH_TIMEOUT_SECONDS = 10
 MAX_CONDITION_C_REGEN_ATTEMPTS = 3
 CONDITION_C_REGEN_INSTRUCTION = (
     "Your previous output contained forbidden conditional planning, commitment, "
-    "or reward framing. Regenerate the nudge with NO if/then structure, NO "
-    "commitment contract, NO promise, and NO reward language. One or two "
-    "sentences, mentioning the user's anchor as the trigger and a single "
-    "one-minute physical action."
+    "or reward framing. Regenerate the nudge with NO if/then or when/then "
+    "structure, NO commitment contract, NO promise, NO reward language, and "
+    "NONE of the words: commit, commitment, contract, promise, reward, bet. "
+    "Produce one or two sentences. Mention the user's anchor as the trigger, "
+    "and suggest a single one-minute physical action. Be neutral and direct."
 )
 CONDITION_C_SAFE_FALLBACK = (
     "When your next routine begins, take one minute to move your body — a short "

@@ -358,10 +358,12 @@ async def _produce_summary(
             attempt,
         )
         extra_instruction = (
-            "Your previous output contained forbidden framing words "
-            "(if/then, commit, promise, reward, bet, contract, motivate). "
-            "Rewrite without any of those words and without preserving the "
-            "bot's framing. Use neutral clinical language only."
+            "Your previous output contained forbidden framing vocabulary "
+            "(if/then, when/then, commit, commitment, contract, promise, "
+            "reward, bet, motivate, motivated). Rewrite without any of those "
+            "words and without preserving the bot's framing. Use neutral, "
+            "state-based, clinical observations only. One or two sentences, "
+            "≤60 words."
         )
 
     logger.error(
