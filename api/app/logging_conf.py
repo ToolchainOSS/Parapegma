@@ -1,7 +1,5 @@
 """Centralized logging configuration and observability tools."""
 
-from __future__ import annotations
-
 import json
 import logging
 import logging.handlers
