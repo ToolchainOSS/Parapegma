@@ -48,7 +48,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
         with:
-          version: "0.11.17"
+          version: "0.11.18"
 
       - name: Set up Python
         run: uv python install
@@ -91,7 +91,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
         with:
-          version: "0.11.17"
+          version: "0.11.18"
 
       - name: Set up Python
         run: uv python install
@@ -118,7 +118,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
         with:
-          version: "0.11.17"
+          version: "0.11.18"
 
       - name: Set up Python
         run: uv python install
@@ -184,7 +184,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
         with:
-          version: "0.11.17"
+          version: "0.11.18"
 
       - name: Set up Python
         run: uv python install
