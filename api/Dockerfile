@@ -1,5 +1,5 @@
 # ---- Builder stage ----
-FROM python:3.14.5-slim-bookworm AS builder
+FROM python:3.14.6-slim-bookworm AS builder
 
 # Install uv (pinned)
 COPY --from=ghcr.io/astral-sh/uv:0.11.20 /uv /usr/local/bin/uv
@@ -25,7 +25,7 @@ RUN uv sync --frozen --no-dev
 
 
 # ---- Runtime stage ----
-FROM python:3.14.5-slim-bookworm AS runtime
+FROM python:3.14.6-slim-bookworm AS runtime
 
 # OCI labels for traceability
 ARG BUILD_DATE
