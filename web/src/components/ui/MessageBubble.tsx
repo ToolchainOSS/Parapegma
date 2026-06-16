@@ -61,8 +61,8 @@ export const MessageBubble = memo(function MessageBubble({
 }: MessageBubbleProps) {
   if (role === "system") {
     return (
-      <div className="flex justify-center my-2">
-        <div className="bg-bubble-system text-text-muted text-[13px] px-3 py-1.5 rounded-[var(--radius-sm)] max-w-[85%] text-center">
+      <div className="flex justify-center my-3">
+        <div className="bg-bubble-system text-text-muted text-[12px] font-medium px-3 py-1 rounded-full max-w-[85%] text-center">
           {content}
         </div>
       </div>
@@ -70,7 +70,9 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   const isUser = role === "user";
-  const bubbleColor = isUser ? "bg-bubble-out" : "bg-bubble-in";
+  const bubbleColor = isUser
+    ? "bg-bubble-out border border-primary/10"
+    : "bg-bubble-in border border-border/60";
 
   // Grouping radius adjustment
   const baseRadius = "var(--radius-lg)";
@@ -90,7 +92,7 @@ export const MessageBubble = memo(function MessageBubble({
         }`}
     >
       <div
-        className={`${bubbleColor} text-text text-[15px] leading-[1.35] px-3 py-2 max-w-[78%] md:max-w-[65%] shadow-sm ${isUser ? "whitespace-pre-wrap" : ""}`}
+        className={`${bubbleColor} text-text text-[15px] leading-[1.4] px-3.5 py-2.5 max-w-[80%] md:max-w-[65%] shadow-[var(--shadow-xs)] ${isUser ? "whitespace-pre-wrap" : ""}`}
         style={{ borderRadius }}
       >
         {isUser ? (

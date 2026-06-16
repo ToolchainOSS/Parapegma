@@ -46,7 +46,7 @@ function Avatar({ name }: { name: string }) {
     .slice(0, 2)
     .toUpperCase();
   return (
-    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[15px] font-semibold shrink-0">
+    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/15 text-primary flex items-center justify-center text-[15px] font-semibold shrink-0 ring-1 ring-inset ring-primary/10">
       {initials}
     </div>
   );
@@ -136,11 +136,13 @@ export function ChatListPane({ embedded }: ChatListPaneProps) {
         )}
 
         {!isLoading && memberships.length === 0 && !error && (
-          <div className="flex flex-col items-center justify-center py-16 text-text-muted">
-            <MessageSquare className="w-12 h-12 mb-3 opacity-30" />
-            <p className="text-[15px]">No chats yet</p>
-            <p className="text-[13px] mt-1">
-              Use an invite link to join a research project.
+          <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+            <div className="w-16 h-16 rounded-[var(--radius-xl)] bg-gradient-to-br from-primary/15 to-accent/10 flex items-center justify-center mb-4 ring-1 ring-inset ring-primary/10">
+              <MessageSquare className="w-7 h-7 text-primary" />
+            </div>
+            <p className="text-[16px] font-semibold text-text">No chats yet</p>
+            <p className="text-[13px] text-text-muted mt-1 max-w-[15rem]">
+              Use an invite link to join a research project and start coaching.
             </p>
           </div>
         )}

@@ -22,12 +22,17 @@ export function NavRail() {
               to={item.to}
               data-testid={item.testId}
               title={item.label}
-              className={`flex flex-col items-center justify-center gap-0.5 w-14 h-14 rounded-[var(--radius-md)] text-[11px] transition-colors ${active
-                  ? "text-primary bg-primary/10 font-medium"
-                  : "text-text-muted hover:bg-surface-2"
+              className={`group relative flex flex-col items-center justify-center gap-0.5 w-14 h-14 rounded-[var(--radius-md)] text-[11px] transition-all duration-200 ease-[var(--ease-out)] ${active
+                ? "text-primary bg-primary/10 font-semibold"
+                : "text-text-muted hover:bg-surface-2 hover:text-text"
                 }`}
             >
-              <Icon className="w-5 h-5" />
+              <span
+                className={`absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-r-full bg-primary transition-all duration-300 ease-[var(--ease-spring)] ${active ? "h-7 opacity-100" : "h-0 opacity-0"}`}
+              />
+              <Icon
+                className={`w-5 h-5 transition-transform duration-200 ease-[var(--ease-spring)] ${active ? "scale-110" : "group-active:scale-90"}`}
+              />
               <span>{item.label}</span>
             </Link>
           );

@@ -62,16 +62,18 @@ export function Layout() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-surface">
-      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div className="min-h-screen">
+      <nav className="border-b border-divider bg-surface/70 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <Link
               to="/"
               className="flex items-center gap-2 font-bold text-lg text-text"
             >
-              <Shield className="w-5 h-5 text-primary" />
-              <span>{"Flow"}</span>
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-[var(--radius-sm)] bg-gradient-to-br from-primary/15 to-accent/10 ring-1 ring-inset ring-primary/10">
+                <Shield className="w-4 h-4 text-primary" />
+              </span>
+              <span className="tracking-[-0.01em]">{"Flow"}</span>
             </Link>
 
             {/* Desktop nav */}

@@ -88,7 +88,7 @@ function Avatar({ name }: { name: string }) {
     .slice(0, 2)
     .toUpperCase();
   return (
-    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[15px] font-semibold shrink-0">
+    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/15 text-primary flex items-center justify-center text-[15px] font-semibold shrink-0 ring-1 ring-inset ring-primary/10">
       {initials}
     </div>
   );
@@ -213,33 +213,35 @@ export function Dashboard() {
         )}
 
         {!isLoading && (memberships?.length ?? 0) === 0 && !error && (
-          <div className="flex flex-col items-center justify-center py-16 text-text-muted">
-            <MessageSquare className="w-12 h-12 mb-3 opacity-30" />
-            <p className="text-[15px]">No chats yet</p>
-            <p className="text-[13px] mt-1">
-              Use an invite link to join a research project.
+          <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+            <div className="w-16 h-16 rounded-[var(--radius-xl)] bg-gradient-to-br from-primary/15 to-accent/10 flex items-center justify-center mb-4 ring-1 ring-inset ring-primary/10">
+              <MessageSquare className="w-7 h-7 text-primary" />
+            </div>
+            <p className="text-[16px] font-semibold text-text">No chats yet</p>
+            <p className="text-[13px] text-text-muted mt-1 max-w-[15rem]">
+              Use an invite link to join a research project and start coaching.
             </p>
           </div>
         )}
 
         {filtered.active.length > 0 &&
           filtered.active.map((m) => (
-              <Link key={m.project_id} to={`/p/${m.project_id}/chat`}>
-                  <ListRow
-                    avatar={<Avatar name={m.display_name ?? ""} />}
-                    primary={m.display_name ?? m.project_id}
-                    secondary={getDisplayPreview(m.last_message_preview)}
-                    unread={isUnread(m)}
-                    trailing={
-                    m.last_message_at ? (
-                      <span className="text-[11px] text-text-subtle whitespace-nowrap">
-                        {formatTime(m.last_message_at)}
-                      </span>
-                    ) : undefined
-                  }
-                />
-              </Link>
-            ))}
+            <Link key={m.project_id} to={`/p/${m.project_id}/chat`}>
+              <ListRow
+                avatar={<Avatar name={m.display_name ?? ""} />}
+                primary={m.display_name ?? m.project_id}
+                secondary={getDisplayPreview(m.last_message_preview)}
+                unread={isUnread(m)}
+                trailing={
+                  m.last_message_at ? (
+                    <span className="text-[11px] text-text-subtle whitespace-nowrap">
+                      {formatTime(m.last_message_at)}
+                    </span>
+                  ) : undefined
+                }
+              />
+            </Link>
+          ))}
 
         {filtered.ended.length > 0 && (
           <>
@@ -266,7 +268,7 @@ export function Dashboard() {
       {/* FAB */}
       <button
         onClick={() => setShowFab(true)}
-        className="fixed right-4 w-14 h-14 rounded-full bg-primary text-on-primary shadow-md flex items-center justify-center hover:bg-primary-hover transition-colors z-40"
+        className="fixed right-4 w-14 h-14 rounded-[var(--radius-lg)] bg-primary text-on-primary shadow-[var(--shadow-primary)] flex items-center justify-center hover:bg-primary-hover hover:scale-105 hover:shadow-[var(--shadow-lg)] active:scale-95 transition-all duration-200 ease-[var(--ease-spring)] z-40"
         style={{ bottom: "calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + 16px)" }}
         aria-label="Join project"
       >
@@ -275,9 +277,9 @@ export function Dashboard() {
 
       {/* FAB modal */}
       {showFab && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm mx-4 mb-4 md:mb-0 bg-surface rounded-[var(--radius-lg)] shadow-md p-5 space-y-4">
-            <h2 className="text-[17px] font-semibold text-text">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-blue-slate-950/50 backdrop-blur-sm">
+          <div className="w-full max-w-sm mx-4 mb-4 md:mb-0 bg-surface border border-border rounded-[var(--radius-xl)] shadow-[var(--shadow-lg)] p-6 space-y-4">
+            <h2 className="text-[18px] font-semibold tracking-[-0.01em] text-text">
               Join a Project
             </h2>
             <p className="text-[13px] text-text-muted">
