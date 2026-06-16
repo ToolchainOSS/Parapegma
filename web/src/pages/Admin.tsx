@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { Alert } from "../components/Alert";
+import { Badge, type BadgeTone } from "../components/Badge";
 import { Button } from "../components/Button";
 import { Card, CardContent, CardHeader } from "../components/Card";
 import { Input } from "../components/Input";
@@ -536,18 +537,12 @@ function ProjectRow({
   };
 
   const statusBadge = (s: string) => {
-    const colors: Record<string, string> = {
-      active: "bg-success/10 text-success",
-      paused: "bg-warning/10 text-warning",
-      ended: "bg-danger/10 text-danger",
+    const tones: Record<string, BadgeTone> = {
+      active: "success",
+      paused: "warning",
+      ended: "danger",
     };
-    return (
-      <span
-        className={`text-xs px-2 py-0.5 rounded-full ${colors[s] || "bg-border text-text-muted"}`}
-      >
-        {s}
-      </span>
-    );
+    return <Badge tone={tones[s] ?? "neutral"}>{s}</Badge>;
   };
 
   if (showConfirm) {

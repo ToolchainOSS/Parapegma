@@ -149,7 +149,7 @@ export function Layout() {
                   </Link>
                   <Link
                     to="/register"
-                    className="px-4 py-1.5 text-sm bg-primary text-white rounded-xl hover:bg-primary-hover transition-colors"
+                    className="px-4 py-1.5 text-sm bg-primary text-on-primary rounded-xl hover:bg-primary-hover transition-colors"
                   >
                     Register
                   </Link>

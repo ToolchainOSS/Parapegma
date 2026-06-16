@@ -1,4 +1,5 @@
 import type { ReactNode, MouseEvent } from "react";
+import { Badge } from "../Badge";
 
 interface ListRowProps {
   avatar?: ReactNode;
@@ -27,11 +28,11 @@ export function ListRow({
       onKeyDown={
         onClick
           ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onClick(e as unknown as MouseEvent);
-              }
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onClick(e as unknown as MouseEvent);
             }
+          }
           : undefined
       }
       className={`flex items-center gap-3 px-4 h-[72px] hover:bg-surface-2 active:bg-surface-3 transition-colors cursor-pointer ${className}`}
@@ -47,9 +48,7 @@ export function ListRow({
       </div>
       <div className="shrink-0 flex flex-col items-end gap-1">
         {trailing}
-        {unread && (
-          <span className="w-2 h-2 rounded-full bg-primary" />
-        )}
+        {unread && <Badge dot tone="primary" />}
       </div>
     </div>
   );

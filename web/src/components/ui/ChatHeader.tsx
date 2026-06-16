@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 import { ArrowLeft, MoreVertical, Bug } from "lucide-react";
 import { IconButton } from "./IconButton";
+import { Badge, type BadgeTone } from "../Badge";
 import { useState, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import { useAuth } from "../../auth";
@@ -16,10 +17,10 @@ interface ChatHeaderProps {
   onToggleDebug?: () => void;
 }
 
-const statusColors = {
-  online: "bg-success/20 text-success",
-  reconnecting: "bg-warning/20 text-warning",
-  offline: "bg-text-subtle/20 text-text-subtle",
+const statusTone: Record<"online" | "reconnecting" | "offline", BadgeTone> = {
+  online: "success",
+  reconnecting: "warning",
+  offline: "neutral",
 };
 
 export function ChatHeader({
@@ -65,15 +66,13 @@ export function ChatHeader({
           {title}
         </h1>
         {connectionStatus && (
-          <span
-            className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full ${statusColors[connectionStatus]}`}
-          >
+          <Badge tone={statusTone[connectionStatus]} className="text-[11px]">
             {connectionStatus === "online"
               ? "Online"
               : connectionStatus === "reconnecting"
                 ? "Reconnecting…"
                 : "Offline"}
-          </span>
+          </Badge>
         )}
       </div>
 

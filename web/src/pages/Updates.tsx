@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { Bell, Download, Clock } from "lucide-react";
 import { PageHeader } from "../components/ui/PageHeader";
+import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import api from "../api/client";
@@ -137,7 +138,7 @@ export function Updates() {
                   </p>
                 </div>
                 {!n.read_at && (
-                  <div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-2" />
+                  <Badge dot tone="primary" className="shrink-0 mt-2" />
                 )}
               </div>
             </button>
