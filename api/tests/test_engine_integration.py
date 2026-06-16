@@ -350,3 +350,98 @@ class TestAuditLog:
         ).scalar_one()
         assert audit.proposal_type == "memory"
         assert audit.decision == "committed"
+
+    @pytest.mark.asyncio
+    async def test_failing_proposal_is_isolated_and_turn_survives(
+        self, seeded_db: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A proposal that errors mid-commit must not abort the whole turn.
+
+        Regression test for the production 500 where a failing schedule-create
+        commit aborted the surrounding transaction (on Postgres) and discarded
+        the user + assistant messages. Each proposal now runs in a SAVEPOINT, so
+        a failure rolls back only that proposal and leaves the transaction (and
+        any sibling proposals) intact.
+        """
+        from app.agents import engine as engine_mod
+        from app.agents.engine import _process_proposals
+        from app.models import NotificationRule
+        from app.tools.proposal_tools import ProposalCollector
+
+        db = seeded_db["db"]
+        mid = seeded_db["membership_id"]
+        conv = seeded_db["conversation"]
+
+        user_msg = Message(
+            conversation_id=conv.id,
+            role="user",
+            content="remind me at 11:15 to take 50 steps",
+            server_msg_id=generate_server_msg_id(),
+        )
+        db.add(user_msg)
+        await db.flush()
+
+        # Force the schedule-create path to blow up after the rule row is added.
+        async def _boom(*_args: object, **_kwargs: object) -> str:
+            raise RuntimeError("simulated timezone lookup failure")
+
+        monkeypatch.setattr(engine_mod, "get_user_timezone", _boom)
+
+        profile = UserProfileData(prompt_anchor="")
+        collector = ProposalCollector()
+        # A valid sibling proposal processed before the failing one.
+        collector.add_profile_proposal(
+            {
+                "patch": {"prompt_anchor": "after lunch"},
+                "confidence": 0.9,
+                "evidence": {"message_ids": [user_msg.id], "quotes": []},
+                "source_bot": "INTAKE",
+            }
+        )
+        collector.add_schedule_proposal(
+            {
+                "action": "create",
+                "topic": "take 50 steps",
+                "time": "11:15",
+                "confidence": 0.9,
+                "evidence": {"message_ids": [user_msg.id], "quotes": []},
+                "source_bot": "INTAKE",
+            }
+        )
+
+        # Must not raise even though the schedule proposal fails.
+        updated_profile = await _process_proposals(
+            db, mid, profile, collector, [user_msg.id]
+        )
+
+        # Sibling proposal committed despite the schedule failure.
+        assert updated_profile.prompt_anchor == "after lunch"
+
+        # The failed schedule rolled back to its savepoint — no orphan rule.
+        rules = (
+            (
+                await db.execute(
+                    select(NotificationRule).where(
+                        NotificationRule.membership_id == mid
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rules == []
+
+        # The transaction is still healthy: the caller can persist the turn.
+        assistant_msg = Message(
+            conversation_id=conv.id,
+            role="assistant",
+            content="You'll get a reminder at 11:15.",
+            server_msg_id=generate_server_msg_id(),
+        )
+        db.add(assistant_msg)
+        await db.commit()
+
+        persisted = (
+            await db.execute(select(Message).where(Message.id == assistant_msg.id))
+        ).scalar_one()
+        assert persisted.content == "You'll get a reminder at 11:15."

@@ -1207,6 +1207,22 @@ async def list_messages(
         raise HTTPException(status_code=500, detail="Failed to load messages")
 
 
+def _json_safe(value: Any) -> Any:
+    """Coerce an arbitrary value into JSON-native types for safe JSONB storage.
+
+    The ``messages.metadata`` column is JSONB on Postgres and is serialized with
+    a strict ``json.dumps`` (no ``default=``). Engine debug payloads can contain
+    non-native types (datetimes, tuples, etc.) which would otherwise raise at
+    flush time and abort the whole turn. Round-tripping through ``default=str``
+    guarantees the value is storable.
+    """
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except (TypeError, ValueError):
+        logger.warning("Could not coerce metadata to JSON-safe form; dropping it")
+        return None
+
+
 @router.post("/p/{project_id}/messages", tags=["messaging"])
 async def send_message(
     project_id: str,
@@ -1502,6 +1518,15 @@ async def send_message(
             debug_info=debug_info,
         )
     except Exception:
+        # Log the full traceback here: the outer LoggingMiddleware only sees the
+        # Starlette-converted 500 response, so without this the failure would be
+        # invisible in the container logs.
+        logger.exception(
+            "send_message failed (project_id=%s, membership_id=%s, client_msg_id=%s)",
+            project_id,
+            membership_id,
+            body.client_msg_id,
+        )
         # Mark turn as failed on error
         if body.client_msg_id:
             try:

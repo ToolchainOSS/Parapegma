@@ -276,6 +276,7 @@ async def _process_proposals(
 
     # Process profile proposals
     for raw in collector.profile_proposals:
+        sp = None
         try:
             if latest_user_message_id and isinstance(raw, dict):
                 evidence = raw.get("evidence", {})
@@ -312,6 +313,10 @@ async def _process_proposals(
 
             valid, reason = validate_profile_patch(proposal, recent_message_ids)
 
+            # Isolate the commit in a SAVEPOINT: on Postgres a failed statement
+            # aborts the whole transaction, which would otherwise destroy the
+            # user + assistant messages persisted by the caller.
+            sp = await db.begin_nested()
             await log_patch_audit(
                 db=db,
                 membership_id=membership_id,
@@ -324,16 +329,22 @@ async def _process_proposals(
                 committed_at=now if valid else None,
                 flush=False,
             )
+            await db.flush()
+            await sp.commit()
+            sp = None
 
             if valid:
                 profile = apply_profile_patch(profile, proposal.patch)
                 profile_changed = True
                 logger.info("Committed profile patch from %s", proposal.source_bot)
         except Exception:
+            if sp is not None:
+                await sp.rollback()
             logger.exception("Failed to process profile proposal: %s", raw)
 
     # Process memory proposals
     for raw in collector.memory_proposals:
+        sp = None
         try:
             if latest_user_message_id and isinstance(raw, dict):
                 evidence = raw.get("evidence", {})
@@ -358,6 +369,7 @@ async def _process_proposals(
 
             valid, reason = validate_memory_patch(proposal, recent_message_ids)
 
+            sp = await db.begin_nested()
             await log_patch_audit(
                 db=db,
                 membership_id=membership_id,
@@ -381,11 +393,17 @@ async def _process_proposals(
                     len(proposal.items),
                     proposal.source_bot,
                 )
+            await db.flush()
+            await sp.commit()
+            sp = None
         except Exception:
+            if sp is not None:
+                await sp.rollback()
             logger.exception("Failed to process memory proposal: %s", raw)
 
     # Process schedule proposals
     for raw in collector.schedule_proposals:
+        sp = None
         try:
             if latest_user_message_id and isinstance(raw, dict):
                 evidence = raw.get("evidence", {})
@@ -426,6 +444,7 @@ async def _process_proposals(
                 # Let's keep it open but log it.
                 pass
 
+            sp = await db.begin_nested()
             await log_patch_audit(
                 db=db,
                 membership_id=membership_id,
@@ -501,12 +520,19 @@ async def _process_proposals(
                             membership_id,
                         )
 
+            await db.flush()
+            await sp.commit()
+            sp = None
         except Exception:
+            if sp is not None:
+                await sp.rollback()
             logger.exception("Failed to process schedule proposal: %s", raw)
 
     # Process telemetry proposals (FEEDBACK bot only)
     for proposal in collector.telemetry_proposals:
+        sp = None
         try:
+            sp = await db.begin_nested()
             today = datetime.now(timezone.utc).date()
             log_result = await db.execute(
                 select(DailyInterventionLog)
@@ -526,7 +552,12 @@ async def _process_proposals(
                     **proposal.get("state_updates", {}),
                 }
                 db.add(log)
+            await db.flush()
+            await sp.commit()
+            sp = None
         except Exception:
+            if sp is not None:
+                await sp.rollback()
             logger.exception("Failed to process telemetry proposal: %s", proposal)
 
     if profile_changed:
