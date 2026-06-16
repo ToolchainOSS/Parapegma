@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import ValidationError
-
 from app.routes import (
     AdminCreateInviteRequest,
     AdminDebugStatusResponse,
@@ -25,6 +23,7 @@ from app.routes import (
     SendMessageRequest,
     UserMeUpdateRequest,
 )
+from pydantic import ValidationError
 
 
 @pytest.mark.parametrize(

@@ -33,11 +33,11 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import config
+from app.llm import make_chat_llm
 from app.logging_conf import LLMLoggingCallbackHandler
 from app.models import (
     DailyInterventionLog,
@@ -282,7 +282,7 @@ async def _llm_call(system_text: str, human_text: str) -> str:
     llm_key = config.get_openai_api_key()
     if not llm_key:
         raise RuntimeError("OpenAI API key not configured for EOD summarizer")
-    llm = ChatOpenAI(
+    llm = make_chat_llm(
         model=config.get_llm_model(),
         api_key=llm_key,
         callbacks=[LLMLoggingCallbackHandler()],
@@ -378,9 +378,9 @@ async def _produce_summary(
 
 
 __all__ = [
-    "summarize_day",
+    "MAX_REGEN_ATTEMPTS",
+    "SUMMARY_WORD_CAP",
     "ensure_summaries_up_to",
     "load_latest_summary",
-    "SUMMARY_WORD_CAP",
-    "MAX_REGEN_ATTEMPTS",
+    "summarize_day",
 ]

@@ -83,7 +83,7 @@ class TestRouterPromptConsistency:
     def test_engine_uses_loaded_prompt(self) -> None:
         from app.agents.engine import ROUTER_SYSTEM_PROMPT
 
-        assert ROUTER_SYSTEM_PROMPT == load_prompt("router_system")
+        assert load_prompt("router_system") == ROUTER_SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------

@@ -64,7 +64,7 @@ export function Admin() {
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
   );
 
-  const projectsQuery = useQuery<AdminProjectsResponse["projects"], Error>({
+  const projectsQuery = useQuery<AdminProjectsResponse["projects"]>({
     queryKey: ["admin-projects"],
     queryFn: async () => {
       const { data, error: apiError } = await api.GET("/admin/projects");
@@ -74,7 +74,7 @@ export function Admin() {
       return data.projects ?? [];
     },
   });
-  const debugQuery = useQuery<AdminDebugStatusResponse, Error>({
+  const debugQuery = useQuery<AdminDebugStatusResponse>({
     queryKey: ["admin-debug-status"],
     queryFn: async () => {
       const { data, error: apiError } = await api.GET("/admin/debug/status");
@@ -90,7 +90,7 @@ export function Admin() {
   const resolvedError =
     error ?? projectsQuery.error?.message ?? debugQuery.error?.message ?? null;
 
-  const createProject = async (e: React.FormEvent) => {
+  const createProject = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (!displayName.trim()) return;
     setError(null);
@@ -98,7 +98,7 @@ export function Admin() {
     setDisplayName("");
   };
 
-  const createInvites = async (e: React.FormEvent) => {
+  const createInvites = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (!inviteProjectId.trim()) return;
     setError(null);
@@ -147,7 +147,7 @@ export function Admin() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-projects"] });
     },
   });
   const createInvitesMutation = useMutation({
@@ -291,7 +291,7 @@ export function Admin() {
             <Input
               label="Model"
               value={llmModel}
-              onChange={(e) => setLlmModel(e.target.value)}
+              onChange={(e) => { setLlmModel(e.target.value); }}
               list="admin-llm-model-options"
             />
             <datalist id="admin-llm-model-options">
@@ -304,7 +304,7 @@ export function Admin() {
               value={llmMaxTokens}
               type="number"
               min={1}
-              onChange={(e) => setLlmMaxTokens(e.target.value)}
+              onChange={(e) => { setLlmMaxTokens(e.target.value); }}
             />
             <Input
               label="Temperature"
@@ -313,7 +313,7 @@ export function Admin() {
               step="0.1"
               min={0}
               max={2}
-              onChange={(e) => setLlmTemperature(e.target.value)}
+              onChange={(e) => { setLlmTemperature(e.target.value); }}
             />
           </div>
           <div className="space-y-1.5">
@@ -327,7 +327,7 @@ export function Admin() {
               id="llm-prompt"
               rows={3}
               value={llmPrompt}
-              onChange={(e) => setLlmPrompt(e.target.value)}
+              onChange={(e) => { setLlmPrompt(e.target.value); }}
               placeholder="Prompt used for connectivity probe"
               className="w-full px-3 py-2 bg-surface border border-border rounded-xl text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
             />
@@ -369,11 +369,11 @@ export function Admin() {
           />
         </CardHeader>
         <CardContent>
-          <form onSubmit={createProject} className="space-y-3">
+          <form onSubmit={(e) => void createProject(e)} className="space-y-3">
             <Input
               label="Display name"
               value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              onChange={(e) => { setDisplayName(e.target.value); }}
               required
             />
             <Button type="submit" disabled={!displayName.trim()}>
@@ -392,7 +392,7 @@ export function Admin() {
           />
         </CardHeader>
         <CardContent>
-          <form onSubmit={createInvites} className="space-y-3">
+          <form onSubmit={(e) => void createInvites(e)} className="space-y-3">
             <div className="space-y-1.5">
               <label
                 className="block text-sm font-medium text-text"
@@ -403,7 +403,7 @@ export function Admin() {
               <select
                 id="invite-project"
                 value={inviteProjectId}
-                onChange={(e) => setInviteProjectId(e.target.value)}
+                onChange={(e) => { setInviteProjectId(e.target.value); }}
                 className="w-full px-3 py-2 bg-surface border border-border rounded-xl text-text focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
                 required
               >
@@ -422,7 +422,7 @@ export function Admin() {
               type="number"
               min={1}
               value={inviteCount}
-              onChange={(e) => setInviteCount(e.target.value)}
+              onChange={(e) => { setInviteCount(e.target.value); }}
             />
             <Input
               label="Max uses per invite"
@@ -430,13 +430,13 @@ export function Admin() {
               min={1}
               placeholder="Unlimited"
               value={inviteMaxUses}
-              onChange={(e) => setInviteMaxUses(e.target.value)}
+              onChange={(e) => { setInviteMaxUses(e.target.value); }}
             />
             <Input
               label="Expires at"
               type="datetime-local"
               value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
+              onChange={(e) => { setExpiresAt(e.target.value); }}
               required
             />
             <Button type="submit" disabled={!inviteProjectId}>
@@ -479,7 +479,7 @@ export function Admin() {
                   key={project.project_id}
                   project={project}
                   onUpdated={() =>
-                    queryClient.invalidateQueries({
+                    void queryClient.invalidateQueries({
                       queryKey: ["admin-projects"],
                     })
                   }
@@ -567,7 +567,7 @@ function ProjectRow({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setShowConfirm(false)}
+            onClick={() => { setShowConfirm(false); }}
           >
             Cancel
           </Button>
@@ -585,13 +585,13 @@ function ProjectRow({
               <input
                 type="text"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => { setName(e.target.value); }}
                 className="text-sm border rounded px-2 py-0.5 flex-1 bg-surface text-text border-border"
                 autoFocus
               />
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value)}
+                onChange={(e) => { setStatus(e.target.value); }}
                 className="text-xs border rounded px-1 py-0.5 bg-surface text-text border-border"
               >
                 <option value="active">active</option>
@@ -629,7 +629,7 @@ function ProjectRow({
         {!editing && (project.status ?? "active") !== "ended" && (
           <div className="flex items-center gap-1 shrink-0">
             <button
-              onClick={() => setEditing(true)}
+              onClick={() => { setEditing(true); }}
               className="p-1 text-text-muted hover:text-text rounded"
               aria-label="Edit project"
             >
@@ -638,7 +638,7 @@ function ProjectRow({
             <Button
               variant="danger"
               size="sm"
-              onClick={() => setShowConfirm(true)}
+              onClick={() => { setShowConfirm(true); }}
             >
               End
             </Button>
@@ -771,7 +771,7 @@ function PushTestPanel({ projects }: { projects: AdminProjectItem[] }) {
               <Input
                 placeholder="Filter by email/name…"
                 value={filter}
-                onChange={(e) => setFilter(e.target.value)}
+                onChange={(e) => { setFilter(e.target.value); }}
               />
               <Button size="sm" variant="secondary" onClick={selectAll}>
                 Select all
@@ -786,7 +786,7 @@ function PushTestPanel({ projects }: { projects: AdminProjectItem[] }) {
                   <input
                     type="checkbox"
                     checked={selectedIds.has(ch.subscription_id)}
-                    onChange={() => toggleId(ch.subscription_id)}
+                    onChange={() => { toggleId(ch.subscription_id); }}
                   />
                   <div className="flex-1 min-w-0">
                     <span className="text-text">
@@ -810,7 +810,7 @@ function PushTestPanel({ projects }: { projects: AdminProjectItem[] }) {
         <Input
           label="Title"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => { setTitle(e.target.value); }}
         />
         <div className="space-y-1.5">
           <label
@@ -823,14 +823,14 @@ function PushTestPanel({ projects }: { projects: AdminProjectItem[] }) {
             id="push-body"
             rows={2}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => { setBody(e.target.value); }}
             className="w-full px-3 py-2 bg-surface border border-border rounded-xl text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
           />
         </div>
         <Input
           label="URL (optional)"
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => { setUrl(e.target.value); }}
           placeholder="/p/.../chat"
         />
 

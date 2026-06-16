@@ -47,13 +47,13 @@ export function ChatHeader({
       }
     };
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    return () => { document.removeEventListener("mousedown", handleClick); };
   }, [menuOpen]);
 
   return (
     <header className="sticky top-0 z-40 flex items-center gap-2 h-[var(--header-h)] px-2 bg-surface/80 backdrop-blur-xl border-b border-divider pt-[env(safe-area-inset-top,0px)]">
       {!hideBack && (
-        <IconButton label="Back" onClick={() => navigate(backTo)}>
+        <IconButton label="Back" onClick={() => void navigate(backTo)}>
           <ArrowLeft className="w-5 h-5" />
         </IconButton>
       )}
@@ -91,7 +91,7 @@ export function ChatHeader({
           <div className="relative" ref={menuRef}>
             <IconButton
               label="Menu"
-              onClick={() => setMenuOpen((v) => !v)}
+              onClick={() => { setMenuOpen((v) => !v); }}
             >
               <MoreVertical className="w-5 h-5" />
             </IconButton>

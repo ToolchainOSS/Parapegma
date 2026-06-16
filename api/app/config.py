@@ -160,6 +160,12 @@ def get_port() -> int:
 
 
 @cache
+def get_host() -> str:
+    """Return the network interface the API server should bind to."""
+    return os.environ.get("API_HOST") or os.environ.get("HOST", "127.0.0.1")
+
+
+@cache
 def get_log_level() -> str:
     """Return the global log level for the application."""
     return os.environ.get("LOG_LEVEL", "INFO").upper()

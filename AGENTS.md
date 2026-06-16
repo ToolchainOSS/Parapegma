@@ -402,8 +402,12 @@ All checks below must pass before merging any PR. Agents **must** run all three 
 cd api
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest tests/ -v --tb=short
+uv run basedpyright
+uv run pytest tests/ -v --tb=short --cov
 ```
+
+See [`docs/code-quality.md`](docs/code-quality.md) for the full linting,
+type-checking, and coverage conventions and the pre-commit setup.
 
 ### Frontend (unit / integration)
 ```bash

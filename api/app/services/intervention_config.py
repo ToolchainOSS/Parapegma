@@ -62,7 +62,7 @@ def get_static_intervention(
         raise ValueError(f"No interventions configured for condition '{condition}'")
 
     hash_hex = hashlib.sha256(
-        f"{participation_id}:{day_index}:{salt}".encode("utf-8")
+        f"{participation_id}:{day_index}:{salt}".encode()
     ).hexdigest()
     array_index = int(hash_hex, 16) % len(condition_array)
     return condition_array[array_index]

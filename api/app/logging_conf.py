@@ -94,10 +94,11 @@ class LLMLoggingCallbackHandler(BaseCallbackHandler):
 
         # Flatten messages for logging if multiple generations
         # Usually messages is [[System, User]] for a single generation
-        flat_messages = []
-        for batch in messages:
-            for msg in batch:
-                flat_messages.append({"role": msg.type, "content": msg.content})
+        flat_messages = [
+            {"role": msg.type, "content": msg.content}
+            for batch in messages
+            for msg in batch
+        ]
 
         entry = {
             "timestamp": timestamp,
@@ -114,10 +115,9 @@ class LLMLoggingCallbackHandler(BaseCallbackHandler):
         """Run when LLM ends running."""
         timestamp = datetime.now(UTC).isoformat()
 
-        generations = []
-        for gen_list in response.generations:
-            for gen in gen_list:
-                generations.append(gen.text)
+        generations = [
+            gen.text for gen_list in response.generations for gen in gen_list
+        ]
 
         entry = {
             "timestamp": timestamp,

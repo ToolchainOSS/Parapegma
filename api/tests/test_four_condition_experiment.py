@@ -11,14 +11,12 @@ Covers:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from app.agents.engine import process_turn
 from app.id_utils import generate_project_id, generate_server_msg_id
 from app.models import (
@@ -39,6 +37,8 @@ from app.services.condition_filters import (
 )
 from app.services.feedback_script import run_static_feedback
 from app.services.profile_service import save_user_profile
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -242,7 +242,7 @@ class TestEngineFeedbackBypass:
         # randomization helper for the duration of this test.
         import app.agents.engine as engine_mod
 
-        async def _fake_ctx(db, membership_id, current_date):  # noqa: ARG001
+        async def _fake_ctx(db, membership_id, current_date):
             return condition, participation, 0
 
         engine_mod._get_active_condition_context = _fake_ctx  # type: ignore[assignment]
@@ -369,7 +369,7 @@ class TestConditionCHistoryWindow:
         # Force condition C
         import app.agents.engine as engine_mod
 
-        async def _fake_ctx(db, membership_id, current_date):  # noqa: ARG001
+        async def _fake_ctx(db, membership_id, current_date):
             return "C", participation, 0
 
         engine_mod._get_active_condition_context = _fake_ctx  # type: ignore[assignment]
@@ -524,7 +524,7 @@ class TestWorkerConditionNudge:
             topic,
             extra_instruction=None,
             daily_summary=None,
-        ):  # noqa: ARG001
+        ):
             captured["prompt_name"] = prompt_name
             return "When I have coffee, then I will move. If I complete this, I will smile."
 
@@ -554,7 +554,7 @@ class TestWorkerConditionNudge:
 
         captured: dict[str, str] = {}
 
-        async def _llm(prompt_name, *a, **kw):  # noqa: ARG001
+        async def _llm(prompt_name, *a, **kw):
             captured["prompt_name"] = prompt_name
             return "neutral nudge"
 
@@ -576,10 +576,7 @@ class TestStripFeedbackPlanLine:
     def test_strips_plan_block(self) -> None:
         from app.agents.engine import _strip_feedback_plan_line
 
-        text = (
-            "PLAN: missing=last_barrier; next_q=barrier\n---\n"
-            "Got it — what got in the way?"
-        )
+        text = "PLAN: missing=last_barrier; next_q=barrier\n---\nGot it — what got in the way?"
         assert _strip_feedback_plan_line(text) == "Got it — what got in the way?"
 
     def test_strips_lone_plan_prefix(self) -> None:

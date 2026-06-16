@@ -58,7 +58,7 @@ export function Layout() {
     };
     window.addEventListener("theme-preference-change", onPreferenceChange);
     return () =>
-      window.removeEventListener("theme-preference-change", onPreferenceChange);
+      { window.removeEventListener("theme-preference-change", onPreferenceChange); };
   }, []);
 
   return (
@@ -161,7 +161,7 @@ export function Layout() {
 
             {/* Mobile hamburger */}
             <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              onClick={() => { setMobileMenuOpen(!mobileMenuOpen); }}
               className="sm:hidden p-2 rounded-xl hover:bg-surface-alt transition-colors"
               aria-label="Toggle menu"
             >
@@ -202,7 +202,7 @@ export function Layout() {
                 <>
                   <Link
                     to="/dashboard"
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={() => { setMobileMenuOpen(false); }}
                     className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl hover:bg-surface-alt transition-colors"
                     data-testid="nav-dashboard-mobile"
                   >
@@ -211,7 +211,7 @@ export function Layout() {
                   </Link>
                   <Link
                     to="/settings"
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={() => { setMobileMenuOpen(false); }}
                     className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl hover:bg-surface-alt transition-colors"
                     data-testid="nav-settings-mobile"
                   >
@@ -221,7 +221,7 @@ export function Layout() {
                   {role === "admin" && (
                     <Link
                       to="/admin"
-                      onClick={() => setMobileMenuOpen(false)}
+                      onClick={() => { setMobileMenuOpen(false); }}
                       className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl hover:bg-surface-alt transition-colors"
                       data-testid="nav-admin-mobile"
                     >
@@ -245,14 +245,14 @@ export function Layout() {
                 <>
                   <Link
                     to="/login"
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={() => { setMobileMenuOpen(false); }}
                     className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl hover:bg-surface-alt transition-colors"
                   >
                     Login
                   </Link>
                   <Link
                     to="/register"
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={() => { setMobileMenuOpen(false); }}
                     className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl hover:bg-surface-alt transition-colors text-primary"
                   >
                     Register

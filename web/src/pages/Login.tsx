@@ -33,7 +33,7 @@ export function Login() {
     setError(null);
     try {
       await login();
-      navigate(returnTo);
+      void navigate(returnTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -63,7 +63,7 @@ export function Login() {
           )}
 
           <Button
-            onClick={handleLogin}
+            onClick={() => void handleLogin()}
             disabled={loading}
             className="w-full"
             data-testid="login-submit"

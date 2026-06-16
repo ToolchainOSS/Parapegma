@@ -70,11 +70,16 @@ jobs:
           uv run ruff check .
           uv run ruff format --check .
 
+      - name: Type check (basedpyright)
+        if: matrix.db == 'sqlite'
+        working-directory: api
+        run: uv run basedpyright
+
       - name: Run tests
         working-directory: api
         run: |
           mkdir -p data
-          uv run pytest tests/ -v --tb=short --junitxml=junit-results.xml
+          uv run pytest tests/ -v --tb=short --cov --junitxml=junit-results.xml
 
       - name: Upload test results
         if: always()

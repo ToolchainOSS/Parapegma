@@ -46,7 +46,7 @@ export function Register() {
 
   const handleEmailSubmit = () => {
     const trimmed = email.trim();
-    if (!trimmed || !trimmed.includes("@")) {
+    if (!trimmed?.includes("@")) {
       setError("Please enter a valid email address");
       return;
     }
@@ -91,7 +91,7 @@ export function Register() {
         },
       });
       if (apiError) throw new Error("Failed to save profile");
-      navigate(returnTo);
+      void navigate(returnTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save profile");
     } finally {
@@ -158,7 +158,7 @@ export function Register() {
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); }}
                 onKeyDown={(e) => e.key === "Enter" && handleEmailSubmit()}
                 data-testid="register-email"
                 autoFocus
@@ -182,7 +182,7 @@ export function Register() {
                 login.
               </p>
               <Button
-                onClick={handlePasskeyEnroll}
+                onClick={() => void handlePasskeyEnroll()}
                 disabled={loading}
                 className="w-full"
                 data-testid="register-submit"
@@ -199,13 +199,15 @@ export function Register() {
                 label="Display Name"
                 placeholder="Enter your name"
                 value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleFinish()}
+                onChange={(e) => { setDisplayName(e.target.value); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleFinish();
+                }}
                 data-testid="register-display-name"
                 autoFocus
               />
               <Button
-                onClick={handleFinish}
+                onClick={() => void handleFinish()}
                 disabled={loading || !displayName.trim()}
                 className="w-full"
                 data-testid="register-finish"

@@ -3,7 +3,7 @@
 import json
 import logging
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -92,9 +92,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 # Only log body for non-streaming responses
                 try:
                     # Capture response body
-                    body_chunks = []
-                    async for chunk in response.body_iterator:
-                        body_chunks.append(chunk)
+                    body_chunks = [chunk async for chunk in response.body_iterator]
 
                     body = b"".join(body_chunks)
 

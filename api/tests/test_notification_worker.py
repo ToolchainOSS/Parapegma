@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from app import config
 from app.id_utils import generate_project_id
 from app.models import (
@@ -24,6 +21,8 @@ from app.models import (
     ScheduledTask,
 )
 from app.worker.notification_worker import _process_rule, _process_scheduled_tasks
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 _engine = create_async_engine("sqlite+aiosqlite://", echo=False)
 _session_factory = async_sessionmaker(_engine, expire_on_commit=False)

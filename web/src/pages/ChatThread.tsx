@@ -16,13 +16,19 @@ import api from "../api/client";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
+interface ToolCall {
+  run_id?: string;
+  tool?: string;
+  args?: unknown;
+  error?: string;
+}
+
 interface DebugInfo {
   agent?: string;
   condition?: string;
   prompt_args?: Record<string, unknown>;
   tools?: string[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tool_calls?: any[];
+  tool_calls?: ToolCall[];
 }
 
 interface Message {
@@ -36,6 +42,16 @@ interface Message {
   debugInfo?: DebugInfo;
 }
 
+interface RawMessage {
+  message_id: number;
+  server_msg_id: string;
+  role: "user" | "assistant";
+  content: string;
+  metadata?: FeedbackPollMetadata | Record<string, unknown>;
+  created_at?: string;
+  debug_info?: DebugInfo;
+}
+
 function isSystemContent(content: string): boolean {
   return content.startsWith("[System:");
 }
@@ -47,7 +63,7 @@ function formatBubbleTime(iso?: string): string | undefined {
 }
 
 function shouldGroup(prev: Message | undefined, curr: Message): boolean {
-  if (!prev || prev.role !== curr.role) return false;
+  if (prev?.role !== curr.role) return false;
   if (!prev.created_at || !curr.created_at) return false;
   const diff =
     new Date(curr.created_at).getTime() - new Date(prev.created_at).getTime();
@@ -108,7 +124,7 @@ export function ChatThread() {
       setSearchParams(newParams, { replace: true });
 
       // Call mark-read (unified global endpoint)
-      (async () => {
+      void (async () => {
         try {
           await api.POST(
             "/notifications/{notification_id}/read",
@@ -157,13 +173,13 @@ export function ChatThread() {
       }
     };
     el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
+    return () => { el.removeEventListener("scroll", handleScroll); };
   }, [isNearBottom]);
 
   // Load existing messages
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const token = await getOrMintToken("http");
 
@@ -172,9 +188,11 @@ export function ChatThread() {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (dashRes.ok) {
-          const dashData = await dashRes.json();
+          const dashData = (await dashRes.json()) as {
+            memberships?: { project_id: string; display_name?: string }[];
+          };
           const membership = (dashData.memberships ?? []).find(
-            (m: { project_id: string }) => m.project_id === projectId,
+            (m) => m.project_id === projectId,
           );
           if (membership?.display_name) {
             setChatTitle(membership.display_name);
@@ -185,28 +203,18 @@ export function ChatThread() {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error(`Failed to load messages (${res.status})`);
-        const data = await res.json();
+        const data = (await res.json()) as { messages?: RawMessage[] };
         if (!cancelled) {
           setMessages(
-            (data.messages || []).map(
-              (msg: {
-                message_id: number;
-                server_msg_id: string;
-                role: "user" | "assistant";
-                content: string;
-                metadata?: FeedbackPollMetadata | Record<string, unknown>;
-                created_at?: string;
-                debug_info?: DebugInfo;
-              }) => ({
-                id: String(msg.message_id),
-                serverMsgId: msg.server_msg_id,
-                role: msg.role,
-                content: msg.content,
-                metadata: msg.metadata,
-                created_at: msg.created_at,
-                debugInfo: msg.debug_info ?? debugInfoFromMetadata(msg.metadata),
-              }),
-            ),
+            (data.messages ?? []).map((msg) => ({
+              id: String(msg.message_id),
+              serverMsgId: msg.server_msg_id,
+              role: msg.role,
+              content: msg.content,
+              metadata: msg.metadata,
+              created_at: msg.created_at,
+              debugInfo: msg.debug_info ?? debugInfoFromMetadata(msg.metadata),
+            })),
           );
           setLoading(false);
           // Scroll to bottom after initial load
@@ -265,17 +273,17 @@ export function ChatThread() {
         if (prev.some((m) => m.serverMsgId === payload.server_msg_id)) {
           return prev.map((m) => {
             if (m.serverMsgId === payload.server_msg_id) {
-                return {
-                  ...m,
-                  id: String(payload.message_id), // Ensure ID is sync
-                  content: payload.content,
-                  metadata: payload.metadata,
-                  isStreaming: false,
-                  created_at: payload.created_at,
-                  debugInfo:
-                    payload.debug_info ?? debugInfoFromMetadata(payload.metadata),
-                };
-              }
+              return {
+                ...m,
+                id: String(payload.message_id), // Ensure ID is sync
+                content: payload.content,
+                metadata: payload.metadata,
+                isStreaming: false,
+                created_at: payload.created_at,
+                debugInfo:
+                  payload.debug_info ?? debugInfoFromMetadata(payload.metadata),
+              };
+            }
             return m;
           });
         }
@@ -345,7 +353,7 @@ export function ChatThread() {
       );
     };
 
-    (async () => {
+    void (async () => {
       let retryCount = 0;
       while (active && !ctrl.signal.aborted) {
         try {
@@ -378,8 +386,8 @@ export function ChatThread() {
                       debug_info?: DebugInfo;
                     },
                   );
-                } catch {
-                  // ignore malformed messages
+                } catch (err) {
+                  console.warn("Discarding malformed message.final SSE", err);
                 }
               } else if (ev.event === "message.updated") {
                 try {
@@ -390,8 +398,8 @@ export function ChatThread() {
                       metadata: FeedbackPollMetadata | Record<string, unknown>;
                     },
                   );
-                } catch {
-                  // ignore malformed updates
+                } catch (err) {
+                  console.warn("Discarding malformed message.updated SSE", err);
                 }
               } else if (ev.event === "message.chunk") {
                 try {
@@ -401,12 +409,12 @@ export function ChatThread() {
                       delta: string;
                     },
                   );
-                } catch {
-                  // ignore
+                } catch (err) {
+                  console.warn("Discarding malformed message.chunk SSE", err);
                 }
               }
             },
-            async onopen(response) {
+            onopen(response) {
               if (!response.ok) {
                 if (response.status === 401 || response.status === 403) {
                   setError("Your session expired. Please log in again.");
@@ -417,6 +425,7 @@ export function ChatThread() {
               }
               retryCount = 0;
               setConnectionStatus("online");
+              return Promise.resolve();
             },
             openWhenHidden: true,
           });
@@ -504,16 +513,17 @@ export function ChatThread() {
 
         // Add the real user message if returned (replacing temp)
         if (data.user_message) {
+          const userMessage = data.user_message;
           // Avoid duplicate if already present
           if (
-            !next.some((m) => m.serverMsgId === data.user_message!.server_msg_id)
+            !next.some((m) => m.serverMsgId === userMessage.server_msg_id)
           ) {
             next.push({
-              id: String(data.user_message.message_id),
-              serverMsgId: data.user_message.server_msg_id,
-              role: data.user_message.role,
-              content: data.user_message.content,
-              created_at: data.user_message.created_at,
+              id: String(userMessage.message_id),
+              serverMsgId: userMessage.server_msg_id,
+              role: userMessage.role,
+              content: userMessage.content,
+              created_at: userMessage.created_at,
             });
           }
         }
@@ -578,18 +588,18 @@ export function ChatThread() {
     const streamingAssistant: Message[] = [];
 
     messages.forEach(m => {
-        if (m.id.startsWith("temp-")) {
-            pendingUser.push(m);
-        } else if (m.id.startsWith("stream-")) {
-            streamingAssistant.push(m);
-        } else {
-            persisted.push(m);
-        }
+      if (m.id.startsWith("temp-")) {
+        pendingUser.push(m);
+      } else if (m.id.startsWith("stream-")) {
+        streamingAssistant.push(m);
+      } else {
+        persisted.push(m);
+      }
     });
 
     persisted.sort((a, b) => Number(a.id) - Number(b.id));
-    pendingUser.sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
-    streamingAssistant.sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime());
+    pendingUser.sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime());
+    streamingAssistant.sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime());
 
     const sorted = [...persisted, ...pendingUser, ...streamingAssistant].filter(
       (m) => !isSystemContent(m.content),
@@ -623,15 +633,15 @@ export function ChatThread() {
         menuItems={[
           {
             label: "Updates",
-            onClick: () => navigate(`/p/${projectId}/updates`),
+            onClick: () => void navigate(`/p/${projectId}/updates`),
           },
           {
             label: "Notification Settings",
-            onClick: () => navigate(`/p/${projectId}/notifications`),
+            onClick: () => void navigate(`/p/${projectId}/notifications`),
           },
         ]}
         debugMode={debugMode}
-        onToggleDebug={() => setDebugMode(!debugMode)}
+        onToggleDebug={() => { setDebugMode(!debugMode); }}
       />
 
       {error && (
@@ -672,11 +682,10 @@ export function ChatThread() {
         <div className="relative z-30">
           <button
             onClick={scrollToBottom}
-            className={`absolute bottom-3 right-4 w-10 h-10 rounded-full shadow-md flex items-center justify-center transition-colors ${
-              hasNewMessages
+            className={`absolute bottom-3 right-4 w-10 h-10 rounded-full shadow-md flex items-center justify-center transition-colors ${hasNewMessages
                 ? "bg-primary text-primary-foreground hover:bg-primary/90"
                 : "bg-surface text-text-muted hover:bg-surface-2"
-            }`}
+              }`}
             aria-label="Jump to bottom"
             data-testid="jump-to-bottom"
           >

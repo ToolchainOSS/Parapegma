@@ -16,7 +16,7 @@ export function Composer({ onSend, disabled }: ComposerProps) {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT) + "px";
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
   }, [text]);
 
   const handleSend = () => {
@@ -45,7 +45,7 @@ export function Composer({ onSend, disabled }: ComposerProps) {
         ref={textareaRef}
         rows={1}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => { setText(e.target.value); }}
         onKeyDown={handleKeyDown}
         placeholder="Type a message…"
         disabled={disabled}

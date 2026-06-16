@@ -4,9 +4,12 @@ const DISMISS_KEY = "install-dismissed-at";
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function isIOS(): boolean {
+  // `navigator.platform` is the only reliable iPadOS-on-desktop-UA signal;
+  // read it through a non-deprecated typed view to keep the check.
+  const platform = (navigator as { platform: string }).platform;
   return (
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+    (platform === "MacIntel" && navigator.maxTouchPoints > 1)
   );
 }
 
@@ -39,7 +42,7 @@ export function useInstallPrompt() {
       setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
 
-    const installedHandler = () => setInstalled(true);
+    const installedHandler = () => { setInstalled(true); };
 
     window.addEventListener("beforeinstallprompt", handler);
     window.addEventListener("appinstalled", installedHandler);

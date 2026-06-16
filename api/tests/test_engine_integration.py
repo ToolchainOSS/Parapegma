@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from app.agents.engine import process_turn
 from app.id_utils import generate_project_id, generate_server_msg_id
 from app.models import (
@@ -22,6 +19,8 @@ from app.models import (
 )
 from app.schemas.patches import UserProfileData
 from app.services.profile_service import load_memory_items, save_user_profile
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -229,7 +228,6 @@ class TestAuditLog:
         #
         # So we might not see audit logs unless we inject a collector with items.
         # Or we can test `_process_proposals` directly.
-        pass
 
     @pytest.mark.asyncio
     async def test_process_proposals_commits_valid_patch(self, seeded_db: dict) -> None:

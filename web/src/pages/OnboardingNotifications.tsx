@@ -25,7 +25,7 @@ export function OnboardingNotifications() {
   const showsIOSGuide = isIOS() && !isStandalone();
 
   const handleContinue = () => {
-    navigate(`/p/${projectId}/chat`);
+    void navigate(`/p/${projectId}/chat`);
   };
 
   return (

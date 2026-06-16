@@ -2,11 +2,10 @@
 
 import logging
 
+from app.middleware_logging import LoggingMiddleware
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from starlette.testclient import TestClient
-
-from app.middleware_logging import LoggingMiddleware
 
 
 def test_logging_middleware(caplog):

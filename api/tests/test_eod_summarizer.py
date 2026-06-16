@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from app.id_utils import generate_project_id, generate_server_msg_id
 from app.models import (
     Base,
@@ -28,6 +26,8 @@ from app.services.eod_summarizer import (
     load_latest_summary,
     summarize_day,
 )
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 _engine = create_async_engine("sqlite+aiosqlite://", echo=False)
 _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
@@ -406,7 +406,7 @@ class TestEngineSummaryInjection:
         )
         await db.flush()
 
-        async def _fake_ctx(db, membership_id, current_date):  # noqa: ARG001
+        async def _fake_ctx(db, membership_id, current_date):
             return "C", participation, 1
 
         engine_mod._get_active_condition_context = _fake_ctx  # type: ignore[assignment]
@@ -463,7 +463,7 @@ class TestEngineSummaryInjection:
             UserProfileData(prompt_anchor="after coffee", preferred_time="8am"),
         )
 
-        async def _fake_ctx(db, membership_id, current_date):  # noqa: ARG001
+        async def _fake_ctx(db, membership_id, current_date):
             return "A", participation, 1
 
         engine_mod._get_active_condition_context = _fake_ctx  # type: ignore[assignment]
@@ -538,7 +538,7 @@ class TestWorkerSummaryInjection:
             topic,
             extra_instruction=None,
             daily_summary=None,
-        ):  # noqa: ARG001
+        ):
             captured["daily_summary"] = daily_summary
             captured["prompt_name"] = prompt_name
             return "When I have coffee, then I will move. If I complete this, I will smile."

@@ -17,11 +17,12 @@ import json
 import logging
 import string
 from collections.abc import Callable, Coroutine
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +31,8 @@ from app.models import (
     ConversationRuntimeState,
     DailyInterventionLog,
     Message,
+    NotificationRule,
+    NotificationRuleState,
     Participation,
     ScheduledTask,
 )
@@ -44,6 +47,8 @@ from app.schemas.patches import (
     UserProfileData,
 )
 from app.schemas.router import RouteDecision
+from app.services.intervention_config import get_static_intervention
+from app.services.notification_engine import compute_next_due_utc, get_user_timezone
 from app.services.profile_service import (
     add_memory_item,
     apply_profile_patch,
@@ -54,9 +59,6 @@ from app.services.profile_service import (
     validate_memory_patch,
     validate_profile_patch,
 )
-from app.models import NotificationRule, NotificationRuleState
-from app.services.intervention_config import get_static_intervention
-from app.services.notification_engine import compute_next_due_utc, get_user_timezone
 from app.services.randomization import get_daily_condition
 from app.tools.proposal_tools import ProposalCollector
 
@@ -271,7 +273,7 @@ async def _process_proposals(
     latest_user_message_id: int | None = None,
 ) -> UserProfileData:
     """Validate and commit proposals from the specialist. Returns updated profile."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     profile_changed = False
 
     # Process profile proposals
@@ -432,10 +434,9 @@ async def _process_proposals(
                 if not proposal.topic or not proposal.time:
                     valid = False
                     reason = "Missing topic or time"
-            elif proposal.action == "delete":
-                if not proposal.rule_id:
-                    valid = False
-                    reason = "Missing rule_id"
+            elif proposal.action == "delete" and not proposal.rule_id:
+                valid = False
+                reason = "Missing rule_id"
 
             if valid and proposal.source_bot != "COACH":
                 # Assuming only Coach should really be messing with schedules for now,
@@ -533,7 +534,7 @@ async def _process_proposals(
         sp = None
         try:
             sp = await db.begin_nested()
-            today = datetime.now(timezone.utc).date()
+            today = datetime.now(UTC).date()
             log_result = await db.execute(
                 select(DailyInterventionLog)
                 .join(
@@ -588,7 +589,7 @@ def _create_specialist_agent(
     tools: list,
     prompt_name: str,
     prompt_args: dict[str, str] | None = None,
-) -> object:
+) -> CompiledStateGraph:
     """Build a LangGraph agent for a specialist using a prompt loaded from file."""
     from langgraph.prebuilt import create_react_agent
 
@@ -636,7 +637,7 @@ async def process_turn(
     ) = await _get_active_condition_context(
         db=db,
         membership_id=membership_id,
-        current_date=datetime.now(timezone.utc).date(),
+        current_date=datetime.now(UTC).date(),
     )
     prompt_args["active_condition"] = current_condition or "NONE"
     history_query = select(Message).where(Message.conversation_id == conversation.id)
@@ -648,7 +649,7 @@ async def process_turn(
         history_query = history_query.where(
             Message.condition_source.notin_(CONDITION_C_EXCLUDED_SOURCES)
         )
-        window_start = datetime.now(timezone.utc) - timedelta(hours=24)
+        window_start = datetime.now(UTC) - timedelta(hours=24)
         history_query = history_query.where(Message.created_at >= window_start)
 
     result = await db.execute(
@@ -693,7 +694,7 @@ async def process_turn(
         participation = Participation(
             membership_id=membership_id,
             study_id="microcoach_v1",
-            study_start_date=datetime.now(timezone.utc),
+            study_start_date=datetime.now(UTC),
             timezone=getattr(profile, "timezone", "UTC"),
         )
         db.add(participation)
@@ -709,7 +710,7 @@ async def process_turn(
             ) = await _get_active_condition_context(
                 db=db,
                 membership_id=membership_id,
-                current_date=datetime.now(timezone.utc).date(),
+                current_date=datetime.now(UTC).date(),
             )
             prompt_args["active_condition"] = current_condition or "NONE"
         except RuntimeError:
@@ -720,7 +721,7 @@ async def process_turn(
 
     # Daily-log heartbeat: ensure a DailyInterventionLog exists for today
     if participation is not None and current_condition is not None:
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         log_result = await db.execute(
             select(DailyInterventionLog).where(
                 DailyInterventionLog.participation_id == participation.id,
@@ -756,7 +757,7 @@ async def process_turn(
                 load_latest_summary,
             )
 
-            yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
+            yesterday = datetime.now(UTC).date() - timedelta(days=1)
             await ensure_summaries_up_to(db, participation, yesterday)
             daily_summary_text = await load_latest_summary(db, participation.id)
         except Exception:

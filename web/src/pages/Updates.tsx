@@ -46,7 +46,7 @@ export function Updates() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
+      void queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
     },
   });
 
@@ -56,7 +56,7 @@ export function Updates() {
     if (!n.read_at) {
       markReadMutation.mutate(n.id);
     }
-    navigate(`/p/${n.project_id}/chat?nid=${n.id}`);
+    void navigate(`/p/${n.project_id}/chat?nid=${n.id}`);
   };
 
   return (
@@ -114,7 +114,7 @@ export function Updates() {
               key={n.id}
               type="button"
               className={`w-full text-left px-4 py-3 border-b border-border hover:bg-surface-2 transition-colors ${!n.read_at ? "bg-primary/5" : ""}`}
-              onClick={() => handleClick(n)}
+              onClick={() => { handleClick(n); }}
             >
               <div className="flex items-start gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${!n.read_at ? "bg-primary/20" : "bg-surface-2"}`}>

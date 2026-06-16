@@ -44,7 +44,7 @@ def get_daily_condition(
     block_index = day_index // 4
     intra_block_step = day_index % 4
     digest = hashlib.sha256(
-        f"{participation_id}:{block_index}:{salt}".encode("utf-8")
+        f"{participation_id}:{block_index}:{salt}".encode()
     ).hexdigest()
     permutation_index = int(digest, 16) % 24
     return CONDITION_PERMUTATIONS[permutation_index][intra_block_step]

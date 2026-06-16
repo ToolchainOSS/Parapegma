@@ -14,7 +14,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from pywebpush import WebPushException, webpush
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from app import config
 from app.db import async_session_factory
 from app.id_utils import generate_server_msg_id
+from app.llm import make_chat_llm
 from app.logging_conf import LLMLoggingCallbackHandler, configure_logging
 from app.models import (
     Conversation,
@@ -36,6 +36,10 @@ from app.models import (
     PushSubscription,
     ScheduledTask,
 )
+from app.prompt_loader import load_prompt
+from app.services.condition_filters import contains_condition_c_framing
+from app.services.event_service import persist_event
+from app.services.intervention_config import get_static_intervention
 from app.services.notification_engine import (
     claim_due_deliveries,
     claim_due_rules,
@@ -43,13 +47,9 @@ from app.services.notification_engine import (
     get_user_timezone,
     recompute_rule_due_time,
 )
-from app.services.condition_filters import contains_condition_c_framing
-from app.services.event_service import persist_event
-from app.services.intervention_config import get_static_intervention
-from app.services.prompt_context import get_prompt_context_for_membership
 from app.services.profile_service import load_user_profile
+from app.services.prompt_context import get_prompt_context_for_membership
 from app.services.randomization import get_daily_condition
-from app.prompt_loader import load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ async def _llm_generate_nudge(
         SystemMessage(content=system_text),
         HumanMessage(content="\n".join(human_parts)),
     ]
-    llm = ChatOpenAI(
+    llm = make_chat_llm(
         model=config.get_llm_model(),
         api_key=llm_key,
         callbacks=[LLMLoggingCallbackHandler()],
@@ -400,7 +400,7 @@ async def _send_push_notifications(
     payload = json.dumps(payload_dict)
 
     vapid_private_key = config.get_vapid_private_key()
-    vapid_claims = {"sub": config.get_vapid_sub()}
+    vapid_claims: dict[str, str | int] = {"sub": config.get_vapid_sub()}
 
     success_count = 0
 
@@ -422,7 +422,7 @@ async def _send_push_notifications(
             sub.last_success_at = datetime.now(UTC)
             sub.consecutive_gone_410_count = 0
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             sub.last_failure_at = datetime.now(UTC)
             sub.consecutive_gone_410_count = 0
             logger.warning("Push send timed out for subscription %s", sub.id)
@@ -475,7 +475,7 @@ async def _evaluate_due_rules(worker_id: str) -> int:
         pairs = await claim_due_rules(db, worker_id)
         await db.commit()
 
-    for rule, state in pairs:
+    for rule, _state in pairs:
         try:
             await _process_rule(rule.id, worker_id)
             processed += 1

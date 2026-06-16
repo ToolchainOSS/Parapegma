@@ -22,20 +22,21 @@ export function Activation() {
   // Redirect unauthenticated users to register with return_to
   if (!authLoading && !isAuthenticated) {
     const returnTo = `/p/${projectId}/activate?invite=${encodeURIComponent(inviteCode)}`;
-    navigate(`/register?return_to=${encodeURIComponent(returnTo)}`, {
+    void navigate(`/register?return_to=${encodeURIComponent(returnTo)}`, {
       replace: true,
     });
     return null;
   }
 
   const doClaim = async () => {
+    if (!projectId) return;
     setError(null);
     setSubmitting(true);
     try {
       const { error: apiError, response } = await api.POST(
         "/p/{project_id}/activate/claim",
         {
-          params: { path: { project_id: projectId! } },
+          params: { path: { project_id: projectId } },
           body: { invite_code: inviteCode },
         },
       );
@@ -53,14 +54,14 @@ export function Activation() {
       if (apiError) {
         const detail =
           typeof apiError === "object" &&
-          apiError !== null &&
-          "detail" in apiError
+            apiError !== null &&
+            "detail" in apiError
             ? (apiError as { detail?: string }).detail
             : undefined;
         throw new Error(detail || `Activation failed (${response.status})`);
       }
 
-      navigate(`/p/${projectId}/onboarding/notifications`);
+      void navigate(`/p/${projectId}/onboarding/notifications`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Activation failed");
     } finally {
@@ -68,7 +69,8 @@ export function Activation() {
     }
   };
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
+
+  const handleEmailSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     const trimmed = email.trim();
     if (!trimmed) {
@@ -93,7 +95,7 @@ export function Activation() {
     }
   };
 
-  const handleJoin = async (e: React.FormEvent) => {
+  const handleJoin = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     await doClaim();
   };
@@ -117,7 +119,7 @@ export function Activation() {
           )}
 
           {needsEmail ? (
-            <form onSubmit={handleEmailSubmit} className="space-y-4">
+            <form onSubmit={(e) => void handleEmailSubmit(e)} className="space-y-4">
               <Alert variant="info">
                 Add your email to continue joining this project.
               </Alert>
@@ -126,7 +128,7 @@ export function Activation() {
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); }}
                 required
                 autoFocus
               />
@@ -139,7 +141,7 @@ export function Activation() {
               </Button>
             </form>
           ) : (
-            <form onSubmit={handleJoin} className="space-y-4">
+            <form onSubmit={(e) => void handleJoin(e)} className="space-y-4">
               <Button
                 type="submit"
                 disabled={submitting || !inviteCode}

@@ -23,6 +23,13 @@ function safeStringify(value: unknown): string {
   }
 }
 
+interface ToolCall {
+  run_id?: string;
+  tool?: string;
+  args?: unknown;
+  error?: string;
+}
+
 interface MessageBubbleProps {
   role: "user" | "assistant" | "system";
   content: string;
@@ -36,8 +43,7 @@ interface MessageBubbleProps {
     condition?: string;
     prompt_args?: Record<string, unknown>;
     tools?: string[];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tool_calls?: any[];
+    tool_calls?: ToolCall[];
   };
   showDebug?: boolean;
 }

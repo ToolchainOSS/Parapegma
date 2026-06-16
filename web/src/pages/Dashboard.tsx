@@ -111,7 +111,7 @@ export function Dashboard() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`Failed to load chats (${res.status})`);
-      return res.json();
+      return (await res.json()) as DashboardResponse;
     },
   });
 
@@ -134,12 +134,12 @@ export function Dashboard() {
     const code = inviteInput.trim();
     if (!code) return;
     // Try to parse as a full URL or just a code
-    const urlMatch = code.match(/\/p\/([^/]+)\/activate/);
+    const urlMatch = /\/p\/([^/]+)\/activate/.exec(code);
     if (urlMatch) {
-      navigate(`/p/${urlMatch[1]}/activate`);
+      void navigate(`/p/${urlMatch[1]}/activate`);
     } else {
       // Assume it's a project id or path
-      navigate(code.startsWith("/") ? code : `/p/${code}/activate`);
+      void navigate(code.startsWith("/") ? code : `/p/${code}/activate`);
     }
     setShowFab(false);
     setInviteInput("");
@@ -187,7 +187,7 @@ export function Dashboard() {
             type="text"
             placeholder="Search"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); }}
             data-testid="chat-search"
             className="w-full pl-9 pr-4 py-2 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-[var(--radius-pill)] border-none focus:outline-none focus-visible:ring-2 focus-visible:ring-focus transition-colors"
           />
@@ -267,7 +267,7 @@ export function Dashboard() {
 
       {/* FAB */}
       <button
-        onClick={() => setShowFab(true)}
+        onClick={() => { setShowFab(true); }}
         className="fixed right-4 w-14 h-14 rounded-[var(--radius-lg)] bg-primary text-on-primary shadow-[var(--shadow-primary)] flex items-center justify-center hover:bg-primary-hover hover:scale-105 hover:shadow-[var(--shadow-lg)] active:scale-95 transition-all duration-200 ease-[var(--ease-spring)] z-40"
         style={{ bottom: "calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + 16px)" }}
         aria-label="Join project"
@@ -289,7 +289,7 @@ export function Dashboard() {
               type="text"
               placeholder="Invite link or /p/.../activate"
               value={inviteInput}
-              onChange={(e) => setInviteInput(e.target.value)}
+              onChange={(e) => { setInviteInput(e.target.value); }}
               className="w-full px-4 py-2.5 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-[var(--radius-pill)] border border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               autoFocus
               onKeyDown={(e) => {

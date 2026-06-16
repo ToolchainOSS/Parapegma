@@ -5,16 +5,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from typing import Any, AsyncGenerator
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import or_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
 from app.config import clear_config_cache
 from app.id_utils import generate_project_id
 from app.models import (
@@ -23,17 +20,21 @@ from app.models import (
     ConversationEvent,
     FlowUserProfile,
     Message,
-    NotificationDelivery,
     Notification,
+    NotificationDelivery,
     ParticipantContact,
-    PushSubscription,
     Project,
     ProjectInvite,
     ProjectMembership,
+    PushSubscription,
     ScheduledTask,
 )
-from h4ckath0n.auth.models import Base as H4ckath0nBase, Device
+from h4ckath0n.auth.models import Base as H4ckath0nBase
+from h4ckath0n.auth.models import Device
 from h4ckath0n.realtime import AuthContext
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -86,8 +87,8 @@ def _override_auth_context(
 async def client() -> AsyncGenerator[AsyncClient, None]:
     """Provide an httpx AsyncClient with overridden DB and auth."""
     # Import here to avoid module-level side effects
-    from app.main import app
     from app.db import get_db
+    from app.main import app
     from app.routes import _require_auth_context
     from h4ckath0n.auth.dependencies import _get_current_user, require_admin
 
@@ -1156,15 +1157,16 @@ async def test_admin_llm_connectivity_uses_model_and_h4ckath0n_key(
     class _FakeResponse:
         content = "OK"
 
-    class _FakeChatOpenAI:
-        def __init__(self, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
+    class _FakeChatLLM:
         async def ainvoke(self, prompt: str) -> _FakeResponse:
             captured["prompt"] = prompt
             return _FakeResponse()
 
-    monkeypatch.setattr(routes_module, "ChatOpenAI", _FakeChatOpenAI)
+    def _fake_make_chat_llm(**kwargs: Any) -> _FakeChatLLM:
+        captured["kwargs"] = kwargs
+        return _FakeChatLLM()
+
+    monkeypatch.setattr(routes_module, "make_chat_llm", _fake_make_chat_llm)
 
     resp = await client.post(
         "/admin/debug/llm-connectivity",

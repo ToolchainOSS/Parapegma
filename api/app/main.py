@@ -9,17 +9,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-
-from app import config
-from app.db import init_db, engine as app_engine
-from app.db_migrations.migrate import upgrade_to_head
-from app.logging_conf import configure_logging
-from app.middleware import add_csp_middleware
-from app.middleware_logging import LoggingMiddleware
-from app.routes import router
 from h4ckath0n import create_app
 from h4ckath0n.realtime import (
     AuthError,
@@ -27,6 +16,18 @@ from h4ckath0n.realtime import (
     authenticate_websocket,
     sse_response,
 )
+from pydantic import BaseModel
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from app import config
+from app.db import engine as app_engine
+from app.db import init_db
+from app.db_migrations.migrate import upgrade_to_head
+from app.logging_conf import configure_logging
+from app.middleware import add_csp_middleware
+from app.middleware_logging import LoggingMiddleware
+from app.routes import router
 
 configure_logging()
 _logger = logging.getLogger(__name__)

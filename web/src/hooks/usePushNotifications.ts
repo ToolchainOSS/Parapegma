@@ -2,9 +2,12 @@ import { useState, useEffect, useCallback } from "react";
 import api from "../api/client";
 
 export function isIOS(): boolean {
+  // `navigator.platform` is the only reliable iPadOS-on-desktop-UA signal;
+  // read it through a non-deprecated typed view to keep the check.
+  const platform = (navigator as { platform: string }).platform;
   return (
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+    (platform === "MacIntel" && navigator.maxTouchPoints > 1)
   );
 }
 
@@ -80,7 +83,7 @@ export function usePushNotifications() {
 
   // Check initial subscription status via backend
   useEffect(() => {
-    (async () => {
+    void (async () => {
       if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
         setInitializing(false);
         return;
@@ -107,8 +110,8 @@ export function usePushNotifications() {
           localStorage.removeItem(SUB_ID_STORAGE_KEY);
         }
         setSubscribed(registered);
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn("Failed to reconcile push subscription state", err);
       } finally {
         setInitializing(false);
       }
@@ -117,7 +120,7 @@ export function usePushNotifications() {
 
   // Check if VAPID is configured on the backend
   useEffect(() => {
-    (async () => {
+    void (async () => {
       const { error: apiError } = await api.GET(
         "/notifications/webpush/vapid-public-key",
       );

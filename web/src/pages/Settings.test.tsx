@@ -188,13 +188,13 @@ describe("Settings – passkey rename", () => {
     fireEvent.change(input, { target: { value: "Work Key" } });
     fireEvent.click(screen.getByTestId("passkey-name-save"));
     await waitFor(() =>
-      expect(mockApiFetch).toHaveBeenCalledWith(
+      { expect(mockApiFetch).toHaveBeenCalledWith(
         `/auth/passkeys/${samplePasskeys[0]!.id}`,
         expect.objectContaining({
           method: "PATCH",
           body: JSON.stringify({ name: "Work Key" }),
         }),
-      ),
+      ); },
     );
   });
 

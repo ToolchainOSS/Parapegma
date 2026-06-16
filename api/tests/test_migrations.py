@@ -10,10 +10,8 @@ import os
 import tempfile
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
-
 from app.db_migrations.migrate import get_sync_url, upgrade_to_head
-
+from sqlalchemy import create_engine, inspect, text
 
 # ---------------------------------------------------------------------------
 # FIX 1: get_sync_url mapping tests

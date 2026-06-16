@@ -3,52 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
 import secrets
 import time
 from collections import defaultdict
+from collections.abc import AsyncGenerator, Sequence
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypedDict, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import func, or_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import joinedload, selectinload
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-
-from app.db import async_session_factory, get_db
-from app.config import get_llm_model, get_openai_api_key
-from app.id_utils import generate_server_msg_id
-from app.prompt_loader import prompt_version
-from app.models import (
-    ConversationTurn,
-    FlowUserProfile,
-    MemoryItem,
-    Notification,
-    NotificationDelivery,
-    NotificationRule,
-    NotificationRuleState,
-    PatchAuditLog,
-    Conversation,
-    Message,
-    ParticipantContact,
-    Project,
-    ProjectInvite,
-    ProjectMembership,
-    PushSubscription,
-    ScheduledTask,
-    UserProfileStore,
-)
-from app.schemas.patches import UserProfileData
-from app.services.event_service import load_events_since, persist_event
-from app.services.profile_service import load_user_profile, save_user_profile
-from app import config
-from app.agents.engine import process_turn as engine_process_turn
 from h4ckath0n.auth import require_user
 from h4ckath0n.auth.dependencies import require_admin
 from h4ckath0n.auth.models import Device, User
@@ -59,7 +25,44 @@ from h4ckath0n.realtime import (
     authenticate_sse_request,
     sse_response,
 )
-from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from app import config
+from app.agents.engine import process_turn as engine_process_turn
+from app.config import get_llm_model, get_openai_api_key
+from app.db import async_session_factory, get_db
+from app.id_utils import generate_server_msg_id
+from app.llm import make_chat_llm
+from app.models import (
+    Conversation,
+    ConversationTurn,
+    FlowUserProfile,
+    MemoryItem,
+    Message,
+    Notification,
+    NotificationDelivery,
+    NotificationRule,
+    NotificationRuleState,
+    ParticipantContact,
+    PatchAuditLog,
+    Project,
+    ProjectInvite,
+    ProjectMembership,
+    PushSubscription,
+    ScheduledTask,
+    UserProfileStore,
+)
+from app.prompt_loader import prompt_version
+from app.schemas.patches import UserProfileData
+from app.services.event_service import load_events_since, persist_event
+from app.services.profile_service import load_user_profile, save_user_profile
 
 logger = logging.getLogger(__name__)
 
@@ -71,17 +74,33 @@ FEEDBACK_ACTION_CLIENT_MSG_PREFIX = "feedback_action:"
 # ---------------------------------------------------------------------------
 # In-memory SSE fan-out queues: conversation_id -> set of asyncio.Queue
 # ---------------------------------------------------------------------------
-_sse_queues: dict[int, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
 
 
-def _publish_event(conversation_id: int, event: dict[str, Any]) -> None:
+class SSEEvent(TypedDict, total=False):
+    """Wire-format payload for a server-sent event.
+
+    Mirrors the fields consumed by ``sse_response``. ``event``/``id``/``data``
+    describe a real event; ``comment`` is used for keepalive pings. Every field
+    is optional because different event kinds populate different subsets.
+    """
+
+    event: str
+    id: str
+    data: str
+    comment: str
+
+
+_sse_queues: dict[int, set[asyncio.Queue[SSEEvent]]] = defaultdict(set)
+
+
+def _publish_event(conversation_id: int, event: SSEEvent) -> None:
     """Push an SSE event to all listeners on a conversation."""
     for q in _sse_queues.get(conversation_id, set()):
         q.put_nowait(event)
 
 
 def _resolve_feedback_action_title(
-    deliveries: list[NotificationDelivery], action_id: str
+    deliveries: Sequence[NotificationDelivery], action_id: str
 ) -> str:
     """Resolve human-readable action title from delivery payload actions."""
     for delivery in deliveries:
@@ -96,10 +115,7 @@ def _resolve_feedback_action_title(
 
 
 def _format_feedback_system_message(action_title: str, notification_id: int) -> str:
-    return (
-        f"[System: User provided feedback '{action_title}' on notification "
-        f"{notification_id}]"
-    )
+    return f"[System: User provided feedback '{action_title}' on notification {notification_id}]"
 
 
 # ---------------------------------------------------------------------------
@@ -516,9 +532,9 @@ async def dashboard(
         return DashboardResponse(memberships=items)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to load dashboard")
-        raise HTTPException(status_code=500, detail="Failed to load dashboard")
+        raise HTTPException(status_code=500, detail="Failed to load dashboard") from exc
 
 
 @router.get("/auth/me", tags=["auth"])
@@ -549,9 +565,11 @@ async def get_me(
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to load user profile")
-        raise HTTPException(status_code=500, detail="Failed to load user profile")
+        raise HTTPException(
+            status_code=500, detail="Failed to load user profile"
+        ) from exc
 
 
 @router.patch("/me", tags=["user"])
@@ -608,9 +626,11 @@ async def update_me(
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to update user profile")
-        raise HTTPException(status_code=500, detail="Failed to update user profile")
+        raise HTTPException(
+            status_code=500, detail="Failed to update user profile"
+        ) from exc
 
 
 @router.post("/me/timezone", tags=["user"])
@@ -628,7 +648,7 @@ async def update_timezone(
         except (ZoneInfoNotFoundError, KeyError):
             raise HTTPException(
                 status_code=422, detail=f"Invalid IANA timezone: {body.timezone}"
-            )
+            ) from None
 
         profile_result = await db.execute(
             select(FlowUserProfile).where(FlowUserProfile.user_id == user.id)
@@ -678,9 +698,11 @@ async def update_timezone(
         return {"ok": True}
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to update timezone")
-        raise HTTPException(status_code=500, detail="Failed to update timezone")
+        raise HTTPException(
+            status_code=500, detail="Failed to update timezone"
+        ) from exc
 
 
 async def _require_auth_context(request: Request) -> AuthContext:
@@ -714,9 +736,9 @@ async def auth_sessions(
         return AuthSessionsResponse(sessions=sessions)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to load sessions")
-        raise HTTPException(status_code=500, detail="Failed to load sessions")
+        raise HTTPException(status_code=500, detail="Failed to load sessions") from exc
 
 
 @router.post("/auth/sessions/{device_id}/revoke", tags=["auth"])
@@ -740,9 +762,9 @@ async def revoke_auth_session(
         return AuthSessionRevokeResponse(ok=True)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to revoke session")
-        raise HTTPException(status_code=500, detail="Failed to revoke session")
+        raise HTTPException(status_code=500, detail="Failed to revoke session") from exc
 
 
 @router.get("/admin/debug/status", tags=["admin"])
@@ -780,7 +802,7 @@ async def admin_debug_llm_connectivity(
 
     started = time.perf_counter()
     try:
-        llm = ChatOpenAI(
+        llm = make_chat_llm(
             model=body.model,
             api_key=llm_key,
             max_tokens=body.max_tokens,
@@ -817,24 +839,26 @@ async def admin_debug_llm_connectivity(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/p/{project_id}/activate/claim", tags=["activation"])
+@router.post(
+    "/p/{project_id}/activate/claim", tags=["activation"], response_model=ClaimResponse
+)
 async def claim_invite(
     project_id: str,
     body: ClaimRequest,
     user: User = require_user(),
     db: AsyncSession = Depends(get_db),
-) -> ClaimResponse:
+) -> ClaimResponse | JSONResponse:
     """Validate invite code, create membership and conversation."""
     try:
         return await _claim_invite_impl(project_id, body, user, db)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Claim invite failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
-        )
+        ) from exc
 
 
 async def _claim_invite_impl(
@@ -842,7 +866,7 @@ async def _claim_invite_impl(
     body: ClaimRequest,
     user: User,
     db: AsyncSession,
-) -> ClaimResponse:
+) -> ClaimResponse | JSONResponse:
     # Verify project exists
     proj_result = await db.execute(select(Project).where(Project.id == project_id))
     if proj_result.scalar_one_or_none() is None:
@@ -946,7 +970,7 @@ async def _claim_invite_impl(
                 .values(uses=ProjectInvite.uses + 1)
                 .execution_options(synchronize_session=False)
             )
-            if consume_result.rowcount != 1:
+            if cast("CursorResult[Any]", consume_result).rowcount != 1:
                 await db.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -998,7 +1022,7 @@ async def _claim_invite_impl(
         if msg_count == 0:
             llm_key = get_openai_api_key()
             if llm_key:
-                llm = ChatOpenAI(model=get_llm_model(), api_key=llm_key)
+                llm = make_chat_llm(model=get_llm_model(), api_key=llm_key)
 
                 from app.agents.engine import process_turn as engine_process_turn
 
@@ -1114,11 +1138,11 @@ async def project_me(
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to load project membership info")
         raise HTTPException(
             status_code=500, detail="Failed to load project membership info"
-        )
+        ) from exc
 
 
 @router.get("/p/{project_id}/profile", tags=["profile"])
@@ -1132,9 +1156,9 @@ async def get_profile(
         return await load_user_profile(db, membership.id)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to load profile")
-        raise HTTPException(status_code=500, detail="Failed to load profile")
+        raise HTTPException(status_code=500, detail="Failed to load profile") from exc
 
 
 @router.put("/p/{project_id}/profile", tags=["profile"])
@@ -1155,9 +1179,9 @@ async def put_profile(
         return profile
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to update profile")
-        raise HTTPException(status_code=500, detail="Failed to update profile")
+        raise HTTPException(status_code=500, detail="Failed to update profile") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -1202,9 +1226,9 @@ async def list_messages(
         return MessageListResponse(messages=items)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to load messages")
-        raise HTTPException(status_code=500, detail="Failed to load messages")
+        raise HTTPException(status_code=500, detail="Failed to load messages") from exc
 
 
 def _json_safe(value: Any) -> Any:
@@ -1280,7 +1304,7 @@ async def send_message(
                 )
             )
             if (turn := existing.scalars().first()) is None:
-                raise HTTPException(status_code=500, detail="Turn conflict")
+                raise HTTPException(status_code=500, detail="Turn conflict") from None
             if turn.status == "completed" and turn.assistant_message_id is not None:
                 asst_result = await db.execute(
                     select(Message).where(
@@ -1382,7 +1406,7 @@ async def send_message(
     # --- Process the turn (winner path) -----------------------------------
     try:
         llm_key = get_openai_api_key()
-        llm = ChatOpenAI(model=get_llm_model(), api_key=llm_key) if llm_key else None
+        llm = make_chat_llm(model=get_llm_model(), api_key=llm_key) if llm_key else None
 
         # Persist user message
         user_msg = Message(
@@ -1661,7 +1685,7 @@ async def _submit_feedback_event_impl(
 
         llm_key = get_openai_api_key()
         llm = (
-            ChatOpenAI(
+            make_chat_llm(
                 model=get_llm_model(),
                 api_key=llm_key,
             )
@@ -1740,9 +1764,11 @@ async def _submit_feedback_event_impl(
         return {"status": "success"}
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to store feedback event")
-        raise HTTPException(status_code=500, detail="Failed to store feedback event")
+        raise HTTPException(
+            status_code=500, detail="Failed to store feedback event"
+        ) from exc
 
 
 @router.post("/p/{project_id}/chat/events/feedback", tags=["notifications"])
@@ -1784,19 +1810,17 @@ async def event_stream(
     last_event_id = 0
     raw_last_id = request.headers.get("Last-Event-ID", "").strip()
     if raw_last_id:
-        try:
+        with contextlib.suppress(ValueError):
             last_event_id = int(raw_last_id)
-        except ValueError:
-            pass
 
     # Load missed events for replay
     missed_events = await load_events_since(db, conv.id, after_id=last_event_id)
 
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    queue: asyncio.Queue[SSEEvent] = asyncio.Queue()
     _sse_queues[conv.id].add(queue)
     conversation_id = conv.id
 
-    async def generate() -> Any:
+    async def generate() -> AsyncGenerator[dict[str, Any], None]:
         nonlocal last_event_id
         last_sent_event_id = last_event_id
         try:
@@ -1813,15 +1837,13 @@ async def event_stream(
                     return
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=30.0)
-                    yield event
+                    yield dict(event)
                     # Track last sent id from queue events
                     eid = event.get("id")
                     if eid:
-                        try:
+                        with contextlib.suppress(ValueError, TypeError):
                             last_sent_event_id = int(eid)
-                        except (ValueError, TypeError):
-                            pass
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Poll DB for events created in other processes
                     async with async_session_factory() as poll_db:
                         db_events = await load_events_since(
@@ -1867,6 +1889,7 @@ async def list_unified_notifications(
     Supports optional project_id filtering and cursor-based pagination.
     """
     import base64
+    import binascii
 
     try:
         limit = min(limit, 200)
@@ -1888,8 +1911,8 @@ async def list_unified_notifications(
             try:
                 cursor_id = int(base64.b64decode(cursor).decode())
                 query = query.where(Notification.id < cursor_id)
-            except Exception:
-                pass
+            except (ValueError, binascii.Error):
+                logger.warning("Ignoring malformed notification cursor")
 
         query = query.order_by(Notification.id.desc()).limit(limit + 1)
 
@@ -1925,12 +1948,12 @@ async def list_unified_notifications(
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to list unified notifications")
         raise HTTPException(
             status_code=500,
             detail="Failed to load notifications",
-        )
+        ) from exc
 
 
 @router.get("/notifications/unread-count", tags=["notifications"])
@@ -1959,12 +1982,12 @@ async def get_unified_unread_count(
         return NotificationUnreadCountResponse(count=count)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to get unified unread count")
         raise HTTPException(
             status_code=500,
             detail="Failed to load unread count",
-        )
+        ) from exc
 
 
 @router.post("/notifications/{notification_id}/read", tags=["notifications"])
@@ -2017,12 +2040,12 @@ async def mark_unified_notification_read(
         return {"ok": True}
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to mark notification as read")
         raise HTTPException(
             status_code=500,
             detail="Failed to mark notification as read",
-        )
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -2045,9 +2068,11 @@ async def webpush_vapid_public_key(
         return VapidPublicKeyResponse(public_key=key)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to get VAPID public key")
-        raise HTTPException(status_code=500, detail="Failed to get VAPID public key")
+        raise HTTPException(
+            status_code=500, detail="Failed to get VAPID public key"
+        ) from exc
 
 
 @router.post("/notifications/webpush/subscriptions", tags=["notifications"])
@@ -2076,22 +2101,21 @@ async def webpush_subscribe(
             existing.last_failure_at = None
             await db.commit()
             return PushSubscribeResponse(subscription_id=existing.id)
-        else:
-            sub = PushSubscription(
-                user_id=user.id,
-                endpoint=body.endpoint,
-                p256dh=body.keys.p256dh,
-                auth=body.keys.auth,
-                user_agent=body.user_agent or "",
-            )
-            db.add(sub)
-            await db.commit()
-            return PushSubscribeResponse(subscription_id=sub.id)
+        sub = PushSubscription(
+            user_id=user.id,
+            endpoint=body.endpoint,
+            p256dh=body.keys.p256dh,
+            auth=body.keys.auth,
+            user_agent=body.user_agent or "",
+        )
+        db.add(sub)
+        await db.commit()
+        return PushSubscribeResponse(subscription_id=sub.id)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Push subscription failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @router.delete(
@@ -2121,9 +2145,9 @@ async def webpush_unsubscribe(
         return {"ok": True}
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Push unsubscribe failed")
-        raise HTTPException(status_code=500, detail="Failed to unsubscribe")
+        raise HTTPException(status_code=500, detail="Failed to unsubscribe") from exc
 
 
 @router.get("/notifications/webpush/subscriptions", tags=["notifications"])
@@ -2153,9 +2177,11 @@ async def webpush_list_subscriptions(
         }
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to list push subscriptions")
-        raise HTTPException(status_code=500, detail="Failed to list subscriptions")
+        raise HTTPException(
+            status_code=500, detail="Failed to list subscriptions"
+        ) from exc
 
 
 @router.post("/admin/projects", tags=["admin"])
@@ -2318,6 +2344,7 @@ async def admin_project_participants(
     participants: list[AdminParticipantItem] = []
     for membership in memberships:
         contact = latest_contact_by_membership.get(membership.id)
+        member_profile = profile_by_user_id.get(membership.user_id)
         stats = push_stats_by_user.get(
             membership.user_id,
             {"count": 0, "last_success_at": None, "last_failure_at": None},
@@ -2332,11 +2359,7 @@ async def admin_project_participants(
                 else None,
                 email=contact.email_raw
                 if contact
-                else (
-                    profile_by_user_id.get(membership.user_id).email_raw
-                    if profile_by_user_id.get(membership.user_id)
-                    else None
-                ),
+                else (member_profile.email_raw if member_profile else None),
                 push_subscription_count=stats["count"],
                 last_push_success_at=stats["last_success_at"].isoformat()
                 if stats["last_success_at"]
@@ -2530,7 +2553,7 @@ async def admin_push_test(
     from pywebpush import webpush
 
     vapid_private_key = config.get_vapid_private_key()
-    vapid_claims = {"sub": config.get_vapid_sub()}
+    vapid_claims: dict[str, str | int] = {"sub": config.get_vapid_sub()}
 
     if not vapid_private_key:
         raise HTTPException(status_code=503, detail="VAPID private key not configured")

@@ -69,7 +69,7 @@ export function ChatListPane({ embedded }: ChatListPaneProps) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`Failed to load chats (${res.status})`);
-      return res.json();
+      return (await res.json()) as DashboardResponse;
     },
   });
 
@@ -114,7 +114,7 @@ export function ChatListPane({ embedded }: ChatListPaneProps) {
             type="text"
             placeholder="Search"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); }}
             data-testid="chat-search"
             className="w-full pl-9 pr-4 py-2 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-[var(--radius-pill)] border-none focus:outline-none focus-visible:ring-2 focus-visible:ring-focus transition-colors"
           />
