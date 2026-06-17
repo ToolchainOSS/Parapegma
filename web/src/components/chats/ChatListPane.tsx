@@ -4,53 +4,15 @@ import { MessageSquare, Search } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { getOrMintToken } from "../../auth/token";
 import { ListRow } from "../ui/ListRow";
-import type { DashboardResponse, MembershipInfo } from "../../api/types";
+import { Avatar } from "./Avatar";
+import {
+  getDisplayPreview,
+  isUnread,
+  formatTime,
+} from "../../utils/membership";
+import type { DashboardResponse } from "../../api/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
-
-function getDisplayPreview(preview: string | null | undefined): string {
-  if (!preview) return "No messages yet";
-  return preview.startsWith("[System:") ? "Feedback submitted" : preview;
-}
-
-function getLastOpenedAt(projectId: string): string | null {
-  return localStorage.getItem(`chat-opened:${projectId}`);
-}
-
-function isUnread(m: MembershipInfo): boolean {
-  if (!m.last_message_at) return false;
-  const opened = getLastOpenedAt(m.project_id);
-  if (!opened) return true;
-  return m.last_message_at > opened;
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) {
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-function Avatar({ name }: { name: string }) {
-  const initials = (name || "?")
-    .split(/\s+/)
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  return (
-    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/15 text-primary flex items-center justify-center text-[15px] font-semibold shrink-0 ring-1 ring-inset ring-primary/10">
-      {initials}
-    </div>
-  );
-}
 
 interface ChatListPaneProps {
   /** When true, renders compact (inside side rail shell) */

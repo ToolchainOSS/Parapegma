@@ -43,8 +43,13 @@ export function Activation() {
 
       if (response.status === 409) {
         // Check for EMAIL_REQUIRED
-        const body = apiError as unknown as { code?: string; message?: string };
-        if (body?.code === "EMAIL_REQUIRED") {
+        const code =
+          typeof apiError === "object" &&
+          apiError !== null &&
+          "code" in apiError
+            ? (apiError as { code?: string }).code
+            : undefined;
+        if (code === "EMAIL_REQUIRED") {
           setNeedsEmail(true);
           setSubmitting(false);
           return;

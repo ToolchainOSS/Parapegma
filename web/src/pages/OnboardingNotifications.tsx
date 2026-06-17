@@ -3,11 +3,8 @@ import { Card, CardContent, CardHeader } from "../components/Card";
 import { Button } from "../components/Button";
 import { Alert } from "../components/Alert";
 import { Bell, Smartphone } from "lucide-react";
-import {
-  usePushNotifications,
-  isIOS,
-  isStandalone,
-} from "../hooks/usePushNotifications";
+import { usePushNotifications } from "../hooks/usePushNotifications";
+import { isIOS, isStandalone } from "../utils/pwa";
 
 export function OnboardingNotifications() {
   const { projectId } = useParams<{ projectId: string }>();

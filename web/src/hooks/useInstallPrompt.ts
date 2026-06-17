@@ -1,25 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
+import { isIOS, isStandalone } from "../utils/pwa";
 
 const DISMISS_KEY = "install-dismissed-at";
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-function isIOS(): boolean {
-  // `navigator.platform` is the only reliable iPadOS-on-desktop-UA signal;
-  // read it through a non-deprecated typed view to keep the check.
-  const platform = (navigator as { platform: string }).platform;
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (platform === "MacIntel" && navigator.maxTouchPoints > 1)
-  );
-}
-
-function isStandalone(): boolean {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    ("standalone" in navigator &&
-      (navigator as unknown as { standalone: boolean }).standalone)
-  );
-}
 
 function isDismissed(): boolean {
   const ts = localStorage.getItem(DISMISS_KEY);

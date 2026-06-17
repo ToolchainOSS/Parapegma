@@ -1,12 +1,14 @@
 import { Card, CardContent, CardHeader } from "../components/Card";
 import { Button } from "../components/Button";
 import { Alert } from "../components/Alert";
-import { Bell, BellOff, Smartphone, AlertTriangle } from "lucide-react";
 import {
-  usePushNotifications,
-  isIOS,
-  isStandalone,
-} from "../hooks/usePushNotifications";
+  Bell,
+  BellOff,
+  Smartphone,
+  AlertTriangle,
+} from "lucide-react";
+import { usePushNotifications } from "../hooks/usePushNotifications";
+import { isIOS, isStandalone } from "../utils/pwa";
 
 export function Notifications() {
   const {
