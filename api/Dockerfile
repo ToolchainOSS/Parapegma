@@ -41,6 +41,7 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
+    API_HOST=0.0.0.0 \
     BUILD_DATE="${BUILD_DATE}" \
     VCS_REF="${VCS_REF}"
 

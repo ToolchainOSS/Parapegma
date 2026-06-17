@@ -48,6 +48,7 @@ def info(msg: str) -> None:
 
 # ── 1. API route table vs OpenAPI schema ─────────────────────────────────
 
+
 def check_api_routes() -> None:
     """Compare documented route table against OpenAPI spec."""
     print("\n[1/4] Checking API route table against OpenAPI schema …")
@@ -68,9 +69,7 @@ def check_api_routes() -> None:
     doc_routes: set[tuple[str, str]] = set()
     for line in table_text.strip().splitlines():
         # Match table rows like: | `GET` | `/healthz` | …
-        row = re.match(
-            r"\|\s*`(\w+)`\s*\|\s*`([^`]+)`\s*\|", line
-        )
+        row = re.match(r"\|\s*`(\w+)`\s*\|\s*`([^`]+)`\s*\|", line)
         if row:
             method = row.group(1).upper()
             path = row.group(2)
@@ -89,7 +88,15 @@ def check_api_routes() -> None:
 
     uv_bin = shutil.which("uv")
     if uv_bin:
-        cmd = [uv_bin, "run", "python", "-m", "scripts.dump_openapi", "--out", str(openapi_json)]
+        cmd = [
+            uv_bin,
+            "run",
+            "python",
+            "-m",
+            "scripts.dump_openapi",
+            "--out",
+            str(openapi_json),
+        ]
     else:
         cmd = [sys.executable, "-m", "scripts.dump_openapi", "--out", str(openapi_json)]
 
@@ -105,11 +112,20 @@ def check_api_routes() -> None:
         return
 
     import json
+
     schema = json.loads(openapi_json.read_text())
     openapi_routes: set[tuple[str, str]] = set()
     for path, methods in schema.get("paths", {}).items():
         for method in methods:
-            if method.upper() in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
+            if method.upper() in (
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "HEAD",
+                "OPTIONS",
+            ):
                 openapi_routes.add((method.upper(), path))
 
     # WebSocket routes are not in OpenAPI, keep them in doc_routes for comparison
@@ -140,6 +156,7 @@ def check_api_routes() -> None:
 
 
 # ── 2. Env var table vs config.py and .env.example ──────────────────────
+
 
 def check_env_vars() -> None:
     """Compare documented env vars against config.py and .env.example."""
@@ -252,7 +269,9 @@ def check_app_env_reads() -> None:
             name = next(g for g in match.groups() if g)
             read_vars.setdefault(name, []).append(rel)
 
-    undocumented = {v for v in read_vars if v not in doc_vars and v not in _ENV_ALLOWLIST}
+    undocumented = {
+        v for v in read_vars if v not in doc_vars and v not in _ENV_ALLOWLIST
+    }
     if undocumented:
         for v in sorted(undocumented):
             sites = ", ".join(sorted(set(read_vars[v])))
@@ -262,6 +281,7 @@ def check_app_env_reads() -> None:
 
 
 # ── 4. Relative link hygiene ─────────────────────────────────────
+
 
 def check_links() -> None:
     """Verify all relative markdown links resolve to existing files."""
@@ -293,7 +313,9 @@ def check_links() -> None:
                     display = target.relative_to(REPO)
                 except ValueError:
                     display = target
-                error(f"Broken link in {md_file.relative_to(REPO)}: [{match.group(1)}]({link}) → {display}")
+                error(
+                    f"Broken link in {md_file.relative_to(REPO)}: [{match.group(1)}]({link}) → {display}"
+                )
                 broken += 1
 
     if broken == 0:
@@ -301,6 +323,7 @@ def check_links() -> None:
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
+
 
 def main() -> int:
     print("=" * 60)

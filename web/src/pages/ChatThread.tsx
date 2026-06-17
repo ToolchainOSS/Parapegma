@@ -152,8 +152,8 @@ export function ChatThread() {
           <button
             onClick={scrollToBottom}
             className={`absolute bottom-3 right-4 w-10 h-10 rounded-full shadow-md flex items-center justify-center transition-colors ${hasNewMessages
-                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                : "bg-surface text-text-muted hover:bg-surface-2"
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "bg-surface text-text-muted hover:bg-surface-2"
               }`}
             aria-label="Jump to bottom"
             data-testid="jump-to-bottom"

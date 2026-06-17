@@ -45,8 +45,8 @@ export function Activation() {
         // Check for EMAIL_REQUIRED
         const code =
           typeof apiError === "object" &&
-          apiError !== null &&
-          "code" in apiError
+            apiError !== null &&
+            "code" in apiError
             ? (apiError as { code?: string }).code
             : undefined;
         if (code === "EMAIL_REQUIRED") {
