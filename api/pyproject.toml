@@ -90,9 +90,9 @@ omit = ["app/db_migrations/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-# Baseline floor with headroom above the current ~70%. Ratchet upward as
-# service/route unit tests are added (Phase 4).
-fail_under = 68
+# Ratcheted floor with headroom below the current ~72%. Raise as more
+# service/route/worker unit tests are added.
+fail_under = 71
 
 [tool.basedpyright]
 include = ["app"]

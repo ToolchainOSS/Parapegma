@@ -507,7 +507,7 @@ class TestWorkerSummaryInjection:
     ) -> None:
         from app.schemas.patches import UserProfileData
         from app.services.profile_service import save_user_profile
-        from app.worker import notification_worker as wmod
+        from app.worker import nudge as wmod
 
         db = seeded_db["db"]
         mid = seeded_db["membership_id"]
@@ -556,7 +556,7 @@ class TestWorkerSummaryInjection:
     async def test_condition_a_nudge_does_not_load_summary(
         self, seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.worker import notification_worker as wmod
+        from app.worker import nudge as wmod
 
         db = seeded_db["db"]
         mid = seeded_db["membership_id"]

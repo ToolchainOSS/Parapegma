@@ -392,7 +392,7 @@ class TestConditionCHistoryWindow:
         )
         # We can't directly inspect chat_history from debug, but the turn must
         # have completed without error and the condition must be tagged.
-        assert debug["condition"] == "C"
+        assert debug.condition == "C"
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +405,7 @@ class TestWorkerConditionNudge:
     async def test_condition_a_uses_static_template(
         self, seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.worker import notification_worker as wmod
+        from app.worker import nudge as wmod
 
         db = seeded_db["db"]
         mid = seeded_db["membership_id"]
@@ -435,7 +435,7 @@ class TestWorkerConditionNudge:
     async def test_condition_c_regenerates_when_framed_then_falls_back(
         self, seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.worker import notification_worker as wmod
+        from app.worker import nudge as wmod
 
         db = seeded_db["db"]
         mid = seeded_db["membership_id"]
@@ -468,7 +468,7 @@ class TestWorkerConditionNudge:
     async def test_condition_c_accepts_clean_output_first_try(
         self, seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.worker import notification_worker as wmod
+        from app.worker import nudge as wmod
 
         db = seeded_db["db"]
         mid = seeded_db["membership_id"]
@@ -501,7 +501,7 @@ class TestWorkerConditionNudge:
     async def test_condition_d_uses_framed_prompt(
         self, seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.worker import notification_worker as wmod
+        from app.worker import nudge as wmod
 
         db = seeded_db["db"]
         mid = seeded_db["membership_id"]
@@ -540,7 +540,7 @@ class TestWorkerConditionNudge:
     async def test_unenrolled_falls_back_to_default_prompt(
         self, seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.worker import notification_worker as wmod
+        from app.worker import nudge as wmod
 
         db = seeded_db["db"]
         mid = seeded_db["membership_id"]

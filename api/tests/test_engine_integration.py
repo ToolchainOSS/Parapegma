@@ -114,9 +114,8 @@ class TestEngineTurnPipeline:
             user_msg=user_msg,
             user_text="Hello!",
         )
-        assert "tool_calls" in debug_info
-        assert isinstance(debug_info["tool_calls"], list)
-        assert debug_info["tool_calls"] == []
+        assert isinstance(debug_info.tool_calls, list)
+        assert debug_info.tool_calls == []
 
     @pytest.mark.asyncio
     async def test_empty_profile_routes_to_intake(self, seeded_db: dict) -> None:
@@ -361,7 +360,7 @@ class TestAuditLog:
         a failure rolls back only that proposal and leaves the transaction (and
         any sibling proposals) intact.
         """
-        from app.agents import engine as engine_mod
+        from app.agents import proposals as proposals_mod
         from app.agents.engine import _process_proposals
         from app.models import NotificationRule
         from app.tools.proposal_tools import ProposalCollector
@@ -383,7 +382,7 @@ class TestAuditLog:
         async def _boom(*_args: object, **_kwargs: object) -> str:
             raise RuntimeError("simulated timezone lookup failure")
 
-        monkeypatch.setattr(engine_mod, "get_user_timezone", _boom)
+        monkeypatch.setattr(proposals_mod, "get_user_timezone", _boom)
 
         profile = UserProfileData(prompt_anchor="")
         collector = ProposalCollector()

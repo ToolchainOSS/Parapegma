@@ -84,22 +84,22 @@ class TestWorkerPromptContext:
         mock_llm.ainvoke = fake_ainvoke
 
         with (
-            patch("app.worker.notification_worker.config") as mock_config,
+            patch("app.worker.nudge.config") as mock_config,
             patch(
-                "app.worker.notification_worker.load_user_profile",
+                "app.worker.nudge.load_user_profile",
                 new_callable=AsyncMock,
             ) as mock_load,
             patch(
-                "app.worker.notification_worker.make_chat_llm",
+                "app.worker.nudge.make_chat_llm",
                 return_value=mock_llm,
             ),
             patch(
-                "app.worker.notification_worker.get_prompt_context_for_membership",
+                "app.worker.nudge.get_prompt_context_for_membership",
                 new_callable=AsyncMock,
                 return_value=fake_prompt_ctx,
             ),
             patch(
-                "app.worker.notification_worker._resolve_condition_for_membership",
+                "app.worker.nudge._resolve_condition_for_membership",
                 new_callable=AsyncMock,
                 return_value=(None, None, None),
             ),
@@ -108,7 +108,7 @@ class TestWorkerPromptContext:
             mock_config.get_llm_model.return_value = "gpt-4o-mini"
             mock_load.return_value = profile
 
-            from app.worker.notification_worker import _generate_custom_prompt
+            from app.worker.nudge import _generate_custom_prompt
 
             fake_db = MagicMock()
             result = await _generate_custom_prompt(fake_db, 1, "Daily Nudge")

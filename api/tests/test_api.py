@@ -1139,8 +1139,8 @@ async def test_admin_debug_endpoints(
 async def test_admin_llm_connectivity_uses_model_and_h4ckath0n_key(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app import routes as routes_module
     from app.main import app
+    from app.routes import admin_debug as routes_module
     from h4ckath0n.auth.dependencies import _get_current_user
 
     app.dependency_overrides[_get_current_user] = _override_require_user(
