@@ -17,6 +17,7 @@ from app.routes import (
     feedback,
     messaging,
     notifications,
+    spark,
     streaming,
 )
 from app.routes._shared import _require_auth_context
@@ -76,6 +77,7 @@ router.include_router(streaming.router)
 router.include_router(notifications.router)
 router.include_router(admin_projects.router)
 router.include_router(admin_push.router)
+router.include_router(spark.router)
 
 __all__ = [
     "AdminCreateInviteRequest",

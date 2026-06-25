@@ -33,7 +33,7 @@ from h4ckath0n.auth.models import Base as H4ckath0nBase
 from h4ckath0n.auth.models import Device
 from h4ckath0n.realtime import AuthContext
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # ---------------------------------------------------------------------------
@@ -1180,6 +1180,276 @@ async def test_admin_llm_connectivity_uses_model_and_h4ckath0n_key(
     assert captured["kwargs"]["api_key"] == "h4-key"
     assert captured["kwargs"]["model"] == "gpt-4.1-mini"
     assert captured["prompt"] == "say ok"
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_requires_openai_key(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("H4CKATH0N_OPENAI_API_KEY", raising=False)
+    clear_config_cache()
+
+    resp = await client.post(
+        "/spark/generate",
+        json={"condition": "A", "count": 1},
+    )
+    assert resp.status_code == 503
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_success_is_stateless(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    async with _test_session_factory() as db:
+        before_msg_count = await db.scalar(select(func.count(Message.id)))
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResponse:
+        content = json.dumps(
+            {
+                "cards": [
+                    {
+                        "title": "Desk Reset",
+                        "frame": "calm",
+                        "action": "Roll shoulders and breathe slowly for one minute.",
+                        "reward": "You should feel less tension in your neck.",
+                        "why": "Matches a calm desk-friendly context.",
+                        "fit_score": 84,
+                    }
+                ]
+            }
+        )
+
+    class _FakeChatLLM:
+        async def ainvoke(self, prompt: Any) -> _FakeResponse:
+            captured["prompt"] = prompt
+            return _FakeResponse()
+
+    def _fake_make_chat_llm(**kwargs: Any) -> _FakeChatLLM:
+        captured["kwargs"] = kwargs
+        return _FakeChatLLM()
+
+    monkeypatch.setattr(spark_routes, "make_chat_llm", _fake_make_chat_llm)
+
+    resp = await client.post(
+        "/spark/generate",
+        json={
+            "condition": "A",
+            "frame_preference": "calm",
+            "context": "I am about to start a meeting.",
+            "adjustment": "make it subtle",
+            "count": 3,
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["condition"] == "A"
+    assert len(payload["cards"]) == 1
+    assert payload["cards"][0]["title"] == "Desk Reset"
+    assert payload["model"] == "gpt-test-model"
+    assert payload["prompt_version"]["prompt_file"] == "spark_proxy_system"
+
+    assert captured["kwargs"]["api_key"] == "test-key"
+    assert captured["kwargs"]["model"] == "gpt-test-model"
+
+    async with _test_session_factory() as db:
+        after_msg_count = await db.scalar(select(func.count(Message.id)))
+    assert before_msg_count == after_msg_count
+    clear_config_cache()
+
+
+def test_spark_helper_content_to_text_variants() -> None:
+    from app.routes import spark as spark_routes
+
+    assert spark_routes._content_to_text("plain") == "plain"
+    assert spark_routes._content_to_text(
+        [{"text": "alpha"}, {"text": "beta"}, {"ignored": True}]
+    ) == "alpha\nbeta"
+    assert spark_routes._content_to_text(123) == "123"
+
+
+def test_spark_helper_extract_json_variants() -> None:
+    from app.routes import spark as spark_routes
+
+    assert spark_routes._extract_json_object('{"cards": []}') == {"cards": []}
+    assert spark_routes._extract_json_object(
+        '```json\n{"cards": []}\n```'
+    ) == {"cards": []}
+    assert spark_routes._extract_json_object(
+        'prefix {"cards": []} suffix'
+    ) == {"cards": []}
+
+    with pytest.raises(ValueError):
+        spark_routes._extract_json_object("[]")
+
+    with pytest.raises(json.JSONDecodeError):
+        spark_routes._extract_json_object("not json")
+
+
+def test_spark_build_user_prompt_is_json() -> None:
+    from app.routes import spark as spark_routes
+
+    body = spark_routes.SparkGenerateRequest(
+        condition="D",
+        frame_preference="science",
+        context="desk",
+        adjustment="quieter",
+        count=4,
+    )
+    payload = json.loads(spark_routes._build_user_prompt(body))
+    assert payload == {
+        "condition": "D",
+        "frame_preference": "science",
+        "context": "desk",
+        "adjustment": "quieter",
+        "count": 4,
+    }
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_sorts_condition_d_cards(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    class _FakeResponse:
+        content = [
+            {
+                "text": json.dumps(
+                    {
+                        "cards": [
+                            {
+                                "title": "Low Fit",
+                                "frame": "science",
+                                "action": "Do one stretch.",
+                                "reward": "Feel looser.",
+                                "why": "One option.",
+                                "fit_score": 40,
+                            },
+                            {
+                                "title": "High Fit",
+                                "frame": "science",
+                                "action": "Do one march.",
+                                "reward": "Feel alert.",
+                                "why": "Better fit.",
+                                "fit_score": 90,
+                            },
+                        ]
+                    }
+                )
+            }
+        ]
+
+    class _FakeChatLLM:
+        async def ainvoke(self, _prompt: Any) -> _FakeResponse:
+            return _FakeResponse()
+
+    monkeypatch.setattr(
+        spark_routes,
+        "make_chat_llm",
+        lambda **_kwargs: _FakeChatLLM(),
+    )
+
+    resp = await client.post(
+        "/spark/generate",
+        json={"condition": "D", "count": 4},
+    )
+    assert resp.status_code == 200
+    cards = resp.json()["cards"]
+    assert [card["title"] for card in cards] == ["High Fit", "Low Fit"]
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_invalid_payload_returns_502(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    clear_config_cache()
+
+    class _FakeResponse:
+        content = json.dumps(
+            {
+                "cards": [
+                    {
+                        "title": "Broken",
+                        "frame": "unknown",
+                        "action": "x",
+                        "reward": "y",
+                        "why": "z",
+                        "fit_score": 50,
+                    }
+                ]
+            }
+        )
+
+    class _FakeChatLLM:
+        async def ainvoke(self, _prompt: Any) -> _FakeResponse:
+            return _FakeResponse()
+
+    monkeypatch.setattr(
+        spark_routes,
+        "make_chat_llm",
+        lambda **_kwargs: _FakeChatLLM(),
+    )
+
+    resp = await client.post(
+        "/spark/generate",
+        json={"condition": "B", "count": 3},
+    )
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == "Spark model produced invalid response shape"
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_timeout_returns_504(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    clear_config_cache()
+
+    class _FakeChatLLM:
+        async def ainvoke(self, _prompt: Any) -> Any:
+            return None
+
+    async def _fake_wait_for(coro: Any, *_args: Any, **_kwargs: Any) -> Any:
+        close = getattr(coro, "close", None)
+        if callable(close):
+            close()
+        raise TimeoutError()
+
+    monkeypatch.setattr(
+        spark_routes,
+        "make_chat_llm",
+        lambda **_kwargs: _FakeChatLLM(),
+    )
+    monkeypatch.setattr(spark_routes.asyncio, "wait_for", _fake_wait_for)
+
+    resp = await client.post(
+        "/spark/generate",
+        json={"condition": "C", "count": 1},
+    )
+    assert resp.status_code == 504
+    assert resp.json()["detail"] == "Spark model request timed out"
+    clear_config_cache()
 
 
 @pytest.mark.asyncio

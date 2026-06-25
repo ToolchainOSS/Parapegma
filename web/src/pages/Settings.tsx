@@ -265,6 +265,14 @@ export function Settings() {
 
         <ThemeSection />
 
+        <Link
+          to="/spark"
+          className="flex items-center gap-3 px-4 py-3 bg-surface border border-border rounded-2xl hover:bg-surface-2 transition-colors"
+          data-testid="settings-spark-link"
+        >
+          <span className="text-[15px] font-medium text-text">Open Spark Prototype</span>
+        </Link>
+
         <Card>
           <CardHeader>
             <SectionHeader

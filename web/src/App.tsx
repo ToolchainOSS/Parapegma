@@ -16,6 +16,7 @@ import { OnboardingNotifications } from "./pages/OnboardingNotifications";
 import { ChatThread } from "./pages/ChatThread";
 import { Notifications } from "./pages/Notifications";
 import { Admin } from "./pages/Admin";
+import { Spark } from "./pages/Spark";
 import { useVisualViewport } from "./hooks/useVisualViewport";
 
 export function App() {
@@ -100,6 +101,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/spark"
+          element={
+            <ProtectedRoute>
+              <Spark />
             </ProtectedRoute>
           }
         />

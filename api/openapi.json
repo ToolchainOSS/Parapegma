@@ -1575,6 +1575,177 @@
         "title": "SendMessageRequest",
         "type": "object"
       },
+      "SparkCard": {
+        "properties": {
+          "action": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "fit_score": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fit Score"
+          },
+          "frame": {
+            "enum": [
+              "calm",
+              "zoomies",
+              "silly",
+              "challenge",
+              "science"
+            ],
+            "title": "Frame",
+            "type": "string"
+          },
+          "reward": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Reward",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "why": {
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "frame",
+          "action",
+          "reward",
+          "why"
+        ],
+        "title": "SparkCard",
+        "type": "object"
+      },
+      "SparkGenerateRequest": {
+        "properties": {
+          "adjustment": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adjustment"
+          },
+          "condition": {
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ],
+            "title": "Condition",
+            "type": "string"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "maxLength": 800,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "count": {
+            "default": 3,
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "frame_preference": {
+            "anyOf": [
+              {
+                "enum": [
+                  "calm",
+                  "zoomies",
+                  "silly",
+                  "challenge",
+                  "science"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frame Preference"
+          }
+        },
+        "required": [
+          "condition"
+        ],
+        "title": "SparkGenerateRequest",
+        "type": "object"
+      },
+      "SparkGenerateResponse": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/SparkCard"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Cards",
+            "type": "array"
+          },
+          "condition": {
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ],
+            "title": "Condition",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_version": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Prompt Version",
+            "type": "object"
+          }
+        },
+        "required": [
+          "condition",
+          "cards",
+          "model",
+          "prompt_version"
+        ],
+        "title": "SparkGenerateResponse",
+        "type": "object"
+      },
       "TimezoneUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3993,6 +4164,53 @@
         "summary": "Put Profile",
         "tags": [
           "profile"
+        ]
+      }
+    },
+    "/spark/generate": {
+      "post": {
+        "description": "Generate one or more Spark cards via a stateless LLM proxy endpoint.",
+        "operationId": "spark_generate_spark_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SparkGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SparkGenerateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DeviceJWT": []
+          }
+        ],
+        "summary": "Spark Generate",
+        "tags": [
+          "spark"
         ]
       }
     }

@@ -820,6 +820,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/spark/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Spark Generate
+         * @description Generate one or more Spark cards via a stateless LLM proxy endpoint.
+         */
+        post: operations["spark_generate_spark_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1452,6 +1472,59 @@ export interface components {
             current_notification_id?: number | null;
             /** Text */
             text: string;
+        };
+        /** SparkCard */
+        SparkCard: {
+            /** Action */
+            action: string;
+            /** Fit Score */
+            fit_score?: number | null;
+            /**
+             * Frame
+             * @enum {string}
+             */
+            frame: "calm" | "zoomies" | "silly" | "challenge" | "science";
+            /** Reward */
+            reward: string;
+            /** Title */
+            title: string;
+            /** Why */
+            why: string;
+        };
+        /** SparkGenerateRequest */
+        SparkGenerateRequest: {
+            /** Adjustment */
+            adjustment?: string | null;
+            /**
+             * Condition
+             * @enum {string}
+             */
+            condition: "A" | "B" | "C" | "D";
+            /** Context */
+            context?: string | null;
+            /**
+             * Count
+             * @default 3
+             */
+            count: number;
+            /** Frame Preference */
+            frame_preference?: ("calm" | "zoomies" | "silly" | "challenge" | "science") | null;
+        };
+        /** SparkGenerateResponse */
+        SparkGenerateResponse: {
+            /** Cards */
+            cards: components["schemas"]["SparkCard"][];
+            /**
+             * Condition
+             * @enum {string}
+             */
+            condition: "A" | "B" | "C" | "D";
+            /** Model */
+            model: string;
+            /** Prompt Version */
+            prompt_version: {
+                [key: string]: string;
+            };
         };
         /** TimezoneUpdateRequest */
         TimezoneUpdateRequest: {
@@ -3057,6 +3130,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserProfileData"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    spark_generate_spark_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SparkGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SparkGenerateResponse"];
                 };
             };
             /** @description Validation Error */
