@@ -37,6 +37,29 @@ The "State, authority, and write-path rules" section in this file is authoritati
 
 ---
 
+## Repository bootstrap
+
+### Required submodule setup
+- This repository vendors shared agent skills through the `.github/skills` git submodule.
+- On a fresh clone, prefer `git clone --recurse-submodules <repo>`.
+- On an existing checkout, run `git submodule update --init --recursive` before relying on any repo-local skill.
+- If the submodule mapping is missing or needs repair, register it with git rather than editing `.gitmodules` by hand:
+
+```bash
+git submodule add https://github.com/BTreeMap/SKILLs.git .github/skills
+git submodule sync -- .github/skills
+git submodule update --init --recursive .github/skills
+```
+
+- To verify setup, confirm `.gitmodules` contains the `.github/skills` path and URL, then run `git submodule status --recursive`.
+
+### Required skill loading
+- Before creating, reviewing, or rewriting a commit message in this repository, load `.github/skills/git-commits/SKILL.md` and follow it.
+- Before creating or editing a reusable skill under `.github/skills`, load `.github/skills/authoring-skills/SKILL.md` and follow it.
+- Treat repo-local skills as the authoritative workflow helpers when they apply; do not improvise a different commit-message standard.
+
+---
+
 ## Core invariants
 
 ### Identity
