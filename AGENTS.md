@@ -452,6 +452,32 @@ npm run gen:api:check
 - If `gen:api:check` fails with a diff in `web/src/api/openapi.ts`, run `npm run gen:api` and commit the updated file.
 - Do not merge backend schema changes that leave `web/src/api/openapi.ts` stale.
 
+### Documentation drift (required)
+
+If you add, remove, or rename any API route or environment variable usage, run:
+
+```bash
+python3 scripts/docs/check_docs.py
+```
+
+- Keep the README route table and env var table in sync with code.
+- Do not merge route or env changes that fail docs drift checks.
+
+### Standard pre-push gate (required)
+
+Before pushing, run:
+
+```bash
+bash scripts/ci/pre_push_quality_gate.sh
+```
+
+- This runs backend + frontend + docs drift checks and fails fast.
+- For browser-capable environments, include browser gates:
+
+```bash
+RUN_PLAYWRIGHT=1 RUN_COMPOSE_E2E=1 bash scripts/ci/pre_push_quality_gate.sh
+```
+
 ### End-to-end (E2E)
 ```bash
 cd web

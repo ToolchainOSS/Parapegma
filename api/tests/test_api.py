@@ -1271,9 +1271,12 @@ def test_spark_helper_content_to_text_variants() -> None:
     from app.routes import spark as spark_routes
 
     assert spark_routes._content_to_text("plain") == "plain"
-    assert spark_routes._content_to_text(
-        [{"text": "alpha"}, {"text": "beta"}, {"ignored": True}]
-    ) == "alpha\nbeta"
+    assert (
+        spark_routes._content_to_text(
+            [{"text": "alpha"}, {"text": "beta"}, {"ignored": True}]
+        )
+        == "alpha\nbeta"
+    )
     assert spark_routes._content_to_text(123) == "123"
 
 
@@ -1281,12 +1284,12 @@ def test_spark_helper_extract_json_variants() -> None:
     from app.routes import spark as spark_routes
 
     assert spark_routes._extract_json_object('{"cards": []}') == {"cards": []}
-    assert spark_routes._extract_json_object(
-        '```json\n{"cards": []}\n```'
-    ) == {"cards": []}
-    assert spark_routes._extract_json_object(
-        'prefix {"cards": []} suffix'
-    ) == {"cards": []}
+    assert spark_routes._extract_json_object('```json\n{"cards": []}\n```') == {
+        "cards": []
+    }
+    assert spark_routes._extract_json_object('prefix {"cards": []} suffix') == {
+        "cards": []
+    }
 
     with pytest.raises(ValueError):
         spark_routes._extract_json_object("[]")

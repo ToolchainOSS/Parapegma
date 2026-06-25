@@ -233,6 +233,7 @@ All project-scoped endpoints require passkey authentication.
 | `POST` | `/notifications/webpush/subscriptions` | notifications | Create/upsert push subscription (user-scoped) |
 | `DELETE` | `/notifications/webpush/subscriptions/{subscription_id}` | notifications | Revoke a push subscription |
 | `GET` | `/notifications/webpush/subscriptions` | notifications | List active push subscriptions (debug) |
+| `POST` | `/spark/generate` | spark | Stateless Spark card generation via LLM proxy |
 | `GET` | `/admin/debug/status` | admin | System debug status |
 | `POST` | `/admin/debug/llm-connectivity` | admin | Test LLM connectivity |
 | `POST` | `/admin/projects` | admin | Create a new project |
@@ -247,6 +248,24 @@ All project-scoped endpoints require passkey authentication.
 <!-- ROUTE_TABLE_END -->
 
 > This table is auto-verified by CI. See [Drift prevention](#drift-prevention).
+
+## Pre-push Quality Gate
+
+Run the standard local quality gate before every push:
+
+```bash
+bash scripts/ci/pre_push_quality_gate.sh
+```
+
+This runs backend and frontend static/test checks plus docs drift checks, and
+fails fast if any step is out of sync.
+
+Optional browser-dependent gates can be enabled when your environment supports
+them:
+
+```bash
+RUN_PLAYWRIGHT=1 RUN_COMPOSE_E2E=1 bash scripts/ci/pre_push_quality_gate.sh
+```
 
 ## Data Model
 

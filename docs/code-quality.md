@@ -135,3 +135,27 @@ set of generic hygiene checks. See
 - **e2e**: Playwright against both database backends and the compose stack.
 
 All gates must pass before merge.
+
+## Pre-push standard procedure
+
+Use the repository helper script before every push:
+
+```bash
+bash scripts/ci/pre_push_quality_gate.sh
+```
+
+This runs, in order:
+
+- Backend lint/format/typecheck/tests with coverage
+- Frontend OpenAPI sync check, lint, typecheck, tests
+- Documentation drift checker (`python3 scripts/docs/check_docs.py`)
+
+If your local environment supports browser E2E, include those explicitly:
+
+```bash
+RUN_PLAYWRIGHT=1 RUN_COMPOSE_E2E=1 bash scripts/ci/pre_push_quality_gate.sh
+```
+
+In environments where Playwright/Chromium cannot run, you can run the default
+script and rely on CI for browser gates while still enforcing all other
+pre-push checks.
