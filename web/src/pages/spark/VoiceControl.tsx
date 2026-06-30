@@ -164,7 +164,7 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
     }
 
     return (
-        <div className={`space-y-1.5 ${className}`}>
+        <div className={`spark-voice-wrap space-y-1.5 ${className}`}>
             <div className="spark-voice-row">
                 <textarea
                     ref={taRef}

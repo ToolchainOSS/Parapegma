@@ -295,6 +295,13 @@
 }
 
 /* ---- voice input row ---- */
+.spark-voice-wrap {
+  /* Lets the action row react to the COMPOSER's own available width (it can
+     sit in a wide card or a narrow side panel) rather than the viewport, so
+     the buttons always get the breathing room they need wherever embedded. */
+  container-type: inline-size;
+  container-name: spark-voice;
+}
 .spark-voice-row {
   display: flex;
   gap: 8px;
@@ -325,7 +332,24 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+/* Below ~360px of available composer width, two 48px buttons squeezed beside
+   the textarea start to feel cramped and starve the textarea of room. Drop
+   the actions onto their own full-width row, right-aligned with generous
+   spacing — a comfortable mobile layout instead of a packed-in one. */
+@container spark-voice (max-width: 360px) {
+  .spark-voice-row {
+    flex-wrap: wrap;
+  }
+  .spark-voice-input {
+    flex-basis: 100%;
+  }
+  .spark-voice-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+    gap: 14px;
+  }
 }
 .spark-mic-btn,
 .spark-send-btn {
