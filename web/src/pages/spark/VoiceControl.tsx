@@ -2,7 +2,9 @@
  * VoiceControl — Web Speech API wrapper with typed textarea fallback.
  *
  * Renders a textarea + microphone button. When the user taps the mic:
- *   - If SpeechRecognition is available: start listening; call onText on result.
+ *   - If SpeechRecognition is available: start listening continuously; the
+ *     session only ends when the user explicitly taps the mic again to stop
+ *     (or on a hard error) — never on a silence/inactivity timeout.
  *   - If not: focus the textarea for typed input.
  * Ctrl/Cmd+Enter in the textarea also submits.
  *
@@ -91,7 +93,13 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
         const rec = new SR();
         rec.lang = "en-US";
         rec.interimResults = true;
-        rec.continuous = false;
+        // Keep listening until the user explicitly taps the mic again. With
+        // continuous=false, browsers auto-stop (and we'd auto-submit) after
+        // the first pause in speech — typically ~3-5s — which ignores the
+        // user's intent to keep recording. continuous=true keeps the session
+        // open indefinitely; only an explicit stop click or a hard error
+        // ends it, matching mainstream STT UX (push-to-talk / tap-to-stop).
+        rec.continuous = true;
         recRef.current = rec;
 
         let finalText = "";
@@ -112,11 +120,13 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
             if (taRef.current) taRef.current.focus();
         };
 
+        // With continuous=true this should only fire from an explicit stop
+        // (toggleMic already calls stopRecording()+submit() directly) or an
+        // unexpected browser-side end (e.g. mic permission revoked). It must
+        // NOT auto-submit — submission only ever happens via explicit user
+        // action — so this is just a safety net to keep the UI state in sync.
         rec.onend = () => {
-            if (recording) {
-                setRecording(false);
-                submit();
-            }
+            setRecording(false);
         };
 
         setRecording(true);
