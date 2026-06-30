@@ -26,8 +26,6 @@ import re
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, status
-from h4ckath0n.auth import require_user
-from h4ckath0n.auth.models import User
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -140,9 +138,12 @@ def _build_user_prompt(body: SparkGenerateRequest) -> str:
 @router.post("/spark/generate", tags=["spark"])
 async def spark_generate(
     body: SparkGenerateRequest,
-    _user: User = require_user(),
 ) -> SparkGenerateResponse:
-    """Generate one or more Spark cards via a stateless LLM proxy endpoint."""
+    """Generate one or more Spark cards via a stateless LLM proxy endpoint.
+
+    Intentionally unauthenticated: Spark is a public, no-login prototype so
+    anyone can try it without creating an account.
+    """
     llm_key = get_openai_api_key()
     if not llm_key:
         raise HTTPException(

@@ -104,14 +104,8 @@ export function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/spark"
-          element={
-            <ProtectedRoute>
-              <Spark />
-            </ProtectedRoute>
-          }
-        />
+        {/* Spark is an unauthenticated public prototype: no login required. */}
+        <Route path="/spark" element={<Spark />} />
       </Route>
 
       {/* Chat with responsive shell (immersive or split view) */}

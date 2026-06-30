@@ -4174,7 +4174,7 @@
     },
     "/spark/generate": {
       "post": {
-        "description": "Generate one or more Spark cards via a stateless LLM proxy endpoint.",
+        "description": "Generate one or more Spark cards via a stateless LLM proxy endpoint.\n\nIntentionally unauthenticated: Spark is a public, no-login prototype so\nanyone can try it without creating an account.",
         "operationId": "spark_generate_spark_generate_post",
         "requestBody": {
           "content": {
@@ -4208,11 +4208,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "DeviceJWT": []
-          }
-        ],
         "summary": "Spark Generate",
         "tags": [
           "spark"
