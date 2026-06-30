@@ -438,6 +438,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Enable IPv6 in Docker daemon
+        run: |
+          sudo mkdir -p /etc/docker
+          echo '{"ipv6": true, "fixed-cidr-v6": "fd00:d0c::/64", "experimental": true, "ip6tables": true}' \
+            | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+          docker network ls
+
       - uses: actions/setup-node@v6
         with:
           node-version: "lts/*"
