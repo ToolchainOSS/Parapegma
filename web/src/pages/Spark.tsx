@@ -19,6 +19,7 @@ import { IntakeStep } from "./spark/IntakeStep";
 import { RankedList } from "./spark/RankedList";
 import { ReflectStep, type RatingState } from "./spark/ReflectStep";
 import { SparkCard } from "./spark/SparkCard";
+import { SparkThinking } from "./spark/SparkThinking";
 import { SparkTimer } from "./spark/SparkTimer";
 import { VibeWheel } from "./spark/VibeWheel";
 import { useSparkRemix } from "./spark/useSparkRemix";
@@ -211,13 +212,17 @@ function ConditionA({
                         Tests whether simply delivering a short action is enough.
                     </p>
                     {spark.error && <Alert variant="error" data-testid="spark-error">{spark.error}</Alert>}
-                    <ContinueBtn
-                        label={spark.loading ? "Generating…" : "Get my Spark"}
-                        disabled={spark.loading}
-                        onClick={() => {
-                            void actions.generate({ condition: "A" }).then(() => setStep(1));
-                        }}
-                    />
+                    {spark.loading ? (
+                        <SparkThinking />
+                    ) : (
+                        <ContinueBtn
+                            label="Get my Spark"
+                            disabled={spark.loading}
+                            onClick={() => {
+                                void actions.generate({ condition: "A" }).then(() => setStep(1));
+                            }}
+                        />
+                    )}
                 </div>
             )}
             {step === 1 && spark.card && (
@@ -346,13 +351,17 @@ function ConditionB({
                             })}
                         </div>
                     ) : (
-                        <ContinueBtn
-                            label={spark.loading ? "Loading options…" : "Load options"}
-                            disabled={spark.loading}
-                            onClick={() => {
-                                void actions.generate({ condition: "B", frame: chosenFrame, count: 3 });
-                            }}
-                        />
+                        spark.loading ? (
+                            <SparkThinking frame={chosenFrame} />
+                        ) : (
+                            <ContinueBtn
+                                label="Load options"
+                                disabled={spark.loading}
+                                onClick={() => {
+                                    void actions.generate({ condition: "B", frame: chosenFrame, count: 3 });
+                                }}
+                            />
+                        )
                     )}
                 </div>
             )}
@@ -476,9 +485,26 @@ function ConditionAdaptive({
             {step === intakeSteps && (
                 <div className="space-y-4">
                     {spark.loading && (
-                        <div className="text-center py-10 text-text-muted">
-                            <p className="text-base font-semibold">Building your Spark…</p>
-                        </div>
+                        <SparkThinking
+                            frame={profile.frame}
+                            phrases={
+                                condition === "D"
+                                    ? [
+                                          "Lining up your best matches…",
+                                          "Ranking a few contenders…",
+                                          "Weighing what fits your day…",
+                                          "Sorting Sparks by good-fit energy…",
+                                          "Reading your intake like tea leaves…",
+                                      ]
+                                    : [
+                                          "Tailoring a Spark just for you…",
+                                          "Folding your intake into the mix…",
+                                          "Tuning it to your vibe…",
+                                          "Shaping the perfect one-minute move…",
+                                          "Adding a personal touch…",
+                                      ]
+                            }
+                        />
                     )}
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
 

@@ -1,5 +1,6 @@
 import type { SparkCard as SparkCardData } from "../../api/types";
 import { FRAME_ORDER, FRAMINGS, type SparkFrame } from "./sparkData";
+import { SparkThinking } from "./SparkThinking";
 import { VoiceControl } from "./VoiceControl";
 
 interface AdjustPanelProps {
@@ -34,6 +35,18 @@ export function AdjustPanel({
 
     return (
         <div className="mt-4 border-t border-divider pt-4 space-y-4">
+            {loading && (
+                <SparkThinking
+                    compact
+                    frame={currentFrame}
+                    phrases={[
+                        "Remixing your Spark…",
+                        "Folding in your tweak…",
+                        "Reworking it on the fly…",
+                        "Adjusting the vibe…",
+                    ]}
+                />
+            )}
             {/* Quick chips */}
             <div>
                 <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">

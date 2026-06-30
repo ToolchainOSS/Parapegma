@@ -11,6 +11,21 @@
 
 /* ---- per-frame tokens ---- */
 .spark-zone {
+  /* Alias the global Tailwind v4 @theme tokens (--color-*) to the bare names
+     this stylesheet uses. Without these, var(--text)/var(--surface)/etc. would
+     resolve to nothing — e.g. an active chip's `background: var(--text)` would
+     stay transparent, so selections never changed colour. */
+  --text: var(--color-text);
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --surface-2: var(--color-surface-2);
+  --border: var(--color-border);
+  --divider: var(--color-divider);
+  --text-muted: var(--color-text-muted);
+  --text-subtle: var(--color-text-subtle);
+  --primary: var(--color-primary);
+  --focus: var(--color-focus);
+
   --sf-calm: #2e9c8e;
   --sf-calm-tint: #e5f3f0;
   --sf-zoomies: #ef6433;
@@ -345,6 +360,146 @@
   background: var(--text);
   color: var(--bg);
   border-color: var(--text);
+}
+
+/* ---- playful "thinking" loader ---- */
+.spark-thinking {
+  --seg-accent: var(--text);
+  --seg-tint: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 44px 16px;
+  text-align: center;
+}
+.spark-thinking-compact {
+  flex-direction: row;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.spark-thinking-orb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  background: var(--seg-tint);
+}
+.spark-thinking-orb::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--seg-accent);
+  opacity: 0.3;
+}
+.spark-thinking-emoji {
+  display: inline-block;
+  line-height: 1;
+}
+.spark-thinking-dots {
+  display: flex;
+  gap: 6px;
+}
+.spark-thinking-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--seg-accent);
+  opacity: 0.45;
+}
+.spark-thinking-phrase {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  min-height: 1.4em;
+  margin: 0;
+}
+.spark-thinking-compact .spark-thinking-phrase {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .spark-thinking-orb {
+    animation: spark-orb-bob 1.8s ease-in-out infinite;
+  }
+  .spark-thinking-orb::before {
+    animation: spark-orb-ring 1.8s ease-out infinite;
+  }
+  .spark-thinking-emoji {
+    animation: spark-orb-wiggle 1.8s ease-in-out infinite;
+  }
+  .spark-thinking-dots span {
+    animation: spark-dot 1.2s ease-in-out infinite;
+  }
+  .spark-thinking-dots span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .spark-thinking-dots span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+  .spark-thinking-phrase {
+    animation: spark-phrase-in 0.45s ease;
+  }
+}
+@keyframes spark-orb-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+@keyframes spark-orb-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  70% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes spark-orb-wiggle {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+@keyframes spark-dot {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+@keyframes spark-phrase-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ---- done checkmark ---- */
