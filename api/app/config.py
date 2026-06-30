@@ -162,7 +162,7 @@ def get_port() -> int:
 @cache
 def get_host() -> str:
     """Return the network interface the API server should bind to."""
-    return os.environ.get("API_HOST") or os.environ.get("HOST", "127.0.0.1")
+    return os.environ.get("API_HOST") or os.environ.get("HOST", "::")
 
 
 @cache
@@ -200,6 +200,7 @@ def clear_config_cache() -> None:
     get_feedback_prompt_text.cache_clear()
     get_feedback_options.cache_clear()
     get_default_timezone.cache_clear()
+    get_host.cache_clear()
     get_port.cache_clear()
     get_log_level.cache_clear()
     get_randomization_salt.cache_clear()

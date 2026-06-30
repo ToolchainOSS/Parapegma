@@ -393,8 +393,8 @@ Configure in `.env` at the repository root (see `.env.example`):
 | `WEB_PORT` | `8080` | Port the frontend container should listen on (falls back to `PORT`) |
 | `API_PORT` | `8000` | Port the backend API server should listen on (falls back to `PORT`) |
 | `PORT` | (none) | Fallback port for both (useful for platforms like Railway) |
-| `API_HOST` | `127.0.0.1` | Host/interface the backend API server binds to (falls back to `HOST`) |
-| `HOST` | `127.0.0.1` | Fallback bind host for the backend API server |
+| `API_HOST` | `::` | Host/interface the backend API server binds to (falls back to `HOST`) |
+| `HOST` | `::` | Fallback bind host for the backend API server |
 | `H4CKATH0N_DATABASE_URL` | `sqlite+aiosqlite:///./data/flow-app.db` | SQLAlchemy async database URL |
 | `H4CKATH0N_RP_ID` | `localhost` | WebAuthn relying party ID |
 | `H4CKATH0N_ORIGIN` | (none) | Allowed origin for CORS and WebAuthn |
