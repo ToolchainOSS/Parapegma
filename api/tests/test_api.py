@@ -1415,6 +1415,108 @@ async def test_spark_generate_sorts_condition_d_cards(
 
 
 @pytest.mark.asyncio
+async def test_spark_generate_condition_a_randomizes_frame_when_unset(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Condition A ("Random Spark") never sends a frame_preference from the
+    client. Without server-side randomization the LLM tends to default to the
+    same frame every time (mode collapse) instead of truly varying — so the
+    server must pick the frame itself and pass it through to the prompt."""
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+    monkeypatch.setattr(spark_routes.random, "choice", lambda _seq: "silly")
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResponse:
+        content = json.dumps(
+            {
+                "cards": [
+                    {
+                        "title": "Silly Shake",
+                        "frame": "silly",
+                        "action": "Wiggle for a minute.",
+                        "reward": "A grin.",
+                        "why": "Random pick.",
+                    }
+                ]
+            }
+        )
+
+    class _FakeChatLLM:
+        async def ainvoke(self, prompt: Any) -> _FakeResponse:
+            captured["prompt"] = prompt
+            return _FakeResponse()
+
+    monkeypatch.setattr(spark_routes, "make_chat_llm", lambda **_kwargs: _FakeChatLLM())
+
+    resp = await client.post(
+        "/spark/generate",
+        json={"condition": "A", "count": 1},
+    )
+    assert resp.status_code == 200
+
+    sent_prompt = json.loads(captured["prompt"][1].content)
+    assert sent_prompt["frame_preference"] == "silly"
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_condition_a_keeps_explicit_frame(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If a frame_preference IS supplied (or this is a remix with base_card),
+    the server must not override it with a random choice."""
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    def _fail_choice(_seq: object) -> str:
+        raise AssertionError("random.choice should not be called")
+
+    monkeypatch.setattr(spark_routes.random, "choice", _fail_choice)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResponse:
+        content = json.dumps(
+            {
+                "cards": [
+                    {
+                        "title": "Desk Reset",
+                        "frame": "calm",
+                        "action": "Roll shoulders.",
+                        "reward": "Feel lighter.",
+                        "why": "Matches request.",
+                    }
+                ]
+            }
+        )
+
+    class _FakeChatLLM:
+        async def ainvoke(self, prompt: Any) -> _FakeResponse:
+            captured["prompt"] = prompt
+            return _FakeResponse()
+
+    monkeypatch.setattr(spark_routes, "make_chat_llm", lambda **_kwargs: _FakeChatLLM())
+
+    resp = await client.post(
+        "/spark/generate",
+        json={"condition": "A", "frame_preference": "calm", "count": 1},
+    )
+    assert resp.status_code == 200
+
+    sent_prompt = json.loads(captured["prompt"][1].content)
+    assert sent_prompt["frame_preference"] == "calm"
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
 async def test_spark_generate_invalid_payload_returns_502(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 from typing import Annotated, Literal
 
@@ -41,10 +42,19 @@ router = APIRouter()
 PROMPT_NAME = "spark_proxy_system"
 _MAX_HISTORY = 20
 
+SparkFrame = Literal["calm", "zoomies", "silly", "challenge", "science"]
+_ALL_FRAMES: tuple[SparkFrame, ...] = (
+    "calm",
+    "zoomies",
+    "silly",
+    "challenge",
+    "science",
+)
+
 
 class SparkCard(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    frame: Literal["calm", "zoomies", "silly", "challenge", "science"]
+    frame: SparkFrame
     action: str = Field(min_length=1, max_length=600)
     reward: str = Field(min_length=1, max_length=300)
     why: str = Field(min_length=1, max_length=400)
@@ -53,9 +63,7 @@ class SparkCard(BaseModel):
 
 class SparkGenerateRequest(BaseModel):
     condition: Literal["A", "B", "C", "D"]
-    frame_preference: (
-        Literal["calm", "zoomies", "silly", "challenge", "science"] | None
-    ) = None
+    frame_preference: SparkFrame | None = None
     context: str | None = Field(default=None, max_length=800)
     # Remix fields -------------------------------------------------------
     # base_card: the card currently displayed to the user; None on first generate.
@@ -150,6 +158,21 @@ async def spark_generate(
         max_tokens=800,
     )
 
+    # Condition A ("Random Spark") is the no-choice, no-intake control: the user
+    # never picks a frame. Left to its own devices the LLM tends to default to
+    # the same frame every time (mode collapse) rather than truly randomizing,
+    # so for a fresh (non-remix) condition A generate we pick the frame
+    # ourselves and pass it through as the preference.
+    prompt_body = body
+    if (
+        body.condition == "A"
+        and body.frame_preference is None
+        and body.base_card is None
+    ):
+        prompt_body = body.model_copy(
+            update={"frame_preference": random.choice(_ALL_FRAMES)}
+        )
+
     try:
         from app.prompt_loader import load_prompt
 
@@ -158,7 +181,7 @@ async def spark_generate(
             llm.ainvoke(
                 [
                     SystemMessage(content=system_prompt),
-                    HumanMessage(content=_build_user_prompt(body)),
+                    HumanMessage(content=_build_user_prompt(prompt_body)),
                 ]
             ),
             timeout=25,
