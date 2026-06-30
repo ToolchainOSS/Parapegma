@@ -298,7 +298,7 @@
 .spark-voice-row {
   display: flex;
   gap: 8px;
-  align-items: flex-end;
+  align-items: center;
 }
 .spark-voice-input {
   flex: 1;
@@ -317,11 +317,14 @@
   outline: 2px solid var(--focus);
   border-color: var(--primary);
 }
-/* Trailing action column: mic (optional) stacked above the shared Send. */
+/* Trailing action row: mic (optional) + shared Send, side by side and
+   vertically centered against the textarea so neither ever floats away from
+   it regardless of how tall the (resizable) textarea is. */
 .spark-voice-actions {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 8px;
 }
 .spark-mic-btn,
