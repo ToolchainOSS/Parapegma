@@ -445,16 +445,17 @@ function ConditionAdaptive({
         if (step < intakeSteps - 1) {
             setStep(step + 1);
         } else {
-            // Last intake question answered — auto-generate
+            // Last intake question answered — advance to the generation step
+            // immediately so the thinking/loading animation is visible while the
+            // (up-to-5s) LLM call is in flight, then fire the request.
+            setStep(intakeSteps);
             const ctx = buildContextFromProfile(next);
-            void actions
-                .generate({
-                    condition,
-                    frame: next.frame,
-                    context: ctx || undefined,
-                    count: condition === "D" ? 4 : 1,
-                })
-                .then(() => setStep(intakeSteps));
+            void actions.generate({
+                condition,
+                frame: next.frame,
+                context: ctx || undefined,
+                count: condition === "D" ? 4 : 1,
+            });
         }
     }
 
