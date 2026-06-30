@@ -66,8 +66,9 @@ describe("Spark page", () => {
         });
 
         // base_card should NOT be present (or undefined) on first generate
-        const callBody = mockPost.mock.calls[0][1].body;
-        expect(callBody.base_card).toBeUndefined();
+        const firstCall = mockPost.mock.calls[0];
+        const callBody = (firstCall?.[1] as { body: Record<string, unknown> } | undefined)?.body;
+        expect(callBody?.base_card).toBeUndefined();
 
         // Spark card title visible after generation
         expect(await screen.findByText("Desk Reset")).toBeInTheDocument();
@@ -102,11 +103,11 @@ describe("Spark page", () => {
             expect(mockPost).toHaveBeenCalledTimes(2);
         });
 
-        const remixCall = mockPost.mock.calls[1][1].body;
+        const remixCall = (mockPost.mock.calls[1]?.[1] as { body: Record<string, unknown> } | undefined)?.body;
         // base_card should be the prior card
-        expect(remixCall.base_card).toMatchObject({ title: "Desk Reset" });
+        expect(remixCall?.base_card).toMatchObject({ title: "Desk Reset" });
         // history carries the adjustment
-        expect(remixCall.adjustment_history).toEqual(["make it easier"]);
+        expect(remixCall?.adjustment_history).toEqual(["make it easier"]);
     });
 
     it("condition tabs switch between conditions and home", () => {

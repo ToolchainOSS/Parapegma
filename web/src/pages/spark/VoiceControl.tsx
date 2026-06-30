@@ -50,7 +50,7 @@ type SRCtor = new () => SRInstance;
 
 /** Vendor-safe SpeechRecognition constructor. Returns null when unavailable. */
 function getSR(): SRCtor | null {
-    const w = window as Record<string, unknown>;
+    const w = window as unknown as Record<string, unknown>;
     // eslint-disable-next-line @typescript-eslint/dot-notation
     const ctor = w["SpeechRecognition"] ?? w["webkitSpeechRecognition"];
     return typeof ctor === "function" ? (ctor as SRCtor) : null;
