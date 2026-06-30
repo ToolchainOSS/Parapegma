@@ -1,17 +1,20 @@
-"""Container healthcheck entry point — correct for both API and worker roles.
+"""Container healthcheck entry point — role-agnostic, no configuration required.
 
-The API and worker share one image, so the image's baked ``HEALTHCHECK`` must do
-the right thing for whichever role the container is running. The role is read
-from ``FLOW_ROLE`` (``api`` by default):
+The API and worker share one image, so the baked ``HEALTHCHECK`` must work for
+either role *without* a flag that older deployments would lack. It simply checks
+both liveness signals and is healthy if **either** holds:
 
-* ``api`` (or anything else): HTTP ``GET /healthz`` on ``$API_PORT`` must return
-  a 2xx. ``localhost`` resolves on both IPv4 and IPv6, so this works whether
-  uvicorn bound v4, v6, or dual-stack (``::``).
-* ``worker``: there is no HTTP server, so liveness is "the heartbeat file the
-  worker loop refreshes every iteration is younger than ``HEARTBEAT_MAX_AGE_S``".
+* HTTP ``GET /healthz`` on ``$API_PORT`` returns a 2xx (the API is serving).
+  ``localhost`` resolves on both IPv4 and IPv6, so this works whether uvicorn
+  bound v4, v6, or dual-stack (``::``).
+* A fresh worker heartbeat file exists (the worker loop is iterating).
 
-Kept deliberately dependency-light (stdlib + :mod:`app.config` only) so it starts
-fast and does not import the heavy worker/engine modules on every probe.
+The two signals are mutually exclusive per container because the heartbeat lives
+in a **container-local** temp path, not on the shared ``flow-data`` volume: an
+API container therefore never sees the worker's heartbeat, so a dead API server
+cannot masquerade as healthy off the worker's signal, and vice-versa. The probe
+is dependency-light (stdlib + :mod:`app.config`) and cheap enough to run both
+checks every interval.
 
 Exit code ``0`` means healthy; any non-zero means unhealthy.
 """
@@ -25,49 +28,48 @@ import urllib.request
 
 from app import config
 
-# Heartbeat file the worker loop refreshes once per iteration (~5s poll). Defined
-# here, in the light module, and imported by the worker so the producer and the
-# consumer of the heartbeat can never drift apart.
-HEARTBEAT_FILENAME = "worker.heartbeat"
+# Heartbeat file the worker loop refreshes once per iteration (~5s poll). It must
+# be a FIXED, absolute path because the worker (the writer) and this healthcheck
+# (a separately-launched `python -m app.healthcheck` process) are different
+# processes that must agree on the exact location. A literal avoids any reliance
+# on tempfile.gettempdir()/$TMPDIR, which could resolve differently between the
+# two processes. It lives in the container-local /tmp (world-writable, sticky),
+# NOT under the shared data volume, so only this container observes it.
+HEARTBEAT_PATH = "/tmp/flow-worker.heartbeat"
 
 # A heartbeat older than this is treated as a wedged loop. Generous relative to
 # the ~5s poll so a single slow iteration never flaps the container unhealthy.
 HEARTBEAT_MAX_AGE_S = 60.0
 
 
-def heartbeat_path() -> str:
-    """Return the absolute path of the worker heartbeat file."""
-    return os.path.join(config.get_data_dir(), HEARTBEAT_FILENAME)
-
-
-def _check_worker() -> int:
-    """Return ``0`` when the worker heartbeat is fresh, ``1`` otherwise."""
-    path = heartbeat_path()
+def _heartbeat_fresh() -> bool:
+    """Return ``True`` when the worker heartbeat exists and is recent."""
     try:
-        age = time.time() - os.path.getmtime(path)
+        age = time.time() - os.path.getmtime(HEARTBEAT_PATH)
     except OSError:
-        # No heartbeat yet (or unreadable): unhealthy. The HEALTHCHECK
-        # start-period covers the brief window before the first heartbeat.
-        return 1
-    return 0 if age < HEARTBEAT_MAX_AGE_S else 1
+        return False
+    return age < HEARTBEAT_MAX_AGE_S
 
 
-def _check_api() -> int:
-    """Return ``0`` when ``GET /healthz`` returns a 2xx, ``1`` otherwise."""
+def _healthz_ok() -> bool:
+    """Return ``True`` when ``GET /healthz`` returns a 2xx."""
     url = f"http://localhost:{config.get_port()}/healthz"
     try:
         with urllib.request.urlopen(url, timeout=4) as resp:
-            return 0 if 200 <= resp.status < 300 else 1
+            return 200 <= resp.status < 300
     except Exception:
-        return 1
+        return False
 
 
 def main() -> int:
-    """Dispatch to the role-appropriate probe and return its exit code."""
-    role = config.get_role()
-    if role == "worker":
-        return _check_worker()
-    return _check_api()
+    """Healthy if either liveness signal holds; checks the cheap one first."""
+    # Heartbeat is a single stat() — check it first so a worker container never
+    # pays for an HTTP round-trip to a port nothing is listening on.
+    if _heartbeat_fresh():
+        return 0
+    if _healthz_ok():
+        return 0
+    return 1
 
 
 if __name__ == "__main__":

@@ -172,16 +172,6 @@ def get_log_level() -> str:
 
 
 @cache
-def get_role() -> str:
-    """Return the process role for this container (``api`` or ``worker``).
-
-    The API and worker share one image; ``FLOW_ROLE`` tells the baked container
-    healthcheck which probe to run. Defaults to ``api``.
-    """
-    return os.environ.get("FLOW_ROLE", "api").strip().lower()
-
-
-@cache
 def get_randomization_salt() -> str | None:
     """Return the per-deployment salt used for deterministic 4-condition assignment.
 
@@ -213,5 +203,4 @@ def clear_config_cache() -> None:
     get_host.cache_clear()
     get_port.cache_clear()
     get_log_level.cache_clear()
-    get_role.cache_clear()
     get_randomization_salt.cache_clear()

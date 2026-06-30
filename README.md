@@ -400,7 +400,6 @@ Configure in `.env` at the repository root (see `.env.example`):
 | `H4CKATH0N_ORIGIN` | (none) | Allowed origin for CORS and WebAuthn |
 | `VITE_API_BASE_URL` | `/api` | API base URL for the frontend |
 | `LOG_LEVEL` | `INFO` | Log level (backend logging) |
-| `FLOW_ROLE` | `api` | Process role for the shared image's healthcheck (`api` probes `/healthz`; `worker` checks the heartbeat file) |
 | `FLOW_DATA_DIR` | `/app/data` or `./data` | Persistent data directory |
 | `FLOW_WORKER_ID` | hostname | Worker identifier for outbox lease |
 | `FLOW_PROMPTS_DIR` | (none) | Optional override directory for prompt text files; falls back to the mounted `prompts/` then the copy baked into the image |

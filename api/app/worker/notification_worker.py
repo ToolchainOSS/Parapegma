@@ -56,18 +56,17 @@ FAILED_EVENT_POSTPONE_DAYS = 3650
 LOCK_DURATION_SECONDS = 300
 
 
-def _heartbeat_path() -> str:
-    return health.heartbeat_path()
-
-
 def _write_heartbeat() -> None:
     """Refresh the worker heartbeat file used by the container healthcheck.
+
+    The heartbeat lives in a container-local temp path (``health.HEARTBEAT_PATH``),
+    never on the shared data volume, so only this worker container observes it.
 
     Best-effort: a failure to write must never crash the worker loop, so it is
     logged at WARNING and the loop continues. A persistently unwritable heartbeat
     will surface as an unhealthy container, which is the intended signal.
     """
-    path = _heartbeat_path()
+    path = health.HEARTBEAT_PATH
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(datetime.now(UTC).isoformat())

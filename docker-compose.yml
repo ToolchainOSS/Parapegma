@@ -82,11 +82,6 @@ services:
       FLOW_DATA_DIR: /app/data
       TZ: ${TZ:-America/Toronto}
 
-      # Role selector for the shared image's baked healthcheck: the worker has no
-      # HTTP server, so this makes the default probe check the heartbeat file
-      # instead of GET /healthz (which would otherwise report unhealthy).
-      FLOW_ROLE: worker
-
       # 4-condition experiment salt — worker generates condition-tagged nudges.
       FLOW_RANDOMIZATION_SALT: ${FLOW_RANDOMIZATION_SALT:-}
 
