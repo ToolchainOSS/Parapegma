@@ -404,6 +404,8 @@ Configure in `.env` at the repository root (see `.env.example`):
 | `FLOW_WORKER_ID` | hostname | Worker identifier for outbox lease |
 | `FLOW_PROMPTS_DIR` | (none) | Optional override directory for prompt text files; falls back to the mounted `prompts/` then the copy baked into the image |
 | `FLOW_BAKED_PROMPTS_DIR` | `/opt/flow/prompts` | Image-baked prompt directory outside `/app` used as the final fallback so bind-mounts under `/app` cannot shadow newly added prompts |
+| `FLOW_CONFIG_DIR` | (none) | Optional override directory for static JSON config files; falls back to the mounted `config/` then the copy baked into the image |
+| `FLOW_BAKED_CONFIG_DIR` | `/opt/flow/config` | Image-baked config directory outside `/app` used as the final fallback so bind-mounts under `/app` cannot shadow newly added config |
 | `LLM_MODEL` | `gpt-4o-mini` | LLM model name for OpenAI |
 | `OPENAI_API_KEY` | (none) | OpenAI API key for live LLM responses |
 | `H4CKATH0N_OPENAI_API_KEY` | (none) | Optional alternate name for the OpenAI key |
