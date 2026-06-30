@@ -27,6 +27,7 @@ import {
     FRAME_ORDER,
     FRAMINGS,
     buildContextFromProfile,
+    conditionAccent,
     emptyProfile,
     type IntakeProfile,
     type SparkCondition,
@@ -35,28 +36,54 @@ import {
 import "./spark/spark.css";
 
 // ---------------------------------------------------------------------------
-// Stepbar
+// Flow progress — back affordance (mid-flow only) + animated step bar
 // ---------------------------------------------------------------------------
-interface StepbarProps {
+interface FlowProgressProps {
     step: number;
     total: number;
+    accent: string;
     onBack: () => void;
 }
-function Stepbar({ step, total, onBack }: StepbarProps) {
+function FlowProgress({ step, total, accent, onBack }: FlowProgressProps) {
+    const pct = Math.round(((step + 1) / total) * 100);
     return (
-        <div className="flex items-center gap-3 mb-5">
-            <button
-                type="button"
-                className="spark-chip text-sm"
-                onClick={onBack}
-                aria-label="Go back"
-            >
-                ‹ Back
-            </button>
-            <div className="spark-crumbs" aria-label={`Step ${step + 1} of ${total}`}>
-                {Array.from({ length: total }).map((_, i) => (
-                    <span key={i} className="spark-crumb" data-on={i <= step ? "true" : undefined} />
-                ))}
+        <div
+            className="spark-flowbar"
+            style={{ ["--seg-accent" as string]: accent }}
+            aria-label={`Step ${step + 1} of ${total}`}
+        >
+            {step > 0 && (
+                <button
+                    type="button"
+                    className="spark-back-btn"
+                    onClick={onBack}
+                    aria-label="Previous step"
+                >
+                    <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                    >
+                        <path d="m15 18-6-6 6-6" />
+                    </svg>
+                </button>
+            )}
+            <div className="spark-progress">
+                <div className="spark-progress-meta">
+                    <span>
+                        Step {step + 1} of {total}
+                    </span>
+                    <span>{pct}%</span>
+                </div>
+                <div className="spark-progress-track">
+                    <div className="spark-progress-fill" style={{ width: `${pct}%` }} />
+                </div>
             </div>
         </div>
     );
@@ -115,11 +142,12 @@ function SparkHome({ onStart }: { onStart: (c: SparkCondition) => void }) {
                         key={c.id}
                         type="button"
                         data-testid={`spark-cond-${c.id}`}
-                        className="text-left bg-surface border border-border rounded-[var(--radius-lg)] p-5 shadow-[var(--shadow-sm)] flex flex-col gap-2 min-h-[160px] transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
+                        className="spark-home-card text-left bg-surface border border-border rounded-[var(--radius-lg)] p-5 shadow-[var(--shadow-sm)] flex flex-col gap-2 min-h-[160px]"
+                        style={{ ["--seg-accent" as string]: c.letterBg }}
                         onClick={() => onStart(c.id)}
                     >
                         <div
-                            className="w-8 h-8 rounded-[9px] grid place-items-center text-white text-xs font-bold"
+                            className="w-9 h-9 rounded-[10px] grid place-items-center text-white text-sm font-bold shadow-[var(--shadow-xs)]"
                             style={{ background: c.letterBg }}
                         >
                             {c.id}
@@ -173,7 +201,7 @@ function ConditionA({
 
     return (
         <div>
-            <Stepbar step={step} total={6} onBack={back} />
+            <FlowProgress step={step} total={6} accent={conditionAccent("A")} onBack={back} />
             {step === 0 && (
                 <div className="space-y-4">
                     <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Condition A · Random Spark</p>
@@ -273,7 +301,7 @@ function ConditionB({
 
     return (
         <div>
-            <Stepbar step={step} total={7} onBack={back} />
+            <FlowProgress step={step} total={7} accent={conditionAccent("B")} onBack={back} />
             {step === 0 && (
                 <VibeWheel
                     onPick={(f) => {
@@ -437,7 +465,7 @@ function ConditionAdaptive({
 
     return (
         <div>
-            <Stepbar step={step} total={totalSteps} onBack={back} />
+            <FlowProgress step={step} total={totalSteps} accent={conditionAccent(condition)} onBack={back} />
 
             {/* Intake steps 0–3 */}
             {step < intakeSteps && (
@@ -460,7 +488,7 @@ function ConditionAdaptive({
                                 Condition C · {condLabel}
                             </p>
                             <h2 className="text-2xl font-bold text-text">Here's your adapted Spark</h2>
-                            <SparkCard card={spark.card} showWhy data-testid="spark-card" />
+                            <SparkCard card={spark.card} showWhy tuned data-testid="spark-card" />
                             <AdjustPanel
                                 card={spark.card}
                                 lastAdjustment={spark.lastAdjustment}
@@ -490,7 +518,7 @@ function ConditionAdaptive({
             {hasSelection && step === 5 && spark.card && (
                 <div className="space-y-2">
                     <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your pick</p>
-                    <SparkCard card={spark.card} showWhy data-testid="spark-card" />
+                    <SparkCard card={spark.card} showWhy tuned data-testid="spark-card" />
                     <AdjustPanel
                         card={spark.card}
                         lastAdjustment={spark.lastAdjustment}
@@ -577,28 +605,36 @@ function ConditionTabs({
     onSelect: (c: SparkCondition | null) => void;
 }) {
     return (
-        <div className="flex gap-2 flex-wrap mb-1">
-            <button
-                type="button"
-                className={`spark-chip text-xs ${active === null ? "" : ""}`}
-                data-active={active === null ? "true" : undefined}
-                onClick={() => onSelect(null)}
-            >
-                Home
-            </button>
-            {FRAME_ORDER.length > 0 &&
-                (["A", "B", "C", "D"] as SparkCondition[]).map((c) => (
-                    <button
-                        key={c}
-                        type="button"
-                        className="spark-chip text-xs"
-                        data-active={active === c ? "true" : undefined}
-                        data-testid={`spark-tab-${c}`}
-                        onClick={() => onSelect(c)}
-                    >
-                        {c}
-                    </button>
-                ))}
+        <div className="flex justify-center mb-6">
+            <div className="spark-segmented" role="tablist" aria-label="Spark conditions">
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={active === null}
+                    className="spark-seg"
+                    data-active={active === null ? "true" : undefined}
+                    style={{ ["--seg-accent" as string]: "var(--text)" }}
+                    onClick={() => onSelect(null)}
+                >
+                    Home
+                </button>
+                {FRAME_ORDER.length > 0 &&
+                    (["A", "B", "C", "D"] as SparkCondition[]).map((c) => (
+                        <button
+                            key={c}
+                            type="button"
+                            role="tab"
+                            aria-selected={active === c}
+                            className="spark-seg"
+                            data-active={active === c ? "true" : undefined}
+                            data-testid={`spark-tab-${c}`}
+                            style={{ ["--seg-accent" as string]: conditionAccent(c) }}
+                            onClick={() => onSelect(c)}
+                        >
+                            {c}
+                        </button>
+                    ))}
+            </div>
         </div>
     );
 }

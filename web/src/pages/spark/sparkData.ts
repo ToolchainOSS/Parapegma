@@ -137,6 +137,11 @@ export const CONDITIONS: ConditionDef[] = [
     },
 ];
 
+/** Accent color for a condition (used by tabs, progress, badges). */
+export function conditionAccent(id: SparkCondition): string {
+    return CONDITIONS.find((c) => c.id === id)?.letterBg ?? "var(--text)";
+}
+
 /** Intake question definitions for conditions C & D */
 export interface IntakeQuestion {
     field: "anchor" | "action" | "frame" | "time";

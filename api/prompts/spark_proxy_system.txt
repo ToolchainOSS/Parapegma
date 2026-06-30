@@ -48,7 +48,7 @@ OUTPUT SCHEMA
       "action":    "clear 1-minute instruction, energetic and direct (max 120 words)",
       "reward":    "short sensory or motivational payoff — what they'll feel (max 60 words)",
       "why":       "brief reason this fits the person right now (max 80 words)",
-      "fit_score": 0–100 (required for D, optional otherwise)
+      "fit_score": 70–98 for D (omit entirely for other conditions)
     }
   ]
 }
@@ -67,5 +67,8 @@ TONE & STYLE RULES
     science   → anchor action to a quick, accessible physiological fact
 - Make actions safe for a general adult in home/office clothing.
 - Never include medical claims, diagnosis, or treatment language.
-- For condition D: vary fit_scores meaningfully across cards (not all 80–90).
+- For condition D: give every card a fit_score in the 70–98 range, with the
+  best match highest and the rest descending but still encouraging (never 0).
+  Vary the scores meaningfully so the ranking is clear (avoid ties).
+- For conditions A/B/C: do not include fit_score at all.
 - For conditions A/C: return exactly 1 card regardless of count.

@@ -4,12 +4,20 @@ import { FRAMINGS, type SparkFrame } from "./sparkData";
 interface SparkCardProps {
     card: SparkCardData;
     showWhy?: boolean;
+    /** Show a warm "tuned to you" badge (conditions C & D). */
+    tuned?: boolean;
     /** Extra className for the outer wrapper */
     className?: string;
     "data-testid"?: string;
 }
 
-export function SparkCard({ card, showWhy = true, className = "", ...rest }: SparkCardProps) {
+export function SparkCard({
+    card,
+    showWhy = true,
+    tuned = false,
+    className = "",
+    ...rest
+}: SparkCardProps) {
     const frame = card.frame as SparkFrame;
     const f = FRAMINGS[frame] ?? FRAMINGS.calm;
 
@@ -25,13 +33,23 @@ export function SparkCard({ card, showWhy = true, className = "", ...rest }: Spa
                 aria-hidden="true"
             />
             <div className="p-5">
-                {/* frame chip */}
-                <span
-                    className="spark-framechip text-xs font-semibold rounded-full px-3 py-1 mb-3 inline-flex items-center gap-1.5"
-                    style={{ background: f.tintVar, color: f.colorVar }}
-                >
-                    <span aria-hidden="true">{f.emoji}</span> {f.label}
-                </span>
+                {/* frame chip + tuned badge */}
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                    <span
+                        className="spark-framechip text-xs font-semibold rounded-full px-3 py-1 inline-flex items-center gap-1.5"
+                        style={{ background: f.tintVar, color: f.colorVar }}
+                    >
+                        <span aria-hidden="true">{f.emoji}</span> {f.label}
+                    </span>
+                    {tuned && (
+                        <span
+                            className="spark-match"
+                            style={{ background: f.tintVar, color: f.colorVar }}
+                        >
+                            <span aria-hidden="true">✨</span> Tuned to your vibe
+                        </span>
+                    )}
+                </div>
 
                 <h3 className="text-xl font-bold text-text leading-tight mt-1">{card.title}</h3>
                 <p className="mt-3 text-base text-text leading-relaxed">{card.action}</p>
@@ -65,24 +83,6 @@ export function SparkCard({ card, showWhy = true, className = "", ...rest }: Spa
                         </summary>
                         <p className="mt-2 text-sm text-text-muted">{card.why}</p>
                     </details>
-                )}
-
-                {/* fit score (condition D) */}
-                {typeof card.fit_score === "number" && (
-                    <div className="mt-3">
-                        <div className="spark-fitbar">
-                            <div
-                                className="spark-fitbar-fill"
-                                style={{
-                                    width: `${card.fit_score}%`,
-                                    background: f.colorVar,
-                                }}
-                            />
-                        </div>
-                        <p className="text-xs text-text-muted mt-1 font-semibold">
-                            Predicted fit {card.fit_score}%
-                        </p>
-                    </div>
                 )}
             </div>
         </div>

@@ -7,6 +7,19 @@ interface RankedListProps {
     onPick: (card: SparkCardData) => void;
 }
 
+/**
+ * Translate a raw fit_score into a feel-good, always-positive match.
+ * The LLM sometimes returns 0 / equal scores, which reads as a cold
+ * "fitness = 0". We floor it and fall back to a rank-based curve so the
+ * ranking always feels encouraging and monotonic.
+ */
+function matchFor(score: number | null | undefined, rank: number): { pct: number; label: string } {
+    const base = score && score > 0 ? score : 96 - rank * 7;
+    const pct = Math.max(70, Math.min(98, Math.round(base)));
+    const label = pct >= 90 ? "Top match" : pct >= 80 ? "Great fit" : pct >= 73 ? "Good fit" : "Worth a try";
+    return { pct, label };
+}
+
 export function RankedList({ cards, onPick }: RankedListProps) {
     return (
         <div className="space-y-4">
@@ -16,14 +29,14 @@ export function RankedList({ cards, onPick }: RankedListProps) {
                 </p>
                 <h2 className="text-2xl font-bold text-text">Ranked for your day</h2>
                 <p className="text-sm text-text-muted mt-1">
-                    Built from your intake and ordered by predicted fit. Pick the one you like — you stay in control.
+                    Built from your intake and ordered by best match. Pick the one you like — you stay in control.
                 </p>
             </div>
 
             <div className="flex flex-col gap-3">
                 {cards.map((card, idx) => {
                     const f = FRAMINGS[card.frame as SparkFrame] ?? FRAMINGS.calm;
-                    const fit = card.fit_score ?? 0;
+                    const { pct, label } = matchFor(card.fit_score, idx);
                     return (
                         <button
                             key={`${card.title}-${idx}`}
@@ -47,16 +60,20 @@ export function RankedList({ cards, onPick }: RankedListProps) {
                                     </span>
                                 </div>
                                 <p className="text-sm text-text-muted mt-0.5 line-clamp-2">{card.action}</p>
-                                {/* fit bar */}
+                                {/* match bar */}
                                 <div className="spark-fitbar mt-2">
                                     <div
                                         className="spark-fitbar-fill"
-                                        style={{ width: `${fit}%`, background: f.colorVar }}
+                                        style={{ width: `${pct}%`, background: f.colorVar }}
                                     />
                                 </div>
-                                <p className="text-xs text-text-muted mt-1 font-semibold">
-                                    Predicted fit {fit}% · {card.why}
+                                <p className="text-xs mt-1 font-semibold" style={{ color: f.colorVar }}>
+                                    {idx === 0 ? "✨ " : ""}
+                                    {label} · {pct}% match
                                 </p>
+                                {card.why && (
+                                    <p className="text-xs text-text-muted mt-0.5">{card.why}</p>
+                                )}
                             </div>
                         </button>
                     );
@@ -64,7 +81,7 @@ export function RankedList({ cards, onPick }: RankedListProps) {
             </div>
 
             <p className="text-xs text-text-muted border border-dashed border-border rounded-xl p-3">
-                Ranking is transparent on purpose: each card shows a predicted-fit score and a reason.
+                Ranking is transparent on purpose: each card shows how strong a match it is and why.
             </p>
         </div>
     );
