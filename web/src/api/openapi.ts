@@ -831,10 +831,13 @@ export interface paths {
         put?: never;
         /**
          * Spark Generate
-         * @description Generate one or more Spark cards via a stateless LLM proxy endpoint.
+         * @description Generate one or more Spark cards.
          *
          *     Intentionally unauthenticated: Spark is a public, no-login prototype so
          *     anyone can try it without creating an account.
+         *
+         *     Conditions A and B are served from the static, researcher-curated
+         *     library and never touch the LLM. Conditions C and D proxy to the LLM.
          */
         post: operations["spark_generate_spark_generate_post"];
         delete?: never;

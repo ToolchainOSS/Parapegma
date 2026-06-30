@@ -1,11 +1,16 @@
 """Stateless Spark prototype routes.
 
 These endpoints are intentionally isolated from existing Flow conversation
-state and perform no database writes. They proxy validated requests to the
-configured LLM and return structured Spark card payloads.
+state and perform no database writes.
 
-Remix model
------------
+Conditions A ("Random Spark") and B ("pick a vibe") are non-adaptive control
+groups: they are served entirely from a researcher-curated static library
+(``app.services.spark_library``) and never call the LLM. Conditions C and D
+are the adaptive, intake-informed conditions and proxy validated requests to
+the configured LLM, returning structured Spark card payloads.
+
+Remix model (conditions C/D only)
+----------------------------------
 The endpoint is stateless. The *client* owns the remix history:
 - First generate: ``base_card=None``, ``adjustment_history=[]``
 - Each subsequent adjust: ``base_card=<current card>``,
@@ -21,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import random
 import re
 from typing import Annotated, Literal
 
@@ -32,6 +36,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from app.config import get_llm_model, get_openai_api_key
 from app.llm import make_chat_llm
 from app.prompt_loader import prompt_version
+from app.services.spark_library import SparkFrame, library_version, pick_static_sparks
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +44,6 @@ router = APIRouter()
 
 PROMPT_NAME = "spark_proxy_system"
 _MAX_HISTORY = 20
-
-SparkFrame = Literal["calm", "zoomies", "silly", "challenge", "science"]
-_ALL_FRAMES: tuple[SparkFrame, ...] = (
-    "calm",
-    "zoomies",
-    "silly",
-    "challenge",
-    "science",
-)
 
 
 class SparkCard(BaseModel):
@@ -139,11 +135,47 @@ def _build_user_prompt(body: SparkGenerateRequest) -> str:
 async def spark_generate(
     body: SparkGenerateRequest,
 ) -> SparkGenerateResponse:
-    """Generate one or more Spark cards via a stateless LLM proxy endpoint.
+    """Generate one or more Spark cards.
 
     Intentionally unauthenticated: Spark is a public, no-login prototype so
     anyone can try it without creating an account.
+
+    Conditions A and B are served from the static, researcher-curated
+    library and never touch the LLM. Conditions C and D proxy to the LLM.
     """
+    if body.condition in ("A", "B"):
+        try:
+            resolved = pick_static_sparks(
+                condition=body.condition,
+                frame_preference=body.frame_preference,
+                count=body.count,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+        cards = [
+            SparkCard(
+                title=entry.title,
+                frame=entry.frame,
+                action=entry.action,
+                reward=entry.reward,
+                why=entry.why,
+            )
+            for entry in resolved
+        ]
+        if body.condition == "A":
+            cards = cards[:1]
+
+        return SparkGenerateResponse(
+            condition=body.condition,
+            cards=cards,
+            model="static-library",
+            prompt_version=library_version(),
+        )
+
     llm_key = get_openai_api_key()
     if not llm_key:
         raise HTTPException(
@@ -159,21 +191,6 @@ async def spark_generate(
         max_tokens=800,
     )
 
-    # Condition A ("Random Spark") is the no-choice, no-intake control: the user
-    # never picks a frame. Left to its own devices the LLM tends to default to
-    # the same frame every time (mode collapse) rather than truly randomizing,
-    # so for a fresh (non-remix) condition A generate we pick the frame
-    # ourselves and pass it through as the preference.
-    prompt_body = body
-    if (
-        body.condition == "A"
-        and body.frame_preference is None
-        and body.base_card is None
-    ):
-        prompt_body = body.model_copy(
-            update={"frame_preference": random.choice(_ALL_FRAMES)}
-        )
-
     try:
         from app.prompt_loader import load_prompt
 
@@ -182,7 +199,7 @@ async def spark_generate(
             llm.ainvoke(
                 [
                     SystemMessage(content=system_prompt),
-                    HumanMessage(content=_build_user_prompt(prompt_body)),
+                    HumanMessage(content=_build_user_prompt(body)),
                 ]
             ),
             timeout=25,
@@ -216,7 +233,7 @@ async def spark_generate(
         ) from exc
 
     cards = payload.cards
-    if body.condition in {"A", "C"}:
+    if body.condition == "C":
         cards = cards[:1]
     elif body.condition == "D":
         cards = sorted(cards, key=lambda card: card.fit_score or 0, reverse=True)

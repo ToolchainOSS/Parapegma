@@ -4174,7 +4174,7 @@
     },
     "/spark/generate": {
       "post": {
-        "description": "Generate one or more Spark cards via a stateless LLM proxy endpoint.\n\nIntentionally unauthenticated: Spark is a public, no-login prototype so\nanyone can try it without creating an account.",
+        "description": "Generate one or more Spark cards.\n\nIntentionally unauthenticated: Spark is a public, no-login prototype so\nanyone can try it without creating an account.\n\nConditions A and B are served from the static, researcher-curated\nlibrary and never touch the LLM. Conditions C and D proxy to the LLM.",
         "operationId": "spark_generate_spark_generate_post",
         "requestBody": {
           "content": {

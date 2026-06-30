@@ -1192,7 +1192,7 @@ async def test_spark_generate_requires_openai_key(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "A", "count": 1},
+        json={"condition": "C", "count": 1},
     )
     assert resp.status_code == 503
     clear_config_cache()
@@ -1243,7 +1243,7 @@ async def test_spark_generate_success_is_stateless(
     resp = await client.post(
         "/spark/generate",
         json={
-            "condition": "A",
+            "condition": "C",
             "frame_preference": "calm",
             "context": "I am about to start a meeting.",
             "adjustment_history": ["make it subtle"],
@@ -1252,7 +1252,7 @@ async def test_spark_generate_success_is_stateless(
     )
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["condition"] == "A"
+    assert payload["condition"] == "C"
     assert len(payload["cards"]) == 1
     assert payload["cards"][0]["title"] == "Desk Reset"
     assert payload["model"] == "gpt-test-model"
@@ -1415,104 +1415,77 @@ async def test_spark_generate_sorts_condition_d_cards(
 
 
 @pytest.mark.asyncio
-async def test_spark_generate_condition_a_randomizes_frame_when_unset(
+async def test_spark_generate_condition_a_is_static_and_skips_llm(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Condition A ("Random Spark") never sends a frame_preference from the
-    client. Without server-side randomization the LLM tends to default to the
-    same frame every time (mode collapse) instead of truly varying — so the
-    server must pick the frame itself and pass it through to the prompt."""
+    """Condition A ("Random Spark") is served from the static library and
+    must never call the LLM, even without an API key configured."""
     from app.routes import spark as spark_routes
 
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("H4CKATH0N_OPENAI_API_KEY", raising=False)
     clear_config_cache()
-    monkeypatch.setattr(spark_routes.random, "choice", lambda _seq: "silly")
 
-    captured: dict[str, Any] = {}
+    def _fail_make_chat_llm(**_kwargs: Any) -> Any:
+        raise AssertionError("make_chat_llm should not be called for condition A")
 
-    class _FakeResponse:
-        content = json.dumps(
-            {
-                "cards": [
-                    {
-                        "title": "Silly Shake",
-                        "frame": "silly",
-                        "action": "Wiggle for a minute.",
-                        "reward": "A grin.",
-                        "why": "Random pick.",
-                    }
-                ]
-            }
-        )
-
-    class _FakeChatLLM:
-        async def ainvoke(self, prompt: Any) -> _FakeResponse:
-            captured["prompt"] = prompt
-            return _FakeResponse()
-
-    monkeypatch.setattr(spark_routes, "make_chat_llm", lambda **_kwargs: _FakeChatLLM())
+    monkeypatch.setattr(spark_routes, "make_chat_llm", _fail_make_chat_llm)
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "A", "count": 1},
+        json={"condition": "A", "count": 3},
     )
     assert resp.status_code == 200
-
-    sent_prompt = json.loads(captured["prompt"][1].content)
-    assert sent_prompt["frame_preference"] == "silly"
+    payload = resp.json()
+    assert payload["condition"] == "A"
+    assert len(payload["cards"]) == 1
+    assert payload["model"] == "static-library"
+    assert payload["prompt_version"]["prompt_file"] == "spark_library"
     clear_config_cache()
 
 
 @pytest.mark.asyncio
-async def test_spark_generate_condition_a_keeps_explicit_frame(
+async def test_spark_generate_condition_b_filters_by_frame_preference(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If a frame_preference IS supplied (or this is a remix with base_card),
-    the server must not override it with a random choice."""
+    """Condition B is also static; every returned card must match the vibe
+    the user picked, and the LLM must never be called."""
     from app.routes import spark as spark_routes
 
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("H4CKATH0N_OPENAI_API_KEY", raising=False)
     clear_config_cache()
 
-    def _fail_choice(_seq: object) -> str:
-        raise AssertionError("random.choice should not be called")
+    def _fail_make_chat_llm(**_kwargs: Any) -> Any:
+        raise AssertionError("make_chat_llm should not be called for condition B")
 
-    monkeypatch.setattr(spark_routes.random, "choice", _fail_choice)
-
-    captured: dict[str, Any] = {}
-
-    class _FakeResponse:
-        content = json.dumps(
-            {
-                "cards": [
-                    {
-                        "title": "Desk Reset",
-                        "frame": "calm",
-                        "action": "Roll shoulders.",
-                        "reward": "Feel lighter.",
-                        "why": "Matches request.",
-                    }
-                ]
-            }
-        )
-
-    class _FakeChatLLM:
-        async def ainvoke(self, prompt: Any) -> _FakeResponse:
-            captured["prompt"] = prompt
-            return _FakeResponse()
-
-    monkeypatch.setattr(spark_routes, "make_chat_llm", lambda **_kwargs: _FakeChatLLM())
+    monkeypatch.setattr(spark_routes, "make_chat_llm", _fail_make_chat_llm)
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "A", "frame_preference": "calm", "count": 1},
+        json={"condition": "B", "frame_preference": "silly", "count": 3},
     )
     assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["condition"] == "B"
+    assert len(payload["cards"]) >= 1
+    assert all(card["frame"] == "silly" for card in payload["cards"])
+    assert payload["model"] == "static-library"
+    clear_config_cache()
 
-    sent_prompt = json.loads(captured["prompt"][1].content)
-    assert sent_prompt["frame_preference"] == "calm"
+
+@pytest.mark.asyncio
+async def test_spark_generate_condition_b_requires_frame_preference(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    clear_config_cache()
+
+    resp = await client.post(
+        "/spark/generate",
+        json={"condition": "B", "count": 3},
+    )
+    assert resp.status_code == 422
     clear_config_cache()
 
 
@@ -1553,7 +1526,7 @@ async def test_spark_generate_invalid_payload_returns_502(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "B", "count": 3},
+        json={"condition": "C", "count": 3},
     )
     assert resp.status_code == 502
     assert resp.json()["detail"] == "Spark model produced invalid response shape"
