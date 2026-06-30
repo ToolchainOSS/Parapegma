@@ -1493,8 +1493,9 @@ export interface components {
         };
         /** SparkGenerateRequest */
         SparkGenerateRequest: {
-            /** Adjustment */
-            adjustment?: string | null;
+            /** Adjustment History */
+            adjustment_history?: string[];
+            base_card?: components["schemas"]["SparkCard"] | null;
             /**
              * Condition
              * @enum {string}

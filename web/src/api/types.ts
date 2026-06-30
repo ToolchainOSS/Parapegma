@@ -61,6 +61,7 @@ export type TimezoneUpdateRequest =
 export type DashboardResponse = components["schemas"]["DashboardResponse"];
 export type MembershipInfo = components["schemas"]["MembershipInfo"];
 export type FeedbackPollMetadata = components["schemas"]["FeedbackPollMetadata"];
+export type SparkCard = components["schemas"]["SparkCard"];
 export type SparkGenerateRequest =
   components["schemas"]["SparkGenerateRequest"];
 export type SparkGenerateResponse =

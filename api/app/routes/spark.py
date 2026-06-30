@@ -3,6 +3,17 @@
 These endpoints are intentionally isolated from existing Flow conversation
 state and perform no database writes. They proxy validated requests to the
 configured LLM and return structured Spark card payloads.
+
+Remix model
+-----------
+The endpoint is stateless. The *client* owns the remix history:
+- First generate: ``base_card=None``, ``adjustment_history=[]``
+- Each subsequent adjust: ``base_card=<current card>``,
+  ``adjustment_history=[oldest, ..., newest]`` (capped at 20 items).
+
+The system prompt instructs the model to transform ``base_card`` in-place when
+it is present, applying all accumulated adjustments cumulatively so the card
+evolves rather than resetting.
 """
 
 from __future__ import annotations
@@ -11,13 +22,13 @@ import asyncio
 import json
 import logging
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, status
 from h4ckath0n.auth import require_user
 from h4ckath0n.auth.models import User
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.config import get_llm_model, get_openai_api_key
 from app.llm import make_chat_llm
@@ -28,6 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PROMPT_NAME = "spark_proxy_system"
+_MAX_HISTORY = 20
 
 
 class SparkCard(BaseModel):
@@ -45,8 +57,20 @@ class SparkGenerateRequest(BaseModel):
         Literal["calm", "zoomies", "silly", "challenge", "science"] | None
     ) = None
     context: str | None = Field(default=None, max_length=800)
-    adjustment: str | None = Field(default=None, max_length=400)
+    # Remix fields -------------------------------------------------------
+    # base_card: the card currently displayed to the user; None on first generate.
+    base_card: SparkCard | None = None
+    # adjustment_history: ordered list of free-text adjustments from oldest to newest.
+    # The model applies them cumulatively to base_card when present.
+    adjustment_history: Annotated[list[str], Field(default_factory=list)]
     count: int = Field(default=3, ge=1, le=5)
+
+    @field_validator("adjustment_history", mode="before")
+    @classmethod
+    def _cap_history(cls, v: object) -> object:
+        if isinstance(v, list):
+            return [str(item)[:400] for item in v[-_MAX_HISTORY:]]
+        return v
 
 
 class SparkGenerateResponse(BaseModel):
@@ -93,13 +117,15 @@ def _extract_json_object(text: str) -> dict[str, object]:
 
 
 def _build_user_prompt(body: SparkGenerateRequest) -> str:
-    payload = {
+    payload: dict[str, object] = {
         "condition": body.condition,
         "frame_preference": body.frame_preference,
         "context": body.context,
-        "adjustment": body.adjustment,
+        "adjustment_history": body.adjustment_history,
         "count": body.count,
     }
+    if body.base_card is not None:
+        payload["base_card"] = body.base_card.model_dump()
     return json.dumps(payload, ensure_ascii=True)
 
 

@@ -1,165 +1,651 @@
-import { useMemo, useState } from "react";
+/**
+ * Spark — One-Minute Micro-Coach  (full prototype port)
+ *
+ * Four conditions (A/B/C/D) are reachable from a home grid and switchable
+ * at any time via the top condition tabs. Each condition runs its own
+ * multi-step state machine. Adjustments remix cumulatively on the prior card
+ * via useSparkRemix — the card *evolves*, it doesn't reset.
+ *
+ * Visual design: scoped `.spark-zone` exception; framing palette + timer/mic
+ * animation live in spark/spark.css; global tokens untouched.
+ */
+import { useState } from "react";
 import { PageHeader } from "../components/ui/PageHeader";
-import { Card, CardContent, CardHeader } from "../components/Card";
-import { Button } from "../components/Button";
-import { Input } from "../components/Input";
 import { Alert } from "../components/Alert";
-import api from "../api/client";
-import type { SparkGenerateResponse } from "../api/types";
+import { AdjustPanel } from "./spark/AdjustPanel";
+import { CueStep } from "./spark/CueStep";
+import { FeedbackStep, type FeedbackState } from "./spark/FeedbackStep";
+import { IntakeStep } from "./spark/IntakeStep";
+import { RankedList } from "./spark/RankedList";
+import { ReflectStep, type RatingState } from "./spark/ReflectStep";
+import { SparkCard } from "./spark/SparkCard";
+import { SparkTimer } from "./spark/SparkTimer";
+import { VibeWheel } from "./spark/VibeWheel";
+import { useSparkRemix } from "./spark/useSparkRemix";
+import {
+    CONDITIONS,
+    FRAME_ORDER,
+    FRAMINGS,
+    buildContextFromProfile,
+    emptyProfile,
+    type IntakeProfile,
+    type SparkCondition,
+    type SparkFrame,
+} from "./spark/sparkData";
+import "./spark/spark.css";
 
-type SparkCondition = "A" | "B" | "C" | "D";
-type SparkFrame = "calm" | "zoomies" | "silly" | "challenge" | "science";
+// ---------------------------------------------------------------------------
+// Stepbar
+// ---------------------------------------------------------------------------
+interface StepbarProps {
+    step: number;
+    total: number;
+    onBack: () => void;
+}
+function Stepbar({ step, total, onBack }: StepbarProps) {
+    return (
+        <div className="flex items-center gap-3 mb-5">
+            <button
+                type="button"
+                className="spark-chip text-sm"
+                onClick={onBack}
+                aria-label="Go back"
+            >
+                ‹ Back
+            </button>
+            <div className="spark-crumbs" aria-label={`Step ${step + 1} of ${total}`}>
+                {Array.from({ length: total }).map((_, i) => (
+                    <span key={i} className="spark-crumb" data-on={i <= step ? "true" : undefined} />
+                ))}
+            </div>
+        </div>
+    );
+}
 
-const FRAME_OPTIONS: SparkFrame[] = [
-    "calm",
-    "zoomies",
-    "silly",
-    "challenge",
-    "science",
-];
+// ---------------------------------------------------------------------------
+// Continue button
+// ---------------------------------------------------------------------------
+function ContinueBtn({
+    label = "Continue",
+    onClick,
+    disabled = false,
+}: {
+    label?: string;
+    onClick: () => void;
+    disabled?: boolean;
+}) {
+    return (
+        <div className="mt-5">
+            <button
+                type="button"
+                disabled={disabled}
+                className={`w-full py-3.5 rounded-[var(--radius-lg)] font-bold text-base transition-opacity ${disabled ? "bg-text/40 text-bg cursor-not-allowed" : "bg-text text-bg hover:opacity-90"}`}
+                onClick={onClick}
+            >
+                {label}
+            </button>
+        </div>
+    );
+}
 
-export function Spark() {
-    const [condition, setCondition] = useState<SparkCondition>("A");
-    const [frame, setFrame] = useState<SparkFrame | "">("");
-    const [context, setContext] = useState("");
-    const [adjustment, setAdjustment] = useState("");
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [result, setResult] = useState<SparkGenerateResponse | null>(null);
+// ---------------------------------------------------------------------------
+// Home grid
+// ---------------------------------------------------------------------------
+function SparkHome({ onStart }: { onStart: (c: SparkCondition) => void }) {
+    return (
+        <div className="space-y-6">
+            <div>
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                    One-minute movement micro-coach · research prototype
+                </p>
+                <h1 className="text-4xl font-bold text-text mt-2 leading-tight">
+                    Four ways to deliver a one-minute Spark.
+                </h1>
+                <p className="text-sm text-text-muted mt-2 max-w-prose">
+                    Same one-minute action, four designs for <strong>choice</strong> and{" "}
+                    <strong>personalization</strong>. Step through each, adjust the Spark by tapping
+                    or by voice — adjustments remix cumulatively, not single-shot.
+                    Switch conditions anytime from the top bar.
+                </p>
+            </div>
 
-    const cardCount = useMemo(() => {
-        if (condition === "D") return 4;
-        if (condition === "A" || condition === "C") return 1;
-        return 3;
-    }, [condition]);
+            <div className="spark-cond-grid">
+                {CONDITIONS.map((c) => (
+                    <button
+                        key={c.id}
+                        type="button"
+                        data-testid={`spark-cond-${c.id}`}
+                        className="text-left bg-surface border border-border rounded-[var(--radius-lg)] p-5 shadow-[var(--shadow-sm)] flex flex-col gap-2 min-h-[160px] transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
+                        onClick={() => onStart(c.id)}
+                    >
+                        <div
+                            className="w-8 h-8 rounded-[9px] grid place-items-center text-white text-xs font-bold"
+                            style={{ background: c.letterBg }}
+                        >
+                            {c.id}
+                        </div>
+                        <div className="font-bold text-lg text-text">{c.name}</div>
+                        <div className="text-sm text-text-muted">{c.what}</div>
+                        <div className="flex gap-1.5 flex-wrap mt-auto">
+                            {c.tags.map((t) => (
+                                <span key={t} className="text-xs font-semibold px-2 py-0.5 rounded-full border border-border text-text-muted bg-surface-2">
+                                    {t}
+                                </span>
+                            ))}
+                        </div>
+                    </button>
+                ))}
+            </div>
 
-    const onGenerate = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const { data, error: apiError } = await api.POST("/spark/generate", {
-                body: {
+            <p className="text-xs text-text-muted border border-dashed border-border rounded-xl p-4">
+                Every condition shares: a <strong>Spark card</strong>, a <strong>1-minute timer</strong>,
+                an <strong>adjust panel</strong> (tap or voice-to-text), <strong>feedback</strong>,
+                a <strong>cue + reminder</strong>, and a short <strong>rating</strong>.
+                What changes is <strong>who chooses</strong> and <strong>how much the system personalizes</strong>.
+            </p>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Condition A — Random Spark
+// steps: 0 landing | 1 card+adjust | 2 timer | 3 feedback | 4 cue | 5 reflect
+// ---------------------------------------------------------------------------
+function ConditionA({
+    onExit,
+    onGoto,
+}: {
+    onExit: () => void;
+    onGoto: (c: SparkCondition) => void;
+}) {
+    const [step, setStep] = useState(0);
+    const [spark, actions] = useSparkRemix();
+    const [feedback, setFeedback] = useState<FeedbackState>({ tried: null, reason: null, tweak: "" });
+    const [cue, setCue] = useState<string | null>(null);
+    const [reminder, setReminder] = useState<string | null>(null);
+    const [confidence, setConfidence] = useState<number | null>(null);
+    const [rating, setRating] = useState<RatingState>({ fit: null, clarity: null, willing: null });
+
+    function back() {
+        if (step === 0) { onExit(); return; }
+        setStep((s) => s - 1);
+    }
+
+    return (
+        <div>
+            <Stepbar step={step} total={6} onBack={back} />
+            {step === 0 && (
+                <div className="space-y-4">
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Condition A · Random Spark</p>
+                    <h2 className="text-2xl font-bold text-text">A Spark, sent to you</h2>
+                    <p className="text-sm text-text-muted">
+                        No menu, no questions. Tap once and we'll send one Spark for you to act on.
+                        Tests whether simply delivering a short action is enough.
+                    </p>
+                    {spark.error && <Alert variant="error" data-testid="spark-error">{spark.error}</Alert>}
+                    <ContinueBtn
+                        label={spark.loading ? "Generating…" : "Get my Spark"}
+                        disabled={spark.loading}
+                        onClick={() => {
+                            void actions.generate({ condition: "A" }).then(() => setStep(1));
+                        }}
+                    />
+                </div>
+            )}
+            {step === 1 && spark.card && (
+                <div className="space-y-2">
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your Spark</p>
+                    <SparkCard card={spark.card} data-testid="spark-card" />
+                    <AdjustPanel
+                        card={spark.card}
+                        lastAdjustment={spark.lastAdjustment}
+                        loading={spark.loading}
+                        onAdjust={actions.adjust}
+                        onFrameSwitch={actions.switchFrame}
+                    />
+                    {spark.error && <Alert variant="error">{spark.error}</Alert>}
+                    <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(2)} />
+                </div>
+            )}
+            {step === 2 && spark.card && (
+                <SparkTimer
+                    frame={(spark.card.frame as SparkFrame) ?? "calm"}
+                    onDone={() => setStep(3)}
+                />
+            )}
+            {step === 3 && (
+                <>
+                    <FeedbackStep state={feedback} onChange={setFeedback} />
+                    <ContinueBtn label="Next" disabled={feedback.tried === null} onClick={() => setStep(4)} />
+                </>
+            )}
+            {step === 4 && (
+                <>
+                    <CueStep
+                        profile={emptyProfile()}
+                        cue={cue}
+                        reminder={reminder}
+                        confidence={confidence}
+                        onCue={setCue}
+                        onReminder={setReminder}
+                        onConfidence={setConfidence}
+                    />
+                    <ContinueBtn label="Next" disabled={!cue} onClick={() => setStep(5)} />
+                </>
+            )}
+            {step === 5 && (
+                <ReflectStep
+                    condition="A"
+                    rating={rating}
+                    onChange={setRating}
+                    onFinish={onExit}
+                    onGoto={onGoto}
+                />
+            )}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Condition B — Spark Wheel
+// steps: 0 wheel | 1 pick spark (mini-menu) | 2 card+adjust | 3 timer | 4 feedback | 5 cue | 6 reflect
+// ---------------------------------------------------------------------------
+function ConditionB({
+    onExit,
+    onGoto,
+}: {
+    onExit: () => void;
+    onGoto: (c: SparkCondition) => void;
+}) {
+    const [step, setStep] = useState(0);
+    const [chosenFrame, setChosenFrame] = useState<SparkFrame | null>(null);
+    const [spark, actions] = useSparkRemix();
+    const [feedback, setFeedback] = useState<FeedbackState>({ tried: null, reason: null, tweak: "" });
+    const [cue, setCue] = useState<string | null>(null);
+    const [reminder, setReminder] = useState<string | null>(null);
+    const [confidence, setConfidence] = useState<number | null>(null);
+    const [rating, setRating] = useState<RatingState>({ fit: null, clarity: null, willing: null });
+
+    function back() {
+        if (step === 0) { onExit(); return; }
+        setStep((s) => s - 1);
+    }
+
+    return (
+        <div>
+            <Stepbar step={step} total={7} onBack={back} />
+            {step === 0 && (
+                <VibeWheel
+                    onPick={(f) => {
+                        setChosenFrame(f);
+                        setStep(1);
+                    }}
+                />
+            )}
+            {step === 1 && chosenFrame && (
+                <div className="space-y-4">
+                    <div>
+                        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                            {FRAMINGS[chosenFrame].emoji} {FRAMINGS[chosenFrame].label} · Choose a Spark
+                        </p>
+                        <h2 className="text-2xl font-bold text-text mt-1">Which one fits right now?</h2>
+                    </div>
+                    {spark.error && <Alert variant="error">{spark.error}</Alert>}
+                    {/* Show 3 options from LLM */}
+                    {spark.cards.length > 0 ? (
+                        <div className="flex flex-col gap-3">
+                            {spark.cards.slice(0, 3).map((card, i) => {
+                                const f = FRAMINGS[chosenFrame];
+                                return (
+                                    <button
+                                        key={i}
+                                        type="button"
+                                        className="text-left rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-4 flex gap-3 transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
+                                        onClick={() => {
+                                            actions.selectCard(card);
+                                            setStep(2);
+                                        }}
+                                    >
+                                        <div className="w-7 h-7 rounded-lg grid place-items-center flex-none text-lg" style={{ background: f.tintVar }} aria-hidden="true">
+                                            {f.emoji}
+                                        </div>
+                                        <div>
+                                            <div className="font-bold text-text">{card.title}</div>
+                                            <p className="text-sm text-text-muted mt-0.5 line-clamp-2">{card.action}</p>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <ContinueBtn
+                            label={spark.loading ? "Loading options…" : "Load options"}
+                            disabled={spark.loading}
+                            onClick={() => {
+                                void actions.generate({ condition: "B", frame: chosenFrame, count: 3 });
+                            }}
+                        />
+                    )}
+                </div>
+            )}
+            {step === 2 && spark.card && (
+                <div className="space-y-2">
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your Spark</p>
+                    <SparkCard card={spark.card} data-testid="spark-card" />
+                    <AdjustPanel
+                        card={spark.card}
+                        lastAdjustment={spark.lastAdjustment}
+                        loading={spark.loading}
+                        onAdjust={actions.adjust}
+                        onFrameSwitch={actions.switchFrame}
+                    />
+                    {spark.error && <Alert variant="error">{spark.error}</Alert>}
+                    <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(3)} />
+                </div>
+            )}
+            {step === 3 && spark.card && (
+                <SparkTimer frame={(spark.card.frame as SparkFrame) ?? "calm"} onDone={() => setStep(4)} />
+            )}
+            {step === 4 && (
+                <>
+                    <FeedbackStep state={feedback} onChange={setFeedback} />
+                    <ContinueBtn label="Next" disabled={feedback.tried === null} onClick={() => setStep(5)} />
+                </>
+            )}
+            {step === 5 && (
+                <>
+                    <CueStep
+                        profile={emptyProfile()}
+                        cue={cue}
+                        reminder={reminder}
+                        confidence={confidence}
+                        onCue={setCue}
+                        onReminder={setReminder}
+                        onConfidence={setConfidence}
+                    />
+                    <ContinueBtn label="Next" disabled={!cue} onClick={() => setStep(6)} />
+                </>
+            )}
+            {step === 6 && (
+                <ReflectStep
+                    condition="B"
+                    rating={rating}
+                    onChange={setRating}
+                    onFinish={onExit}
+                    onGoto={onGoto}
+                />
+            )}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Conditions C & D — adaptive (intake → 1 card / ranked list)
+// ---------------------------------------------------------------------------
+function ConditionAdaptive({
+    condition,
+    onExit,
+    onGoto,
+}: {
+    condition: "C" | "D";
+    onExit: () => void;
+    onGoto: (c: SparkCondition) => void;
+}) {
+    // Steps: 0-3 intake | 4 generation/selection | 5 card+adjust (D only) | timer | feedback | cue | reflect
+    const intakeSteps = 4;
+    const hasSelection = condition === "D";
+    const timerStep   = hasSelection ? 6 : 5;
+    const fbStep      = timerStep + 1;
+    const cueStep     = fbStep + 1;
+    const reflectStep = cueStep + 1;
+    const totalSteps  = reflectStep + 1;
+
+    const [step, setStep] = useState(0);
+    const [profile, setProfile] = useState<IntakeProfile>(emptyProfile());
+    const [spark, actions] = useSparkRemix();
+    const [feedback, setFeedback] = useState<FeedbackState>({ tried: null, reason: null, tweak: "" });
+    const [cue, setCue] = useState<string | null>(null);
+    const [reminder, setReminder] = useState<string | null>(null);
+    const [confidence, setConfidence] = useState<number | null>(null);
+    const [rating, setRating] = useState<RatingState>({ fit: null, clarity: null, willing: null });
+
+    function back() {
+        if (step === 0) { onExit(); return; }
+        setStep((s) => s - 1);
+    }
+
+    function handleIntakeAnswer(field: keyof IntakeProfile, value: string) {
+        const next = { ...profile, [field]: value };
+        setProfile(next);
+        if (step < intakeSteps - 1) {
+            setStep(step + 1);
+        } else {
+            // Last intake question answered — auto-generate
+            const ctx = buildContextFromProfile(next);
+            void actions
+                .generate({
                     condition,
-                    frame_preference: frame || undefined,
-                    context: context.trim() || undefined,
-                    adjustment: adjustment.trim() || undefined,
-                    count: cardCount,
-                },
-            });
-            if (apiError || !data) {
-                throw new Error("Spark generation failed");
-            }
-            setResult(data as SparkGenerateResponse);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Spark generation failed");
-        } finally {
-            setLoading(false);
+                    frame: next.frame,
+                    context: ctx || undefined,
+                    count: condition === "D" ? 4 : 1,
+                })
+                .then(() => setStep(intakeSteps));
         }
-    };
+    }
+
+    const condLabel = condition === "C" ? "AI-Adapted Spark" : "AI-Ranked Choice";
+
+    return (
+        <div>
+            <Stepbar step={step} total={totalSteps} onBack={back} />
+
+            {/* Intake steps 0–3 */}
+            {step < intakeSteps && (
+                <IntakeStep stepIndex={step} profile={profile} onAnswer={handleIntakeAnswer} />
+            )}
+
+            {/* Generation / selection step */}
+            {step === intakeSteps && (
+                <div className="space-y-4">
+                    {spark.loading && (
+                        <div className="text-center py-10 text-text-muted">
+                            <p className="text-base font-semibold">Building your Spark…</p>
+                        </div>
+                    )}
+                    {spark.error && <Alert variant="error">{spark.error}</Alert>}
+
+                    {!spark.loading && condition === "C" && spark.card && (
+                        <div className="space-y-2">
+                            <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                                Condition C · {condLabel}
+                            </p>
+                            <h2 className="text-2xl font-bold text-text">Here's your adapted Spark</h2>
+                            <SparkCard card={spark.card} showWhy data-testid="spark-card" />
+                            <AdjustPanel
+                                card={spark.card}
+                                lastAdjustment={spark.lastAdjustment}
+                                loading={spark.loading}
+                                onAdjust={actions.adjust}
+                                onFrameSwitch={actions.switchFrame}
+                            />
+                            <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(timerStep)} />
+                        </div>
+                    )}
+
+                    {!spark.loading && condition === "D" && spark.cards.length > 0 && (
+                        <div className="space-y-2">
+                            <RankedList
+                                cards={spark.cards}
+                                onPick={(card) => {
+                                    actions.selectCard(card);
+                                    setStep(5); // card+adjust preview step
+                                }}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* D only: card+adjust preview after selection */}
+            {hasSelection && step === 5 && spark.card && (
+                <div className="space-y-2">
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your pick</p>
+                    <SparkCard card={spark.card} showWhy data-testid="spark-card" />
+                    <AdjustPanel
+                        card={spark.card}
+                        lastAdjustment={spark.lastAdjustment}
+                        loading={spark.loading}
+                        onAdjust={actions.adjust}
+                        onFrameSwitch={actions.switchFrame}
+                    />
+                    {spark.error && <Alert variant="error">{spark.error}</Alert>}
+                    <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(timerStep)} />
+                </div>
+            )}
+
+            {step === timerStep && spark.card && (
+                <SparkTimer
+                    frame={(spark.card.frame as SparkFrame) ?? "calm"}
+                    onDone={() => setStep(fbStep)}
+                />
+            )}
+
+            {step === fbStep && (
+                <>
+                    <FeedbackStep state={feedback} onChange={setFeedback} rich />
+                    <div className="flex gap-3 mt-4 flex-wrap">
+                        <button
+                            type="button"
+                            className="spark-chip"
+                            onClick={() => {
+                                // Remix from feedback
+                                if (feedback.tweak) actions.adjust(feedback.tweak);
+                                else actions.adjust(feedback.reason ?? "different");
+                                setStep(intakeSteps);
+                            }}
+                        >
+                            ↻ Adapt Spark from feedback
+                        </button>
+                        <button
+                            type="button"
+                            disabled={feedback.tried === null}
+                            className={`spark-chip ${feedback.tried === null ? "opacity-40" : ""}`}
+                            onClick={() => setStep(cueStep)}
+                        >
+                            Next
+                        </button>
+                    </div>
+                </>
+            )}
+
+            {step === cueStep && (
+                <>
+                    <CueStep
+                        profile={profile}
+                        cue={cue}
+                        reminder={reminder}
+                        confidence={confidence}
+                        onCue={setCue}
+                        onReminder={setReminder}
+                        onConfidence={setConfidence}
+                    />
+                    <ContinueBtn label="Next" disabled={!cue} onClick={() => setStep(reflectStep)} />
+                </>
+            )}
+
+            {step === reflectStep && (
+                <ReflectStep
+                    condition={condition}
+                    rating={rating}
+                    onChange={setRating}
+                    onFinish={onExit}
+                    onGoto={onGoto}
+                />
+            )}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Condition tabs
+// ---------------------------------------------------------------------------
+function ConditionTabs({
+    active,
+    onSelect,
+}: {
+    active: SparkCondition | null;
+    onSelect: (c: SparkCondition | null) => void;
+}) {
+    return (
+        <div className="flex gap-2 flex-wrap mb-1">
+            <button
+                type="button"
+                className={`spark-chip text-xs ${active === null ? "" : ""}`}
+                data-active={active === null ? "true" : undefined}
+                onClick={() => onSelect(null)}
+            >
+                Home
+            </button>
+            {FRAME_ORDER.length > 0 &&
+                (["A", "B", "C", "D"] as SparkCondition[]).map((c) => (
+                    <button
+                        key={c}
+                        type="button"
+                        className="spark-chip text-xs"
+                        data-active={active === c ? "true" : undefined}
+                        data-testid={`spark-tab-${c}`}
+                        onClick={() => onSelect(c)}
+                    >
+                        {c}
+                    </button>
+                ))}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Root export
+// ---------------------------------------------------------------------------
+export function Spark() {
+    const [condition, setCondition] = useState<SparkCondition | null>(null);
+
+    function goto(c: SparkCondition | null) {
+        setCondition(c);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
 
     return (
         <div className="flex flex-col flex-1 bg-bg">
-            <PageHeader title="Spark Prototype" data-testid="spark-heading" />
-            <div className="space-y-4 px-4 py-6 max-w-3xl mx-auto w-full" data-testid="spark-page">
-                <Card>
-                    <CardHeader>
-                        <h2 className="text-lg font-semibold text-text">Stateless Spark Runner</h2>
-                        <p className="text-sm text-text-muted">
-                            This phase is frontend-state only. Cards are generated live through the Spark LLM proxy and are not persisted.
-                        </p>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <label className="text-sm text-text">
-                                Condition
-                                <select
-                                    className="mt-1 w-full rounded-md border border-divider bg-surface px-3 py-2 text-sm"
-                                    value={condition}
-                                    onChange={(e) => setCondition(e.target.value as SparkCondition)}
-                                    data-testid="spark-condition"
-                                >
-                                    <option value="A">A</option>
-                                    <option value="B">B</option>
-                                    <option value="C">C</option>
-                                    <option value="D">D</option>
-                                </select>
-                            </label>
-                            <label className="text-sm text-text">
-                                Frame Preference
-                                <select
-                                    className="mt-1 w-full rounded-md border border-divider bg-surface px-3 py-2 text-sm"
-                                    value={frame}
-                                    onChange={(e) => setFrame(e.target.value as SparkFrame | "")}
-                                    data-testid="spark-frame"
-                                >
-                                    <option value="">No preference</option>
-                                    {FRAME_OPTIONS.map((opt) => (
-                                        <option key={opt} value={opt}>
-                                            {opt}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        </div>
-                        <Input
-                            label="Context (optional)"
-                            placeholder="e.g. I am in office clothes before a meeting"
-                            value={context}
-                            onChange={(e) => setContext(e.target.value)}
-                            data-testid="spark-context"
-                        />
-                        <Input
-                            label="Adjustment (optional)"
-                            placeholder="e.g. make it quieter and less awkward"
-                            value={adjustment}
-                            onChange={(e) => setAdjustment(e.target.value)}
-                            data-testid="spark-adjustment"
-                        />
-                        <div className="text-xs text-text-muted">Expected cards: {cardCount}</div>
-                        <Button onClick={() => void onGenerate()} disabled={loading} data-testid="spark-generate">
-                            {loading ? "Generating..." : "Generate Spark"}
-                        </Button>
-                        {error && (
-                            <Alert variant="error" data-testid="spark-error">
-                                {error}
-                            </Alert>
-                        )}
-                    </CardContent>
-                </Card>
+            <PageHeader title="Spark" data-testid="spark-heading" />
+            <div
+                className="spark-zone px-4 py-5 max-w-3xl mx-auto w-full"
+                data-testid="spark-page"
+            >
+                <ConditionTabs active={condition} onSelect={goto} />
 
-                {result && (
-                    <Card>
-                        <CardHeader>
-                            <h3 className="text-base font-semibold text-text">
-                                {result.cards.length} card{result.cards.length === 1 ? "" : "s"} for condition {result.condition}
-                            </h3>
-                            <p className="text-xs text-text-muted" data-testid="spark-model-meta">
-                                Model {result.model} via {result.prompt_version.prompt_file}
-                            </p>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            {result.cards.map((card, idx) => (
-                                <div
-                                    key={`${card.title}-${idx}`}
-                                    className="rounded-lg border border-divider bg-surface-2 p-3"
-                                    data-testid="spark-card"
-                                >
-                                    <div className="flex items-center justify-between gap-2">
-                                        <h4 className="font-semibold text-text">{card.title}</h4>
-                                        <span className="text-xs uppercase text-text-muted">{card.frame}</span>
-                                    </div>
-                                    <p className="mt-2 text-sm text-text">{card.action}</p>
-                                    <p className="mt-2 text-sm text-text-muted">{card.reward}</p>
-                                    <p className="mt-1 text-xs text-text-muted">Why: {card.why}</p>
-                                    {typeof card.fit_score === "number" && (
-                                        <p className="mt-1 text-xs text-text-muted">Fit score: {card.fit_score}</p>
-                                    )}
-                                </div>
-                            ))}
-                        </CardContent>
-                    </Card>
+                {condition === null && <SparkHome onStart={(c) => goto(c)} />}
+                {condition === "A" && (
+                    <ConditionA onExit={() => goto(null)} onGoto={(c) => goto(c)} />
+                )}
+                {condition === "B" && (
+                    <ConditionB onExit={() => goto(null)} onGoto={(c) => goto(c)} />
+                )}
+                {condition === "C" && (
+                    <ConditionAdaptive
+                        condition="C"
+                        onExit={() => goto(null)}
+                        onGoto={(c) => goto(c)}
+                    />
+                )}
+                {condition === "D" && (
+                    <ConditionAdaptive
+                        condition="D"
+                        onExit={() => goto(null)}
+                        onGoto={(c) => goto(c)}
+                    />
                 )}
             </div>
         </div>
     );
 }
+

@@ -1246,7 +1246,7 @@ async def test_spark_generate_success_is_stateless(
             "condition": "A",
             "frame_preference": "calm",
             "context": "I am about to start a meeting.",
-            "adjustment": "make it subtle",
+            "adjustment_history": ["make it subtle"],
             "count": 3,
         },
     )
@@ -1305,7 +1305,7 @@ def test_spark_build_user_prompt_is_json() -> None:
         condition="D",
         frame_preference="science",
         context="desk",
-        adjustment="quieter",
+        adjustment_history=["quieter", "seated"],
         count=4,
     )
     payload = json.loads(spark_routes._build_user_prompt(body))
@@ -1313,9 +1313,47 @@ def test_spark_build_user_prompt_is_json() -> None:
         "condition": "D",
         "frame_preference": "science",
         "context": "desk",
-        "adjustment": "quieter",
+        "adjustment_history": ["quieter", "seated"],
         "count": 4,
     }
+
+
+def test_spark_build_user_prompt_includes_base_card() -> None:
+    from app.routes import spark as spark_routes
+
+    base = spark_routes.SparkCard(
+        title="Desk Reset",
+        frame="calm",
+        action="Roll shoulders.",
+        reward="Feel lighter.",
+        why="Desk-friendly.",
+        fit_score=80,
+    )
+    body = spark_routes.SparkGenerateRequest(
+        condition="C",
+        base_card=base,
+        adjustment_history=["make it easier", "seated please"],
+        count=1,
+    )
+    payload = json.loads(spark_routes._build_user_prompt(body))
+    assert payload["base_card"]["title"] == "Desk Reset"
+    assert payload["adjustment_history"] == ["make it easier", "seated please"]
+    assert "adjustment" not in payload
+
+
+def test_spark_history_is_capped_at_twenty() -> None:
+    from app.routes import spark as spark_routes
+
+    long_history = [f"adjustment {i}" for i in range(30)]
+    body = spark_routes.SparkGenerateRequest(
+        condition="A",
+        adjustment_history=long_history,
+        count=1,
+    )
+    assert len(body.adjustment_history) == 20
+    # most-recent 20 kept
+    assert body.adjustment_history[0] == "adjustment 10"
+    assert body.adjustment_history[-1] == "adjustment 29"
 
 
 @pytest.mark.asyncio

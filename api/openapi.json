@@ -1638,17 +1638,22 @@
       },
       "SparkGenerateRequest": {
         "properties": {
-          "adjustment": {
+          "adjustment_history": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Adjustment History",
+            "type": "array"
+          },
+          "base_card": {
             "anyOf": [
               {
-                "maxLength": 400,
-                "type": "string"
+                "$ref": "#/components/schemas/SparkCard"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Adjustment"
+            ]
           },
           "condition": {
             "enum": [
