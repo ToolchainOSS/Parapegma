@@ -131,6 +131,45 @@ describe("Spark page", () => {
         expect(remixCall?.adjustment_history).toEqual(["make it easier"]);
     });
 
+    it("condition B: re-picking a vibe after going back clears stale options instead of reusing the cache", async () => {
+        const CALM_CARD = { ...CARD, title: "Calm Card" };
+        const ZOOMIES_CARD = { ...CARD, title: "Zoomies Card", frame: "zoomies" };
+        mockPost.mockResolvedValueOnce({
+            data: { condition: "B", cards: [CALM_CARD], model: "gpt-test-model", prompt_version: { prompt_file: "x", prompt_sha256: "y" } },
+            error: undefined,
+        });
+        mockPost.mockResolvedValueOnce({
+            data: { condition: "B", cards: [ZOOMIES_CARD], model: "gpt-test-model", prompt_version: { prompt_file: "x", prompt_sha256: "y" } },
+            error: undefined,
+        });
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-tab-B"));
+
+        // Pick "calm" and load its options
+        fireEvent.click(screen.getByText("Calm me"));
+        fireEvent.click(screen.getByText("Load options"));
+        await screen.findByText("Calm Card");
+
+        expect(mockPost).toHaveBeenCalledTimes(1);
+        expect((mockPost.mock.calls[0]?.[1] as { body: Record<string, unknown> }).body.frame_preference).toBe("calm");
+
+        // Go back to the wheel and pick a different vibe
+        fireEvent.click(screen.getByLabelText("Previous step"));
+        expect(screen.getByText("Pick a vibe")).toBeInTheDocument();
+        fireEvent.click(screen.getByText("Give me zoomies"));
+
+        // The stale "calm" card must NOT still be showing, and a fresh fetch is required
+        expect(screen.queryByText("Calm Card")).not.toBeInTheDocument();
+        expect(screen.getByText("Load options")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText("Load options"));
+        await screen.findByText("Zoomies Card");
+
+        expect(mockPost).toHaveBeenCalledTimes(2);
+        expect((mockPost.mock.calls[1]?.[1] as { body: Record<string, unknown> }).body.frame_preference).toBe("zoomies");
+    });
+
     it("condition tabs switch between conditions and home", () => {
         render(<Spark />);
         // Navigate to condition B

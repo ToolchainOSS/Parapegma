@@ -304,6 +304,10 @@ function ConditionB({
             {step === 0 && (
                 <VibeWheel
                     onPick={(f) => {
+                        // Clear any options/card cached from a previous topic pick — otherwise
+                        // re-entering the wheel and picking again (same or different vibe)
+                        // would show stale cards from the prior frame.
+                        actions.reset();
                         setChosenFrame(f);
                         setStep(1);
                     }}
