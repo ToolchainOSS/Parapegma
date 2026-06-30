@@ -78,7 +78,7 @@ export function FeedbackStep({ state, onChange, rich = false }: FeedbackStepProp
                 </p>
                 <VoiceControl
                     placeholder="Type or speak…"
-                    hint="Tap the mic and say what to tweak — this is captured as feedback."
+                    hint="Type or tap the mic to say what to tweak, then Send — this is captured as feedback."
                     onText={(t) => {
                         onChange({ ...state, tweak: t });
                         setTweakSaved(true);

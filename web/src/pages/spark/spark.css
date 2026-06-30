@@ -298,7 +298,7 @@
 .spark-voice-row {
   display: flex;
   gap: 8px;
-  align-items: stretch;
+  align-items: flex-end;
 }
 .spark-voice-input {
   flex: 1;
@@ -317,16 +317,31 @@
   outline: 2px solid var(--focus);
   border-color: var(--primary);
 }
-.spark-mic-btn {
+/* Trailing action column: mic (optional) stacked above the shared Send. */
+.spark-voice-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spark-mic-btn,
+.spark-send-btn {
   flex: 0 0 auto;
   width: 48px;
+  height: 48px;
   border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--surface);
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    opacity 0.12s;
+}
+.spark-mic-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
 }
 .spark-mic-btn:hover {
   border-color: var(--text-subtle);
@@ -334,6 +349,24 @@
 .spark-mic-btn[data-recording="true"] {
   background: var(--sf-zoomies);
   border-color: var(--sf-zoomies);
+}
+/* Shared Send: the single submit affordance for both typed and dictated text. */
+.spark-send-btn {
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.spark-send-btn:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+.spark-send-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.spark-mic-btn:focus-visible,
+.spark-send-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 /* ---- rating scale ---- */

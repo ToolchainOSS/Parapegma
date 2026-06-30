@@ -99,7 +99,7 @@ export function AdjustPanel({
                 </p>
                 <VoiceControl
                     placeholder="Type or speak a change…"
-                    hint={`Tap the mic or type — e.g. "make it easier", "I'm at a desk", "less awkward".`}
+                    hint={`Type or tap the mic, then Send — e.g. "make it easier", "I'm at a desk", "less awkward".`}
                     onText={onAdjust}
                 />
                 {lastAdjustment && (

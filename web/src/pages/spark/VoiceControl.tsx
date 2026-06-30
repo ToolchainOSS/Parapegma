@@ -1,16 +1,21 @@
 /**
- * VoiceControl — Web Speech API wrapper with typed textarea fallback.
+ * VoiceControl — unified voice + text composer (Web Speech API + textarea).
  *
- * Renders a textarea + microphone button. When the user taps the mic:
- *   - If SpeechRecognition is available: start listening continuously; the
- *     session only ends when the user explicitly taps the mic again to stop
- *     (or on a hard error) — never on a silence/inactivity timeout.
- *   - If not: focus the textarea for typed input.
- * Ctrl/Cmd+Enter in the textarea also submits.
+ * Renders an editable textarea with a trailing action column (mic + Send):
+ *   - Typing or dictation both fill the SAME textarea; dictation appends to
+ *     (never replaces) existing text.
+ *   - The mic toggles a continuous recognition session. Stopping does NOT
+ *     submit — the transcript stays in the field for review/editing.
+ *   - A single Send button commits both paths (disabled while empty). This is
+ *     the only submit affordance that works on mobile touch keyboards.
+ *   - Ctrl/Cmd+Enter is an additive power-user shortcut for the same submit.
+ *   - When SpeechRecognition is unavailable (e.g. Firefox), the mic is hidden
+ *     entirely; the textarea + Send remain fully functional and the device
+ *     keyboard's own dictation still works.
  *
  * Does NOT persist state — parent owns the value if needed.
  */
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 interface VoiceControlProps {
     placeholder?: string;
@@ -61,12 +66,19 @@ function getSR(): SRCtor | null {
 export function VoiceControl({ placeholder = "Type or speak a change…", hint, onText, className = "" }: VoiceControlProps) {
     const taRef = useRef<HTMLTextAreaElement>(null);
     const recRef = useRef<SRInstance | null>(null);
+    // Text present when the current recording started — transcription is
+    // APPENDED to this so dictation never wipes what the user already typed.
+    const baseTextRef = useRef("");
+    const [text, setText] = useState("");
     const [recording, setRecording] = useState(false);
 
-    function submit() {
-        const v = taRef.current?.value.trim();
-        if (v) onText(v);
-    }
+    // SpeechRecognition is only available on Chromium/WebKit; it is absent on
+    // Firefox and some embedded webviews. Detect once: when unavailable we hide
+    // the mic entirely (never show a dead button) and the textarea + Send still
+    // work — the device keyboard's own dictation mic remains usable on mobile.
+    const micSupported = useMemo(() => getSR() !== null, []);
+
+    const canSubmit = text.trim().length > 0;
 
     function stopRecording() {
         setRecording(false);
@@ -75,34 +87,44 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
         } catch {
             // ignore
         }
+        recRef.current = null;
     }
 
-    function toggleMic() {
-        if (recording) {
-            stopRecording();
-            submit();
-            return;
-        }
+    function submit() {
+        // Submitting while still recording: stop the mic first so we don't leave
+        // a dangling recognition session running in the background.
+        if (recording) stopRecording();
+        const v = text.trim();
+        if (!v) return;
+        onText(v);
+        setText("");
+        baseTextRef.current = "";
+    }
 
+    function startRecording() {
         const SR = getSR();
         if (!SR) {
-            if (taRef.current) taRef.current.focus();
+            taRef.current?.focus();
             return;
         }
 
         const rec = new SR();
         rec.lang = "en-US";
         rec.interimResults = true;
-        // Keep listening until the user explicitly taps the mic again. With
-        // continuous=false, browsers auto-stop (and we'd auto-submit) after
-        // the first pause in speech — typically ~3-5s — which ignores the
-        // user's intent to keep recording. continuous=true keeps the session
-        // open indefinitely; only an explicit stop click or a hard error
-        // ends it, matching mainstream STT UX (push-to-talk / tap-to-stop).
+        // Keep listening until the user explicitly stops. With continuous=false,
+        // browsers auto-stop after the first pause in speech (~3-5s), which
+        // ignores the user's intent. continuous=true keeps the session open;
+        // only an explicit stop tap or a hard error ends it. Stopping does NOT
+        // submit — the transcript lands in the editable field for review, and
+        // the shared Send button commits it (mainstream dictate-into-field UX).
         rec.continuous = true;
         recRef.current = rec;
 
+        // Anchor on whatever is already in the field so we append, not replace.
+        const base = text.trim();
+        baseTextRef.current = base;
         let finalText = "";
+
         rec.onresult = (e: SREvent) => {
             let interim = "";
             for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -112,30 +134,33 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
                 if (result.isFinal) finalText += tr;
                 else interim += tr;
             }
-            if (taRef.current) taRef.current.value = (finalText + " " + interim).trim();
+            const spoken = (finalText + " " + interim).trim();
+            setText([baseTextRef.current, spoken].filter(Boolean).join(" "));
         };
 
         rec.onerror = () => {
             stopRecording();
-            if (taRef.current) taRef.current.focus();
+            taRef.current?.focus();
         };
 
-        // With continuous=true this should only fire from an explicit stop
-        // (toggleMic already calls stopRecording()+submit() directly) or an
-        // unexpected browser-side end (e.g. mic permission revoked). It must
-        // NOT auto-submit — submission only ever happens via explicit user
-        // action — so this is just a safety net to keep the UI state in sync.
+        // Safety net only: keep UI state in sync if the browser ends the session
+        // on its own (e.g. iOS Safari ignores continuous, mic permission lost).
+        // Never submits — the text simply stays in the field for the user.
         rec.onend = () => {
             setRecording(false);
         };
 
         setRecording(true);
-        if (taRef.current) taRef.current.value = "";
         try {
             rec.start();
         } catch {
             setRecording(false);
         }
+    }
+
+    function toggleMic() {
+        if (recording) stopRecording();
+        else startRecording();
     }
 
     return (
@@ -146,6 +171,8 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
                     className="spark-voice-input"
                     placeholder={placeholder}
                     rows={2}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
                     onKeyDown={(e) => {
                         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                             e.preventDefault();
@@ -153,28 +180,52 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
                         }
                     }}
                 />
-                <button
-                    type="button"
-                    className={`spark-mic-btn${recording ? " spark-mic-recording" : ""}`}
-                    data-recording={recording ? "true" : "false"}
-                    aria-label={recording ? "Stop recording" : "Speak your change"}
-                    onClick={toggleMic}
-                >
-                    <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke={recording ? "#fff" : "currentColor"}
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        width="20"
-                        height="20"
+                <div className="spark-voice-actions">
+                    {micSupported && (
+                        <button
+                            type="button"
+                            className={`spark-mic-btn${recording ? " spark-mic-recording" : ""}`}
+                            data-recording={recording ? "true" : "false"}
+                            aria-label={recording ? "Stop recording" : "Speak your change"}
+                            aria-pressed={recording}
+                            onClick={toggleMic}
+                        >
+                            {recording ? (
+                                <svg viewBox="0 0 24 24" fill="#fff" width="18" height="18" aria-hidden="true">
+                                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                                </svg>
+                            ) : (
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    width="20"
+                                    height="20"
+                                    aria-hidden="true"
+                                >
+                                    <rect x="9" y="2" width="6" height="12" rx="3" />
+                                    <path d="M5 10a7 7 0 0 0 14 0" />
+                                    <line x1="12" y1="19" x2="12" y2="22" />
+                                </svg>
+                            )}
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        className="spark-send-btn"
+                        aria-label="Send"
+                        disabled={!canSubmit}
+                        onClick={submit}
                     >
-                        <rect x="9" y="2" width="6" height="12" rx="3" />
-                        <path d="M5 10a7 7 0 0 0 14 0" />
-                        <line x1="12" y1="19" x2="12" y2="22" />
-                    </svg>
-                </button>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true">
+                            <line x1="22" y1="2" x2="11" y2="13" />
+                            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                        </svg>
+                    </button>
+                </div>
             </div>
             {hint && <p className="text-xs text-text-muted">{hint}</p>}
         </div>
