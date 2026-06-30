@@ -74,13 +74,21 @@ describe("Spark page", () => {
         expect(await screen.findByText("Desk Reset")).toBeInTheDocument();
     });
 
-    it("adjust sends base_card + accumulated adjustment_history", async () => {
-        // First call succeeds with a card
-        mockPost.mockResolvedValueOnce(SUCCESS_RESPONSE);
+    it("adjust (conditions C/D only) sends base_card + accumulated adjustment_history", async () => {
+        // Intake → generate (C) succeeds with a card
+        mockPost.mockResolvedValueOnce({
+            data: {
+                condition: "C",
+                cards: [CARD],
+                model: "gpt-test-model",
+                prompt_version: { prompt_file: "spark_proxy_system", prompt_sha256: "abc" },
+            },
+            error: undefined,
+        });
         // Second call (remix) also succeeds
         mockPost.mockResolvedValueOnce({
             data: {
-                condition: "A",
+                condition: "C",
                 cards: [{ ...CARD, title: "Desk Reset (Remix)" }],
                 model: "gpt-test-model",
                 prompt_version: { prompt_file: "spark_proxy_system", prompt_sha256: "abc" },
@@ -90,10 +98,23 @@ describe("Spark page", () => {
 
         render(<Spark />);
 
-        fireEvent.click(screen.getByTestId("spark-cond-A"));
-        fireEvent.click(screen.getByText("Get my Spark"));
+        // Enter condition C (adaptive) and answer the 4 intake questions
+        fireEvent.click(screen.getByTestId("spark-cond-C"));
+        fireEvent.click(await screen.findByText("Make coffee or tea"));
+        fireEvent.click(await screen.findByText("Reach & Roll"));
+        fireEvent.click(await screen.findByText("🌿 Calm me"));
+        fireEvent.click(await screen.findByText("Morning"));
 
-        // Wait for card to appear
+        // First (intake) generate fires with no base_card + empty history
+        await waitFor(() => {
+            expect(mockPost).toHaveBeenCalledTimes(1);
+        });
+        const firstBody = (mockPost.mock.calls[0]?.[1] as { body: Record<string, unknown> } | undefined)?.body;
+        expect(firstBody?.condition).toBe("C");
+        expect(firstBody?.base_card).toBeUndefined();
+        expect(firstBody?.adjustment_history).toEqual([]);
+
+        // Adapted card appears, with the adjust panel (C/D keep remix)
         await screen.findByText("Desk Reset");
 
         // Click "Make it easier" quick chip

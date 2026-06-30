@@ -229,13 +229,7 @@ function ConditionA({
                 <div className="space-y-2">
                     <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your Spark</p>
                     <SparkCard card={spark.card} data-testid="spark-card" />
-                    <AdjustPanel
-                        card={spark.card}
-                        lastAdjustment={spark.lastAdjustment}
-                        loading={spark.loading}
-                        onAdjust={actions.adjust}
-                        onFrameSwitch={actions.switchFrame}
-                    />
+                    {/* Control group: no adjust/remix — the Spark is delivered as-is. */}
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
                     <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(2)} />
                 </div>
@@ -369,13 +363,7 @@ function ConditionB({
                 <div className="space-y-2">
                     <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your Spark</p>
                     <SparkCard card={spark.card} data-testid="spark-card" />
-                    <AdjustPanel
-                        card={spark.card}
-                        lastAdjustment={spark.lastAdjustment}
-                        loading={spark.loading}
-                        onAdjust={actions.adjust}
-                        onFrameSwitch={actions.switchFrame}
-                    />
+                    {/* Control group: choice happens at the menu; no post-pick remix. */}
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
                     <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(3)} />
                 </div>
@@ -486,7 +474,7 @@ function ConditionAdaptive({
                 <div className="space-y-4">
                     {spark.loading && (
                         <SparkThinking
-                            frame={profile.frame}
+                            frame={profile.frame ?? undefined}
                             phrases={
                                 condition === "D"
                                     ? [
