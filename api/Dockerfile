@@ -69,5 +69,13 @@ USER app
 
 EXPOSE 8000
 
+# Role-aware healthcheck baked into the shared image. ``app.healthcheck`` reads
+# $FLOW_ROLE: in the default ``api`` role it probes GET /healthz on $API_PORT;
+# in the ``worker`` role (no HTTP server) it checks the worker heartbeat file's
+# freshness instead — so a worker container is never marked unhealthy just for
+# lacking an HTTP endpoint. Uses the stdlib only (the slim image has no curl).
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+    CMD ["/opt/venv/bin/python", "-m", "app.healthcheck"]
+
 # Entrypoint: run uvicorn through custom launcher script
 ENTRYPOINT ["/opt/venv/bin/python", "-m", "app.serve"]

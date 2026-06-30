@@ -24,6 +24,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app import config
+from app import healthcheck as health
 from app.db import async_session_factory
 from app.id_utils import generate_server_msg_id
 from app.logging_conf import configure_logging
@@ -53,6 +54,25 @@ logger = logging.getLogger(__name__)
 
 FAILED_EVENT_POSTPONE_DAYS = 3650
 LOCK_DURATION_SECONDS = 300
+
+
+def _heartbeat_path() -> str:
+    return health.heartbeat_path()
+
+
+def _write_heartbeat() -> None:
+    """Refresh the worker heartbeat file used by the container healthcheck.
+
+    Best-effort: a failure to write must never crash the worker loop, so it is
+    logged at WARNING and the loop continues. A persistently unwritable heartbeat
+    will surface as an unhealthy container, which is the intended signal.
+    """
+    path = _heartbeat_path()
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(datetime.now(UTC).isoformat())
+    except OSError as exc:
+        logger.warning("Failed to write worker heartbeat to %s: %s", path, exc)
 
 
 def _make_worker_id() -> str:
@@ -401,6 +421,11 @@ async def run_worker_loop(poll_seconds: int = 5) -> None:
     logger.info("Notification worker started: %s", worker_id)
 
     while True:
+        # Refresh the liveness heartbeat at the top of every iteration so a
+        # wedged loop (e.g. a hung DB call) lets the heartbeat go stale and the
+        # container is reported unhealthy.
+        _write_heartbeat()
+
         # 1. Rule-based notification engine
         try:
             await _evaluate_due_rules(worker_id)

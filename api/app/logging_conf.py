@@ -1,10 +1,21 @@
-"""Centralized logging configuration and observability tools."""
+"""Centralized logging configuration and observability tools.
+
+Logging is described in exactly one place — :func:`build_logging_config`, a
+declarative ``logging.config.dictConfig`` dictionary — and applied via
+:func:`configure_logging`. There is no imperative handler juggling and no
+import-time side effect: configuration happens **once, at each process entry
+point** (the API lifespan in :mod:`app.main`, the worker in
+:mod:`app.worker.notification_worker`) and the very same description is handed to
+uvicorn (see :mod:`app.serve`). That single source of truth is what keeps one
+change from quietly interacting with another: there is only ever one logging
+system, not the application's and uvicorn's competing for the root logger.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
-import logging.handlers
+import logging.config
 import os
 from datetime import UTC, datetime
 from typing import Any
@@ -15,63 +26,92 @@ from langchain_core.outputs import LLMResult
 
 from app import config
 
+# Single human-readable line format shared by every handler and every process.
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
-def configure_logging() -> None:
-    """Configure logging for the application.
+# Third-party loggers that are too chatty at INFO; pinned to WARNING.
+_QUIET_LIBRARIES = ("httpx", "httpcore")
 
-    Sets up:
-    1. Console logging (stdout) with human-readable format.
-    2. File logging (app.log) in the data directory.
 
-    Re-entrant safe: only the handlers this function installed on a previous
-    call are removed before reconfiguring. Foreign handlers attached to the root
-    logger by anything else (pytest's ``caplog``, a systemd/journald shipper, a
-    supervisor) are preserved. Blindly clearing *all* root handlers would
-    silently suppress those sinks — exactly the kind of invisible failure this
-    module exists to prevent.
+def _resolve_log_file() -> str | None:
+    """Return the path of the app log file, or ``None`` if it cannot be used.
+
+    File logging is best-effort. If the data directory cannot be created (for
+    example on a read-only filesystem) we fall back to console-only logging
+    instead of failing process startup. The console handler — captured by
+    ``docker logs`` — is always present regardless.
     """
-    log_level_name = config.get_log_level()
-    log_level = getattr(logging, log_level_name, logging.INFO)
-
     data_dir = config.get_data_dir()
     try:
         os.makedirs(data_dir, exist_ok=True)
-    except OSError as e:
-        # Fallback if we can't create data dir (e.g. permission issues in dev)
-        print(f"Failed to create data directory {data_dir}: {e}")
+    except OSError:
+        return None
+    return os.path.join(data_dir, "app.log")
 
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
 
-    # Remove only the handlers we installed previously (tagged below), so
-    # repeated configuration is idempotent without disturbing foreign handlers.
-    for handler in list(root_logger.handlers):
-        if getattr(handler, "_flow_managed", False):
-            root_logger.removeHandler(handler)
+def build_logging_config(*, log_level: str | None = None) -> dict[str, Any]:
+    """Return the declarative ``dictConfig`` description of Flow's logging.
 
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    This is the single source of truth. It is consumed by
+    :func:`configure_logging` for the current process and is also passed to
+    ``uvicorn.run(log_config=...)`` so uvicorn does not install a competing
+    configuration. ``disable_existing_loggers`` is ``False`` so loggers created
+    at import time keep working; uvicorn's loggers are given no handlers of their
+    own and propagate to the root so access/error lines share the application's
+    format and sinks.
+    """
+    level = (log_level or config.get_log_level()).upper()
 
-    # 1. Console Handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(log_level)
-    console_handler._flow_managed = True  # type: ignore[attr-defined]
-    root_logger.addHandler(console_handler)
+    handlers: dict[str, dict[str, Any]] = {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "flow",
+            "stream": "ext://sys.stdout",
+        },
+    }
+    root_handlers = ["console"]
 
-    # 2. File Handler (app.log)
-    app_log_path = os.path.join(data_dir, "app.log")
-    try:
-        file_handler = logging.handlers.WatchedFileHandler(app_log_path)
-        file_handler.setFormatter(formatter)
-        file_handler.setLevel(log_level)
-        file_handler._flow_managed = True  # type: ignore[attr-defined]
-        root_logger.addHandler(file_handler)
-    except Exception as e:
-        print(f"Failed to setup file logging to {app_log_path}: {e}")
+    log_file = _resolve_log_file()
+    if log_file is not None:
+        handlers["file"] = {
+            "class": "logging.handlers.WatchedFileHandler",
+            "formatter": "flow",
+            "filename": log_file,
+            "encoding": "utf-8",
+        }
+        root_handlers.append("file")
 
-    # Set some noisy libraries to WARNING
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    uvicorn_logger = {"level": level, "handlers": [], "propagate": True}
+
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {"flow": {"format": LOG_FORMAT}},
+        "handlers": handlers,
+        "root": {"level": level, "handlers": root_handlers},
+        "loggers": {
+            **{name: {"level": "WARNING"} for name in _QUIET_LIBRARIES},
+            "uvicorn": uvicorn_logger,
+            "uvicorn.error": uvicorn_logger,
+            "uvicorn.access": uvicorn_logger,
+        },
+    }
+
+
+def configure_logging(*, log_level: str | None = None) -> dict[str, Any]:
+    """Apply Flow's logging configuration to the current process.
+
+    Returns the applied configuration so callers (notably :mod:`app.serve`) can
+    hand the exact same description to uvicorn. ``logging.config.dictConfig``
+    replaces the configuration deterministically on every call, so this is safe
+    to call more than once. Call it only at a process entry point — never at
+    import time — because applying the root configuration replaces the root
+    logger's handlers (which is precisely why tests, which own their own
+    handlers via ``caplog``, must not trigger it).
+    """
+    cfg = build_logging_config(log_level=log_level)
+    logging.config.dictConfig(cfg)
+    return cfg
 
 
 class LLMLoggingCallbackHandler(BaseCallbackHandler):

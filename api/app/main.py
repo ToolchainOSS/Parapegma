@@ -29,7 +29,6 @@ from app.middleware import add_csp_middleware
 from app.middleware_logging import LoggingMiddleware
 from app.routes import router
 
-configure_logging()
 _logger = logging.getLogger(__name__)
 
 # Create the h4ckath0n app (handles its own DB tables via lifespan)
@@ -46,6 +45,14 @@ def _is_in_memory_sqlite(url: str) -> bool:
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Combined lifespan: h4ckath0n tables + application tables."""
+    # Configure logging first, here at the application entry point, so every
+    # subsequent startup line — h4ckath0n's, the diagnostics banner, uvicorn's —
+    # shares one format and one set of sinks. This is the single application-side
+    # place logging is configured and it covers every launch path:
+    # `python -m app.serve` and a bare `uvicorn app.main:app` alike. It is not an
+    # import-time side effect, so merely importing this module (as tests do)
+    # never reconfigures global logging.
+    configure_logging()
     async with _h4ckath0n_lifespan(app):
         from app.diagnostics import log_startup_report
 
