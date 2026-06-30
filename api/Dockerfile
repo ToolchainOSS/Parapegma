@@ -42,6 +42,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     API_HOST=:: \
+    FLOW_BAKED_PROMPTS_DIR=/opt/flow/prompts \
     BUILD_DATE="${BUILD_DATE}" \
     VCS_REF="${VCS_REF}"
 
@@ -57,6 +58,11 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /build/app ./app
 COPY --from=builder /build/prompts ./prompts
+# Baked fallback copy OUTSIDE the /app working tree. Production bind-mounts host
+# directories over paths under /app (./prompts -> /app/prompts, ./app -> /app/data);
+# this copy at /opt/flow/prompts can never be shadowed by such a mount, so newly
+# added prompts always resolve even when a mounted directory is stale.
+COPY --from=builder /build/prompts /opt/flow/prompts
 
 # Switch to non-root user
 USER app

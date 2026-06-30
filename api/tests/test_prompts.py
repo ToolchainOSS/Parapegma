@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from app.prompt_loader import load_prompt, prompt_hash, prompt_version
 from app.schemas.patches import UserProfileData
 
@@ -27,6 +28,47 @@ class TestLoadPrompt:
             text = load_prompt(name)
             assert isinstance(text, str), f"{name} did not return str"
             assert len(text.strip()) > 0, f"{name} is empty"
+
+
+class TestPromptResolution:
+    """Prompt resolution must survive a stale/mounted prompts directory.
+
+    Production mounts a host ``./prompts`` over ``/app/prompts``; a baked copy
+    inside the package must still resolve newly added prompts.
+    """
+
+    def test_falls_back_when_primary_dir_missing_file(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from app import prompt_loader
+
+        # Override dir that exists but lacks the requested prompt.
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        monkeypatch.setenv("FLOW_PROMPTS_DIR", str(empty_dir))
+        monkeypatch.setattr(prompt_loader, "_cache", {})
+
+        # Should still resolve via the in-repo fallback candidate dirs.
+        text = prompt_loader.load_prompt("router_system")
+        assert len(text.strip()) > 0
+
+    def test_override_dir_takes_precedence(self, tmp_path, monkeypatch) -> None:
+        from app import prompt_loader
+
+        override_dir = tmp_path / "custom"
+        override_dir.mkdir()
+        (override_dir / "router_system.txt").write_text("OVERRIDDEN", encoding="utf-8")
+        monkeypatch.setenv("FLOW_PROMPTS_DIR", str(override_dir))
+        monkeypatch.setattr(prompt_loader, "_cache", {})
+
+        assert prompt_loader.load_prompt("router_system") == "OVERRIDDEN"
+
+    def test_missing_prompt_raises_file_not_found(self, tmp_path, monkeypatch) -> None:
+        from app import prompt_loader
+
+        monkeypatch.setattr(prompt_loader, "_cache", {})
+        with pytest.raises(FileNotFoundError):
+            prompt_loader.load_prompt("does_not_exist_anywhere")
 
 
 # ---------------------------------------------------------------------------
