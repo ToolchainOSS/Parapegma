@@ -473,7 +473,10 @@ function ConditionAdaptive({
             {/* Generation / selection step */}
             {step === intakeSteps && (
                 <div className="space-y-4">
-                    {spark.loading && (
+                    {/* Full-page loader only for the INITIAL generation (no card/list
+                        yet). Remixes keep the card mounted and use the compact
+                        in-AdjustPanel loader, matching condition D. */}
+                    {spark.loading && !spark.card && spark.cards.length === 0 && (
                         <SparkThinking
                             frame={profile.frame ?? undefined}
                             phrases={
@@ -497,7 +500,7 @@ function ConditionAdaptive({
                     )}
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
 
-                    {!spark.loading && condition === "C" && spark.card && (
+                    {condition === "C" && spark.card && (
                         <div className="space-y-2">
                             <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">
                                 Condition C · {condLabel}
