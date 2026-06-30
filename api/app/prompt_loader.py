@@ -19,9 +19,12 @@ Resolution order (first match wins):
 
 from __future__ import annotations
 
+import logging
 import os
 from hashlib import sha256
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
@@ -46,6 +49,13 @@ def _resolve_prompt_path(name: str) -> Path:
 
     The optional ``FLOW_PROMPTS_DIR`` environment variable is consulted first so
     it can be changed at runtime without reimporting the module.
+
+    Resolution is intentionally *loud*: if a higher-priority directory exists
+    but does not contain the prompt, we log a WARNING before falling back. That
+    single log line is what turns an invisible "stale bind-mount" deployment
+    bug into an obvious one — the mounted ``prompts/`` directory shadowing a
+    newly added prompt is reported the first time the prompt is requested,
+    instead of only surfacing as a downstream 502.
     """
     candidates: list[Path] = []
     override = os.environ.get("FLOW_PROMPTS_DIR")
@@ -53,11 +63,30 @@ def _resolve_prompt_path(name: str) -> Path:
         candidates.append(Path(override))
     candidates.extend(_CANDIDATE_DIRS)
 
+    skipped: list[Path] = []
     for directory in candidates:
         path = directory / f"{name}.txt"
         if path.is_file():
+            if skipped:
+                logger.warning(
+                    "Prompt '%s' not found in higher-priority dir(s) %s; "
+                    "resolved from fallback '%s'. A stale or incomplete mount "
+                    "may be shadowing it.",
+                    name,
+                    ", ".join(str(d) for d in skipped),
+                    path.parent,
+                )
             return path
+        # Only record directories that actually exist as "skipped"; a
+        # non-existent candidate is expected (e.g. no override configured).
+        if directory.is_dir():
+            skipped.append(directory)
 
+    logger.error(
+        "Prompt '%s' not found in any candidate directory: %s",
+        name,
+        ", ".join(str(directory) for directory in candidates),
+    )
     raise FileNotFoundError(
         f"Prompt '{name}' not found in any of: "
         + ", ".join(str(directory) for directory in candidates)
@@ -69,6 +98,21 @@ def load_prompt(name: str) -> str:
     if name not in _cache:
         _cache[name] = _resolve_prompt_path(name).read_text(encoding="utf-8")
     return _cache[name]
+
+
+def describe_resolution() -> list[tuple[str, bool]]:
+    """Return ``(directory, exists)`` for each prompt candidate, in priority order.
+
+    Used by startup diagnostics so the docker log shows exactly which prompt
+    directories are in effect — making a missing or shadowing mount obvious at
+    boot rather than at first request.
+    """
+    dirs: list[Path] = []
+    override = os.environ.get("FLOW_PROMPTS_DIR")
+    if override:
+        dirs.append(Path(override))
+    dirs.extend(_CANDIDATE_DIRS)
+    return [(str(directory), directory.is_dir()) for directory in dirs]
 
 
 def prompt_hash(name: str) -> str:

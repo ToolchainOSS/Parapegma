@@ -22,6 +22,13 @@ def configure_logging() -> None:
     Sets up:
     1. Console logging (stdout) with human-readable format.
     2. File logging (app.log) in the data directory.
+
+    Re-entrant safe: only the handlers this function installed on a previous
+    call are removed before reconfiguring. Foreign handlers attached to the root
+    logger by anything else (pytest's ``caplog``, a systemd/journald shipper, a
+    supervisor) are preserved. Blindly clearing *all* root handlers would
+    silently suppress those sinks — exactly the kind of invisible failure this
+    module exists to prevent.
     """
     log_level_name = config.get_log_level()
     log_level = getattr(logging, log_level_name, logging.INFO)
@@ -36,9 +43,11 @@ def configure_logging() -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
-    # clear existing handlers to avoid duplicates if re-configured
-    if root_logger.hasHandlers():
-        root_logger.handlers.clear()
+    # Remove only the handlers we installed previously (tagged below), so
+    # repeated configuration is idempotent without disturbing foreign handlers.
+    for handler in list(root_logger.handlers):
+        if getattr(handler, "_flow_managed", False):
+            root_logger.removeHandler(handler)
 
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
@@ -46,6 +55,7 @@ def configure_logging() -> None:
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     console_handler.setLevel(log_level)
+    console_handler._flow_managed = True  # type: ignore[attr-defined]
     root_logger.addHandler(console_handler)
 
     # 2. File Handler (app.log)
@@ -54,6 +64,7 @@ def configure_logging() -> None:
         file_handler = logging.handlers.WatchedFileHandler(app_log_path)
         file_handler.setFormatter(formatter)
         file_handler.setLevel(log_level)
+        file_handler._flow_managed = True  # type: ignore[attr-defined]
         root_logger.addHandler(file_handler)
     except Exception as e:
         print(f"Failed to setup file logging to {app_log_path}: {e}")

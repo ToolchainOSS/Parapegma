@@ -47,6 +47,9 @@ def _is_in_memory_sqlite(url: str) -> bool:
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Combined lifespan: h4ckath0n tables + application tables."""
     async with _h4ckath0n_lifespan(app):
+        from app.diagnostics import log_startup_report
+
+        log_startup_report("api")
         db_url = config.get_database_url()
         try:
             upgrade_to_head()

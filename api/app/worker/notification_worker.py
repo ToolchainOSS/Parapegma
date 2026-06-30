@@ -424,6 +424,9 @@ async def run_worker_loop(poll_seconds: int = 5) -> None:
 
 def main() -> None:
     configure_logging()
+    from app.diagnostics import log_startup_report
+
+    log_startup_report("worker")
     asyncio.run(run_worker_loop())
 
 
