@@ -35,6 +35,7 @@ class TestStartupReport:
         assert "api startup diagnostics" in joined
         assert "database:" in joined
         assert any("prompt dir" in m for m in messages)
+        assert any("config dir" in m for m in messages)
         # Never leak the raw key — only presence is reported.
         assert "LLM:" in joined
 
@@ -56,3 +57,8 @@ class TestStartupReport:
         with caplog.at_level("INFO", logger="app.diagnostics"):
             log_startup_report("worker")
         assert any("prompt probe" in rec.message for rec in caplog.records)
+
+    def test_config_probe_resolves_canary(self, caplog) -> None:
+        with caplog.at_level("INFO", logger="app.diagnostics"):
+            log_startup_report("worker")
+        assert any("config probe" in rec.message for rec in caplog.records)

@@ -21,8 +21,9 @@ import random
 from dataclasses import dataclass
 from functools import lru_cache
 from hashlib import sha256
-from pathlib import Path
 from typing import Literal
+
+from app.config_loader import resolve_config_path
 
 SparkFrame = Literal["calm", "zoomies", "silly", "challenge", "science"]
 ALL_FRAMES: tuple[SparkFrame, ...] = (
@@ -61,7 +62,7 @@ _WHY_BY_FRAME: dict[SparkFrame, str] = {
     ),
 }
 
-_LIBRARY_PATH = Path(__file__).resolve().parents[2] / "config" / "spark_library.json"
+_LIBRARY_FILENAME = "spark_library.json"
 
 
 @dataclass(frozen=True)
@@ -87,7 +88,8 @@ class ResolvedSpark:
 
 @lru_cache(maxsize=1)
 def _load_library() -> tuple[SparkLibraryEntry, ...]:
-    with _LIBRARY_PATH.open(encoding="utf-8") as config_file:
+    library_path = resolve_config_path(_LIBRARY_FILENAME)
+    with library_path.open(encoding="utf-8") as config_file:
         raw = json.load(config_file)
 
     if not isinstance(raw, dict) or not isinstance(raw.get("sparks"), list):
@@ -137,7 +139,7 @@ def library_version() -> dict[str, str]:
     """Return ``{"prompt_file": ..., "prompt_sha256": ...}`` for the static
     library, mirroring the shape ``app.prompt_loader.prompt_version`` uses for
     LLM prompts so API consumers see a consistent versioning contract."""
-    digest = sha256(_LIBRARY_PATH.read_bytes()).hexdigest()
+    digest = sha256(resolve_config_path(_LIBRARY_FILENAME).read_bytes()).hexdigest()
     return {"prompt_file": "spark_library", "prompt_sha256": digest}
 
 

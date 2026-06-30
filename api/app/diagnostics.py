@@ -16,13 +16,17 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlsplit
 
-from app import config, prompt_loader
+from app import config, config_loader, prompt_loader
 
 logger = logging.getLogger("app.diagnostics")
 
 # A prompt that must always resolve; probing it at boot exercises the loader and
 # emits its fallback/missing warnings before any request arrives.
 _CANARY_PROMPT = "router_system"
+
+# A config file that must always resolve; probed the same way as the canary
+# prompt above so a missing/shadowed config mount is visible at boot.
+_CANARY_CONFIG_FILE = "interventions.json"
 
 
 def _redact_database_url(url: str) -> str:
@@ -89,6 +93,21 @@ def log_startup_report(component: str) -> None:
         logger.exception(
             "prompt probe FAILED for '%s' — prompt directories are misconfigured",
             _CANARY_PROMPT,
+        )
+
+    # Config directories — same resolution order/visibility as prompts, for the
+    # static JSON config (interventions.json, spark_library.json) read by
+    # app/services/*.
+    for directory, exists in config_loader.describe_resolution():
+        logger.info("config dir [%s]: %s", "ok" if exists else "absent", directory)
+
+    try:
+        config_loader.resolve_config_path(_CANARY_CONFIG_FILE)
+        logger.info("config probe: '%s' resolved", _CANARY_CONFIG_FILE)
+    except Exception:
+        logger.exception(
+            "config probe FAILED for '%s' — config directories are misconfigured",
+            _CANARY_CONFIG_FILE,
         )
 
     logger.info("── end %s startup diagnostics ──", component)

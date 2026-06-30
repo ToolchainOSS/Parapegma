@@ -19,6 +19,7 @@ RUN uv venv /opt/venv && \
 # Copy application code
 COPY app/ ./app/
 COPY prompts/ ./prompts/
+COPY config/ ./config/
 
 # Install project itself into the venv
 RUN uv sync --frozen --no-dev
@@ -43,6 +44,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
     API_HOST=:: \
     FLOW_BAKED_PROMPTS_DIR=/opt/flow/prompts \
+    FLOW_BAKED_CONFIG_DIR=/opt/flow/config \
     BUILD_DATE="${BUILD_DATE}" \
     VCS_REF="${VCS_REF}"
 
@@ -58,11 +60,18 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /build/app ./app
 COPY --from=builder /build/prompts ./prompts
-# Baked fallback copy OUTSIDE the /app working tree. Production bind-mounts host
-# directories over paths under /app (./prompts -> /app/prompts, ./app -> /app/data);
-# this copy at /opt/flow/prompts can never be shadowed by such a mount, so newly
-# added prompts always resolve even when a mounted directory is stale.
+# Static JSON config (interventions.json, spark_library.json) read directly off
+# disk by app/services/* at a fixed path relative to the app package — must be
+# baked into the image since nothing bind-mounts over ./config in production.
+COPY --from=builder /build/config ./config
+# Baked fallback copies OUTSIDE the /app working tree. Production bind-mounts
+# host directories over paths under /app (./prompts -> /app/prompts,
+# ./app -> /app/data); these copies at /opt/flow/* can never be shadowed by
+# such a mount, so newly added prompts/config always resolve even when a
+# mounted directory is stale or absent. See app/prompt_loader.py and
+# app/config_loader.py for the matching dual-location resolution logic.
 COPY --from=builder /build/prompts /opt/flow/prompts
+COPY --from=builder /build/config /opt/flow/config
 
 # Switch to non-root user
 USER app
