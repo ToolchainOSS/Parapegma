@@ -246,22 +246,22 @@ async def _do_refresh() -> None:
         from app.services.spark_sheets_source import fetch_entries_from_sheets
 
         try:
-            entries = await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 fetch_entries_from_sheets,
                 get_spark_sheets_credentials_json(),
                 get_spark_sheets_spreadsheet_id(),
                 get_spark_sheets_range(),
                 get_spark_sheets_timeout(),
             )
-            _validate_entries(entries)
+            _validate_entries(result.entries)
             _cache = _CacheState(
-                entries=entries,
-                version_hash=_compute_hash(entries),
+                entries=result.entries,
+                version_hash=_compute_hash(result.entries),
                 source="sheets",
             )
             logger.info(
                 "Spark library loaded from Sheets: %d entries (hash %s…)",
-                len(entries),
+                len(result.entries),
                 _cache.version_hash[:8],
             )
             return

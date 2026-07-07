@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,7 +15,42 @@ from app.services.spark_library import (
     library_version,
     pick_static_sparks,
 )
-from app.services.spark_sheets_source import _parse_rows
+from app.services.spark_sheets_source import (
+    RowDiagnostic,
+    SheetParseResult,
+    _parse_rows,
+    _validate_id,
+    _validate_tags,
+    _validate_text,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_entries(count_per_frame: int = 2) -> tuple[SparkLibraryEntry, ...]:
+    """Minimal valid library: ``count_per_frame`` entries per frame."""
+    return tuple(
+        SparkLibraryEntry(
+            id=f"fake-{frame}-{i}",
+            tags=(frame,),
+            title=f"Fake {frame} {i}",
+            action="act",
+            reward="rew",
+        )
+        for frame in ALL_FRAMES
+        for i in range(count_per_frame)
+    )
+
+
+def _make_fake_result(
+    entries: tuple[SparkLibraryEntry, ...] | None = None,
+) -> SheetParseResult:
+    """Wrap a tuple of entries (or freshly generated ones) in a SheetParseResult."""
+    e = entries if entries is not None else _make_fake_entries()
+    return SheetParseResult(entries=e, diagnostics=(), total_rows=len(e))
+
 
 # ---------------------------------------------------------------------------
 # Autouse fixture: reset cache between tests
@@ -61,7 +97,7 @@ def test_library_version_is_stable_dict_shape() -> None:
     version = library_version()
     assert version["prompt_file"] == "spark_library"
     assert isinstance(version["prompt_sha256"], str)
-    assert len(version["prompt_sha256"]) == 64  # sha256 hex digest length
+    assert len(version["prompt_sha256"]) == 64
 
 
 @pytest.mark.asyncio
@@ -110,28 +146,215 @@ def test_compute_hash_changes_on_content_change() -> None:
 
 
 def test_compute_hash_is_order_independent() -> None:
-    """Reversing the entry order must not change the hash (sorted by id)."""
     entries = _load_from_file()
     assert _compute_hash(entries) == _compute_hash(tuple(reversed(entries)))
 
 
 # ---------------------------------------------------------------------------
-# Sheets row parsing (_parse_rows)
+# RowDiagnostic formatting
 # ---------------------------------------------------------------------------
 
 
-def test_parse_rows_valid() -> None:
+def test_row_diagnostic_str_with_raw_and_normalized() -> None:
+    d = RowDiagnostic(
+        severity="warning",
+        row=3,
+        field="tags",
+        message="tag normalised to lowercase",
+        raw="Calm",
+        normalized="calm",
+    )
+    s = str(d)
+    assert "[WARNING]" in s
+    assert "row 3 [tags]" in s
+    assert "Calm" in s
+    assert "calm" in s
+
+
+def test_row_diagnostic_str_error_no_normalized() -> None:
+    d = RowDiagnostic(
+        severity="error", row=7, field="id", message="empty id — row skipped"
+    )
+    s = str(d)
+    assert "[ERROR]" in s
+    assert "row 7 [id]" in s
+
+
+def test_row_diagnostic_str_no_field() -> None:
+    d = RowDiagnostic(severity="warning", row=2, field=None, message="row-level issue")
+    assert "row 2:" in str(d)
+    assert "[" not in str(d).split("row 2")[1].split(":")[0]
+
+
+# ---------------------------------------------------------------------------
+# SheetParseResult properties
+# ---------------------------------------------------------------------------
+
+
+def test_sheet_parse_result_counts() -> None:
+    diags = (
+        RowDiagnostic(severity="warning", row=2, field="tags", message="w1"),
+        RowDiagnostic(severity="error", row=3, field="id", message="e1"),
+        RowDiagnostic(severity="warning", row=4, field="action", message="w2"),
+    )
+    result = SheetParseResult(entries=(), diagnostics=diags, total_rows=3)
+    assert result.error_count == 1
+    assert result.warning_count == 2
+    assert result.skipped_count == 3  # 3 total_rows - 0 entries
+
+
+def test_sheet_parse_result_frame_distribution() -> None:
+    entries = (
+        SparkLibraryEntry(
+            id="a", tags=("calm", "zoomies"), title="T", action="A", reward="R"
+        ),
+        SparkLibraryEntry(id="b", tags=("calm",), title="T2", action="A2", reward="R2"),
+    )
+    result = SheetParseResult(entries=entries, diagnostics=(), total_rows=2)
+    dist = result.frame_distribution()
+    assert dist["calm"] == 2
+    assert dist["zoomies"] == 1
+    assert "silly" not in dist
+
+
+def test_sheet_parse_result_log_summary_emits_diagnostics(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    diags = (
+        RowDiagnostic(severity="warning", row=2, field="tags", message="unknown tag"),
+        RowDiagnostic(severity="error", row=3, field="id", message="empty id"),
+    )
+    entries = (
+        SparkLibraryEntry(id="x", tags=("calm",), title="T", action="A", reward="R"),
+    )
+    result = SheetParseResult(entries=entries, diagnostics=diags, total_rows=2)
+    log = logging.getLogger("test_log_summary")
+    with caplog.at_level(logging.WARNING, logger="test_log_summary"):
+        result.log_summary(log, "Sheet1!A:E")
+
+    messages = caplog.text
+    assert "unknown tag" in messages
+    assert "empty id" in messages
+    assert "Sheet1!A:E" in messages
+
+
+def test_sheet_parse_result_log_summary_info_when_clean(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    entries = (
+        SparkLibraryEntry(id="x", tags=("calm",), title="T", action="A", reward="R"),
+    )
+    result = SheetParseResult(entries=entries, diagnostics=(), total_rows=1)
+    log = logging.getLogger("test_log_summary_clean")
+    with caplog.at_level(logging.INFO, logger="test_log_summary_clean"):
+        result.log_summary(log, "MyRange")
+
+    assert "0 warning(s), 0 error(s)" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Per-field validators
+# ---------------------------------------------------------------------------
+
+
+def test_validate_id_empty_returns_error() -> None:
+    value, diags = _validate_id(row=2, raw="   ")
+    assert value is None
+    assert len(diags) == 1
+    assert diags[0].severity == "error"
+    assert diags[0].field == "id"
+
+
+def test_validate_id_valid_passes() -> None:
+    value, diags = _validate_id(row=2, raw="  my-id  ")
+    assert value == "my-id"
+    assert diags == []
+
+
+def test_validate_id_too_long_truncates_with_warning() -> None:
+    long_id = "x" * 200
+    value, diags = _validate_id(row=2, raw=long_id)
+    assert value is not None
+    assert len(value) == 100
+    assert len(diags) == 1
+    assert diags[0].severity == "warning"
+    assert "truncated" in diags[0].message
+
+
+def test_validate_text_empty_returns_error() -> None:
+    value, diags = _validate_text(row=3, field="title", raw="", max_len=120)
+    assert value is None
+    assert diags[0].severity == "error"
+
+
+def test_validate_text_url_produces_warning() -> None:
+    value, diags = _validate_text(
+        row=3, field="action", raw="See https://example.com for details", max_len=600
+    )
+    assert value is not None  # row is kept despite warning
+    assert any(d.severity == "warning" and "URL" in d.message for d in diags)
+
+
+def test_validate_text_too_long_truncates_with_warning() -> None:
+    long_text = "A" * 700
+    value, diags = _validate_text(row=4, field="action", raw=long_text, max_len=600)
+    assert value is not None
+    assert len(value) == 600
+    assert any("truncated" in d.message for d in diags)
+
+
+def test_validate_tags_empty_cell_returns_error() -> None:
+    value, diags = _validate_tags(row=2, raw="   ,   ")
+    assert value is None
+    assert diags[0].severity == "error"
+
+
+def test_validate_tags_all_unknown_returns_error() -> None:
+    value, diags = _validate_tags(row=2, raw="bogus,nope")
+    assert value is None
+    # Warnings for each unknown tag, then an error for no valid tags
+    assert any(d.severity == "error" for d in diags)
+
+
+def test_validate_tags_case_normalisation_produces_warning() -> None:
+    value, diags = _validate_tags(row=2, raw="Calm,ZOOMIES")
+    assert value == ("calm", "zoomies")
+    assert all(d.severity == "warning" and "normalised" in d.message for d in diags)
+
+
+def test_validate_tags_duplicate_produces_warning() -> None:
+    value, diags = _validate_tags(row=2, raw="calm,calm,zoomies")
+    assert value is not None
+    assert "calm" in value
+    assert "zoomies" in value
+    assert len(value) == 2  # deduplicated
+    assert any("duplicate" in d.message for d in diags)
+
+
+def test_validate_tags_mixed_known_unknown_keeps_valid() -> None:
+    value, diags = _validate_tags(row=2, raw="calm,unknown_vibe")
+    assert value == ("calm",)
+    assert any("unknown tag" in d.message for d in diags)
+
+
+# ---------------------------------------------------------------------------
+# _parse_rows — SheetParseResult-based assertions
+# ---------------------------------------------------------------------------
+
+
+def test_parse_rows_valid_entries_and_no_diagnostics() -> None:
     rows: list[list[str]] = [
         ["id", "title", "action", "reward", "tags"],
         ["r1", "Title A", "Do X", "Feel Y", "calm,zoomies"],
         ["r2", "Title B", "Do Z", "Feel W", "silly"],
     ]
-    entries = _parse_rows(rows)
-    assert len(entries) == 2
-    assert entries[0].id == "r1"
-    assert entries[0].tags == ("calm", "zoomies")
-    assert entries[1].id == "r2"
-    assert entries[1].tags == ("silly",)
+    result = _parse_rows(rows)
+    assert len(result.entries) == 2
+    assert result.diagnostics == ()
+    assert result.total_rows == 2
+    assert result.entries[0].id == "r1"
+    assert result.entries[0].tags == ("calm", "zoomies")
+    assert result.entries[1].id == "r2"
 
 
 def test_parse_rows_column_order_independent() -> None:
@@ -139,11 +362,11 @@ def test_parse_rows_column_order_independent() -> None:
         ["tags", "reward", "action", "title", "id"],
         ["calm", "Feel good", "Do calm thing", "Calm Title", "c1"],
     ]
-    entries = _parse_rows(rows)
-    assert len(entries) == 1
-    assert entries[0].id == "c1"
-    assert entries[0].tags == ("calm",)
-    assert entries[0].title == "Calm Title"
+    result = _parse_rows(rows)
+    assert len(result.entries) == 1
+    assert result.entries[0].id == "c1"
+    assert result.entries[0].tags == ("calm",)
+    assert result.entries[0].title == "Calm Title"
 
 
 def test_parse_rows_missing_required_column_raises() -> None:
@@ -160,53 +383,154 @@ def test_parse_rows_empty_raises() -> None:
         _parse_rows([])
 
 
-def test_parse_rows_only_header_raises() -> None:
+def test_parse_rows_only_header_returns_empty_result() -> None:
+    """Only a header row → no data rows, empty entries, no diagnostics."""
     rows: list[list[str]] = [["id", "title", "action", "reward", "tags"]]
-    with pytest.raises(ValueError, match="No valid entries"):
-        _parse_rows(rows)
+    result = _parse_rows(rows)
+    assert result.entries == ()
+    assert result.total_rows == 0
+    assert result.diagnostics == ()
 
 
-def test_parse_rows_unknown_tags_skipped_valid_tag_kept() -> None:
+def test_parse_rows_unknown_tags_warns_and_keeps_valid() -> None:
     rows: list[list[str]] = [
         ["id", "title", "action", "reward", "tags"],
         ["r1", "T", "A", "R", "calm,unknown_vibe"],
     ]
-    entries = _parse_rows(rows)
-    assert len(entries) == 1
-    assert entries[0].tags == ("calm",)
+    result = _parse_rows(rows)
+    assert len(result.entries) == 1
+    assert result.entries[0].tags == ("calm",)
+    assert result.warning_count >= 1
 
 
-def test_parse_rows_all_unknown_tags_drops_entry() -> None:
+def test_parse_rows_all_unknown_tags_drops_row_with_error() -> None:
     rows: list[list[str]] = [
         ["id", "title", "action", "reward", "tags"],
         ["r1", "T1", "A1", "R1", "bogus,nope"],
         ["r2", "T2", "A2", "R2", "science"],
     ]
-    entries = _parse_rows(rows)
-    assert len(entries) == 1
-    assert entries[0].id == "r2"
+    result = _parse_rows(rows)
+    assert len(result.entries) == 1
+    assert result.entries[0].id == "r2"
+    assert result.error_count >= 1
 
 
-def test_parse_rows_short_row_padded() -> None:
-    """A row shorter than the header should not crash; missing cells are ''."""
+def test_parse_rows_short_row_padded_skips_row() -> None:
+    """Row shorter than header is padded with empty strings; no valid tags → skipped."""
     rows: list[list[str]] = [
         ["id", "title", "action", "reward", "tags"],
-        ["r1", "T", "A", "R"],  # missing tags cell
+        ["r1", "T", "A", "R"],  # missing tags cell → padded to ""
     ]
-    # No valid tags → entry is skipped, only-header path triggers ValueError
-    with pytest.raises(ValueError, match="No valid entries"):
-        _parse_rows(rows)
+    result = _parse_rows(rows)
+    assert result.entries == ()
+    assert result.error_count >= 1
 
 
-def test_parse_rows_empty_id_skipped() -> None:
+def test_parse_rows_empty_id_skipped_with_error() -> None:
     rows: list[list[str]] = [
         ["id", "title", "action", "reward", "tags"],
         ["", "T", "A", "R", "calm"],
         ["r2", "T2", "A2", "R2", "science"],
     ]
-    entries = _parse_rows(rows)
-    assert len(entries) == 1
-    assert entries[0].id == "r2"
+    result = _parse_rows(rows)
+    assert len(result.entries) == 1
+    assert result.entries[0].id == "r2"
+    assert result.error_count == 1
+
+
+def test_parse_rows_empty_title_skips_row() -> None:
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["r1", "", "Do something", "Feel good", "calm"],
+    ]
+    result = _parse_rows(rows)
+    assert result.entries == ()
+    assert result.error_count >= 1
+
+
+def test_parse_rows_empty_action_skips_row() -> None:
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["r1", "Title", "", "Feel good", "calm"],
+    ]
+    result = _parse_rows(rows)
+    assert result.entries == ()
+
+
+def test_parse_rows_empty_reward_skips_row() -> None:
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["r1", "Title", "Do something", "", "calm"],
+    ]
+    result = _parse_rows(rows)
+    assert result.entries == ()
+
+
+def test_parse_rows_tag_case_normalisation_warns() -> None:
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["r1", "T", "A", "R", "Calm,ZOOMIES"],
+    ]
+    result = _parse_rows(rows)
+    assert len(result.entries) == 1
+    assert result.entries[0].tags == ("calm", "zoomies")
+    assert result.warning_count >= 2  # one per capitalised tag
+
+
+def test_parse_rows_duplicate_tags_deduped_with_warning() -> None:
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["r1", "T", "A", "R", "calm,calm,zoomies"],
+    ]
+    result = _parse_rows(rows)
+    assert result.entries[0].tags == ("calm", "zoomies")
+    assert any("duplicate" in d.message for d in result.diagnostics)
+
+
+def test_parse_rows_url_in_action_warns_but_keeps_entry() -> None:
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["r1", "T", "See https://example.com to do it", "R", "calm"],
+    ]
+    result = _parse_rows(rows)
+    assert len(result.entries) == 1
+    assert any("URL" in d.message for d in result.diagnostics)
+    assert result.error_count == 0
+
+
+def test_parse_rows_text_too_long_truncates_with_warning() -> None:
+    long_action = "A" * 700  # exceeds _ACTION_MAX_LEN = 600
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["r1", "T", long_action, "R", "calm"],
+    ]
+    result = _parse_rows(rows)
+    assert len(result.entries) == 1
+    assert len(result.entries[0].action) == 600
+    assert any("truncated" in d.message for d in result.diagnostics)
+
+
+def test_parse_rows_duplicate_ids_first_wins() -> None:
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["dup", "First", "Do X", "Feel Y", "calm"],
+        ["dup", "Second", "Do Z", "Feel W", "zoomies"],  # duplicate id
+    ]
+    result = _parse_rows(rows)
+    assert len(result.entries) == 1
+    assert result.entries[0].title == "First"
+    assert any("duplicate id" in d.message for d in result.diagnostics)
+
+
+def test_parse_rows_total_rows_matches_data_rows() -> None:
+    rows: list[list[str]] = [
+        ["id", "title", "action", "reward", "tags"],
+        ["r1", "T1", "A1", "R1", "calm"],
+        ["r2", "T2", "A2", "R2", "silly"],
+        ["r3", "T3", "A3", "R3", "zoomies"],
+    ]
+    result = _parse_rows(rows)
+    assert result.total_rows == 3
 
 
 # ---------------------------------------------------------------------------
@@ -290,21 +614,6 @@ async def test_pick_static_sparks_caps_count_to_pool_size(
 # ---------------------------------------------------------------------------
 
 
-def _make_fake_entries(count_per_frame: int = 2) -> tuple[SparkLibraryEntry, ...]:
-    """Minimal valid library: ``count_per_frame`` entries per frame."""
-    return tuple(
-        SparkLibraryEntry(
-            id=f"fake-{frame}-{i}",
-            tags=(frame,),
-            title=f"Fake {frame} {i}",
-            action="act",
-            reward="rew",
-        )
-        for frame in ALL_FRAMES
-        for i in range(count_per_frame)
-    )
-
-
 @pytest.mark.asyncio
 async def test_get_library_uses_file_when_sheets_not_configured(
     monkeypatch: pytest.MonkeyPatch,
@@ -331,20 +640,20 @@ async def test_get_library_uses_sheets_when_configured(
     from app.config import clear_config_cache
     from app.services import spark_library
 
-    fake_entries = _make_fake_entries()
+    fake_result = _make_fake_result()
     monkeypatch.setenv("SPARK_SHEETS_SPREADSHEET_ID", "test-sheet-id")
     monkeypatch.setenv("SPARK_SHEETS_CREDENTIALS_JSON", '{"type": "service_account"}')
     clear_config_cache()
 
     with patch(
         "app.services.spark_sheets_source.fetch_entries_from_sheets",
-        MagicMock(return_value=fake_entries),
+        MagicMock(return_value=fake_result),
     ):
         await pick_static_sparks(condition="A", frame_preference=None, count=1)
 
     assert spark_library._cache is not None
     assert spark_library._cache.source == "sheets"
-    assert spark_library._cache.entries == fake_entries
+    assert spark_library._cache.entries == fake_result.entries
 
     clear_config_cache()
 
@@ -385,7 +694,7 @@ async def test_do_refresh_preserves_snapshot_on_subsequent_sheets_error(
     from app.services import spark_library
     from app.services.spark_library import _do_refresh
 
-    fake_entries = _make_fake_entries()
+    fake_result = _make_fake_result()
     monkeypatch.setenv("SPARK_SHEETS_SPREADSHEET_ID", "test-sheet-id")
     monkeypatch.setenv("SPARK_SHEETS_CREDENTIALS_JSON", '{"type": "service_account"}')
     clear_config_cache()
@@ -393,7 +702,7 @@ async def test_do_refresh_preserves_snapshot_on_subsequent_sheets_error(
     # First load succeeds from Sheets.
     with patch(
         "app.services.spark_sheets_source.fetch_entries_from_sheets",
-        MagicMock(return_value=fake_entries),
+        MagicMock(return_value=fake_result),
     ):
         await _do_refresh()
 
@@ -408,7 +717,6 @@ async def test_do_refresh_preserves_snapshot_on_subsequent_sheets_error(
     ):
         await _do_refresh()
 
-    # Cache object is unchanged: same entries, same instance.
     assert spark_library._cache is first_cache
 
     clear_config_cache()
@@ -429,11 +737,9 @@ async def test_stale_cache_served_immediately_and_refresh_triggered(
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
 
-    # Prime the cache from file.
     await pick_static_sparks(condition="A", frame_preference=None, count=1)
     assert spark_library._cache is not None
 
-    # Wind the clock back so the cache appears stale.
     stale_cache = _CacheState(
         entries=spark_library._cache.entries,
         version_hash=spark_library._cache.version_hash,
@@ -443,12 +749,10 @@ async def test_stale_cache_served_immediately_and_refresh_triggered(
     )
     spark_library._cache = stale_cache
 
-    # The request should return immediately (stale data) without blocking.
     resolved = await pick_static_sparks(condition="A", frame_preference=None, count=1)
     assert len(resolved) == 1
     assert spark_library._cache.is_refreshing is True
 
-    # Let the background task run and reset the flag.
     await _asyncio.sleep(0.05)
 
     clear_config_cache()
@@ -463,10 +767,14 @@ async def test_sheets_invariant_violation_falls_back_to_file(
     from app.services import spark_library
 
     # Only one entry total — fails the ≥2 per frame invariant.
-    bad_entries = (
-        SparkLibraryEntry(
-            id="only-one", tags=("calm",), title="T", action="A", reward="R"
+    bad_result = SheetParseResult(
+        entries=(
+            SparkLibraryEntry(
+                id="only-one", tags=("calm",), title="T", action="A", reward="R"
+            ),
         ),
+        diagnostics=(),
+        total_rows=1,
     )
     monkeypatch.setenv("SPARK_SHEETS_SPREADSHEET_ID", "test-sheet-id")
     monkeypatch.setenv("SPARK_SHEETS_CREDENTIALS_JSON", '{"type": "service_account"}')
@@ -474,7 +782,7 @@ async def test_sheets_invariant_violation_falls_back_to_file(
 
     with patch(
         "app.services.spark_sheets_source.fetch_entries_from_sheets",
-        MagicMock(return_value=bad_entries),
+        MagicMock(return_value=bad_result),
     ):
         await pick_static_sparks(condition="A", frame_preference=None, count=1)
 
@@ -482,3 +790,6 @@ async def test_sheets_invariant_violation_falls_back_to_file(
     assert spark_library._cache.source == "file"
 
     clear_config_cache()
+
+
+# ---------------------------------------------------------------------------
