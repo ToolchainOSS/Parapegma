@@ -29,6 +29,7 @@ from app.models import (
     PushSubscription,
     ScheduledTask,
 )
+from app.services.spark_library import clear_library_cache
 from h4ckath0n.auth.models import Base as H4ckath0nBase
 from h4ckath0n.auth.models import Device
 from h4ckath0n.realtime import AuthContext
@@ -1424,7 +1425,10 @@ async def test_spark_generate_condition_a_is_static_and_skips_llm(
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("H4CKATH0N_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
+    clear_library_cache()
 
     def _fail_make_chat_llm(**_kwargs: Any) -> Any:
         raise AssertionError("make_chat_llm should not be called for condition A")
@@ -1442,6 +1446,7 @@ async def test_spark_generate_condition_a_is_static_and_skips_llm(
     assert payload["model"] == "static-library"
     assert payload["prompt_version"]["prompt_file"] == "spark_library"
     clear_config_cache()
+    clear_library_cache()
 
 
 @pytest.mark.asyncio
@@ -1454,7 +1459,10 @@ async def test_spark_generate_condition_b_filters_by_frame_preference(
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("H4CKATH0N_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
+    clear_library_cache()
 
     def _fail_make_chat_llm(**_kwargs: Any) -> Any:
         raise AssertionError("make_chat_llm should not be called for condition B")
@@ -1472,6 +1480,7 @@ async def test_spark_generate_condition_b_filters_by_frame_preference(
     assert all(card["frame"] == "silly" for card in payload["cards"])
     assert payload["model"] == "static-library"
     clear_config_cache()
+    clear_library_cache()
 
 
 @pytest.mark.asyncio
@@ -1479,7 +1488,10 @@ async def test_spark_generate_condition_b_requires_frame_preference(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
+    clear_library_cache()
 
     resp = await client.post(
         "/spark/generate",
@@ -1487,6 +1499,7 @@ async def test_spark_generate_condition_b_requires_frame_preference(
     )
     assert resp.status_code == 422
     clear_config_cache()
+    clear_library_cache()
 
 
 @pytest.mark.asyncio

@@ -183,6 +183,62 @@ def get_randomization_salt() -> str | None:
     return val if val else None
 
 
+# ---------------------------------------------------------------------------
+# Spark A/B Google Sheets source (additive; Sheets used only when configured)
+# ---------------------------------------------------------------------------
+
+
+@cache
+def get_spark_sheets_credentials_json() -> str:
+    """Return the Google service-account JSON string for Sheets read-only access.
+
+    Set ``SPARK_SHEETS_CREDENTIALS_JSON`` to the full service-account JSON
+    (the content of the downloaded key file, not a file path).  When absent
+    the Spark A/B library falls back to the bundled ``spark_library.json``.
+    """
+    return os.environ.get("SPARK_SHEETS_CREDENTIALS_JSON", "")
+
+
+@cache
+def get_spark_sheets_spreadsheet_id() -> str:
+    """Return the Google Sheets spreadsheet ID for the Spark A/B prompt library."""
+    return os.environ.get("SPARK_SHEETS_SPREADSHEET_ID", "")
+
+
+@cache
+def get_spark_sheets_range() -> str:
+    """Return the A1-notation range to fetch from the Spark spreadsheet.
+
+    Defaults to ``Sparks!A:E`` which reads all rows from a tab named
+    *Sparks* with columns: id, title, action, reward, tags.
+    """
+    return os.environ.get("SPARK_SHEETS_RANGE", "Sparks!A:E")
+
+
+@cache
+def get_spark_sheets_cache_ttl() -> float:
+    """Return the cache TTL in seconds for the Spark library dataset.
+
+    After the TTL expires the cached data is served immediately (stale-
+    while-revalidate) while a background refresh runs.  Defaults to 60 s.
+    """
+    val = os.environ.get("SPARK_SHEETS_CACHE_TTL_SECS", "60")
+    try:
+        return max(1.0, float(val))
+    except (ValueError, TypeError):
+        return 60.0
+
+
+@cache
+def get_spark_sheets_timeout() -> float:
+    """Return the Sheets API request timeout in seconds.  Defaults to 10 s."""
+    val = os.environ.get("SPARK_SHEETS_REQUEST_TIMEOUT_SECS", "10")
+    try:
+        return max(1.0, float(val))
+    except (ValueError, TypeError):
+        return 10.0
+
+
 def clear_config_cache() -> None:
     """Clear all configuration caches (useful for testing)."""
     get_data_dir.cache_clear()
@@ -204,3 +260,8 @@ def clear_config_cache() -> None:
     get_port.cache_clear()
     get_log_level.cache_clear()
     get_randomization_salt.cache_clear()
+    get_spark_sheets_credentials_json.cache_clear()
+    get_spark_sheets_spreadsheet_id.cache_clear()
+    get_spark_sheets_range.cache_clear()
+    get_spark_sheets_cache_ttl.cache_clear()
+    get_spark_sheets_timeout.cache_clear()

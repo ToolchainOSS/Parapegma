@@ -19,6 +19,8 @@ dependencies = [
     "langchain-core>=1.2.12",
     "asyncpg>=0.31.0",
     "alembic>=1.16.1",
+    "google-auth>=2.36.0",
+    "requests>=2.32.0",
 ]
 
 [project.scripts]

@@ -145,7 +145,7 @@ async def spark_generate(
     """
     if body.condition in ("A", "B"):
         try:
-            resolved = pick_static_sparks(
+            resolved = await pick_static_sparks(
                 condition=body.condition,
                 frame_preference=body.frame_preference,
                 count=body.count,
@@ -154,6 +154,12 @@ async def spark_generate(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            logger.warning("Spark A/B library error: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Spark library is temporarily unavailable",
             ) from exc
 
         cards = [
