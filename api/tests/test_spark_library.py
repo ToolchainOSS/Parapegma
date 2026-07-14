@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -654,6 +655,41 @@ async def test_get_library_uses_sheets_when_configured(
     assert spark_library._cache is not None
     assert spark_library._cache.source == "sheets"
     assert spark_library._cache.entries == fake_result.entries
+
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_get_library_uses_sheets_credential_file_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.config import clear_config_cache
+    from app.services import spark_library
+
+    credential_file = tmp_path / "service-account.json"
+    credential_file.write_text("{}", encoding="utf-8")
+    fake_result = _make_fake_result()
+    monkeypatch.setenv("SPARK_SHEETS_SPREADSHEET_ID", "test-sheet-id")
+    monkeypatch.setenv("SPARK_SHEETS_CREDENTIALS_FILE", str(credential_file))
+    monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
+    clear_config_cache()
+
+    with patch(
+        "app.services.spark_sheets_source.fetch_entries_from_sheets",
+        MagicMock(return_value=fake_result),
+    ) as fetch_entries:
+        await pick_static_sparks(condition="A", frame_preference=None, count=1)
+
+    fetch_entries.assert_called_once_with(
+        "",
+        "test-sheet-id",
+        "Sparks!A:E",
+        10.0,
+        credentials_file=str(credential_file),
+    )
+    assert spark_library._cache is not None
+    assert spark_library._cache.source == "sheets"
 
     clear_config_cache()
 

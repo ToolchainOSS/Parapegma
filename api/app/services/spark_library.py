@@ -6,10 +6,10 @@ C/D they need no LLM call at all.
 
 Data source (in priority order)
 --------------------------------
-1. **Google Sheets** — when ``SPARK_SHEETS_SPREADSHEET_ID`` *and*
-   ``SPARK_SHEETS_CREDENTIALS_JSON`` are configured the library is loaded
-   from a researcher-maintained spreadsheet.  Collaborators can add or edit
-   prompts without touching the repository.
+1. **Google Sheets** — when ``SPARK_SHEETS_SPREADSHEET_ID`` *and* one of
+    ``SPARK_SHEETS_CREDENTIALS_JSON`` or ``SPARK_SHEETS_CREDENTIALS_FILE`` are
+    configured the library is loaded from a researcher-maintained spreadsheet.
+    Collaborators can add or edit prompts without touching the repository.
 2. **Bundled JSON** (``api/config/spark_library.json``) — always-present
    fallback loaded via :func:`app.config_loader.resolve_config_path`.
 
@@ -212,12 +212,14 @@ def _load_from_file() -> tuple[SparkLibraryEntry, ...]:
 
 def _sheets_is_configured() -> bool:
     from app.config import (
+        get_spark_sheets_credentials_file,
         get_spark_sheets_credentials_json,
         get_spark_sheets_spreadsheet_id,
     )
 
     return bool(
-        get_spark_sheets_credentials_json() and get_spark_sheets_spreadsheet_id()
+        get_spark_sheets_spreadsheet_id()
+        and (get_spark_sheets_credentials_json() or get_spark_sheets_credentials_file())
     )
 
 
@@ -238,6 +240,7 @@ async def _do_refresh() -> None:
 
     if _sheets_is_configured():
         from app.config import (
+            get_spark_sheets_credentials_file,
             get_spark_sheets_credentials_json,
             get_spark_sheets_range,
             get_spark_sheets_spreadsheet_id,
@@ -252,6 +255,7 @@ async def _do_refresh() -> None:
                 get_spark_sheets_spreadsheet_id(),
                 get_spark_sheets_range(),
                 get_spark_sheets_timeout(),
+                credentials_file=get_spark_sheets_credentials_file(),
             )
             _validate_entries(result.entries)
             _cache = _CacheState(

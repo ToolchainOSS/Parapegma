@@ -1,8 +1,9 @@
 """Credential loading and bounded token refresh for Spark Google Sheets.
 
 This module accepts the standard JSON document produced by Google Cloud when a
-service-account key is created.  The document is supplied as one JSON string
-through ``SPARK_SHEETS_CREDENTIALS_JSON``; escaped ``\\n`` characters in the
+service-account key is created. The document can be supplied as one JSON string
+through ``SPARK_SHEETS_CREDENTIALS_JSON`` or read from the mounted file named by
+``SPARK_SHEETS_CREDENTIALS_FILE``. Escaped ``\\n`` characters in the
 ``private_key`` value are decoded by :func:`json.loads` before google-auth uses
 the PEM key.
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -26,7 +28,10 @@ _REQUIRED_SERVICE_ACCOUNT_FIELDS = frozenset(
 )
 
 
-def load_readonly_service_account_credentials(credentials_json: str) -> Credentials:
+def _load_readonly_service_account_credentials(
+    credentials_json: str,
+    source_name: str,
+) -> Credentials:
     """Return read-only Sheets credentials from a standard service-account JSON.
 
     Google service-account documents include additional metadata such as
@@ -41,16 +46,15 @@ def load_readonly_service_account_credentials(credentials_json: str) -> Credenti
     try:
         raw = json.loads(credentials_json)
     except json.JSONDecodeError as exc:
-        raise ValueError("SPARK_SHEETS_CREDENTIALS_JSON must be valid JSON") from exc
+        raise ValueError(f"{source_name} must contain valid JSON") from exc
 
     if not isinstance(raw, dict):
-        raise ValueError("SPARK_SHEETS_CREDENTIALS_JSON must be a JSON object")
+        raise ValueError(f"{source_name} must contain a JSON object")
 
     missing = sorted(_REQUIRED_SERVICE_ACCOUNT_FIELDS - raw.keys())
     if missing:
         raise ValueError(
-            "SPARK_SHEETS_CREDENTIALS_JSON is missing required field(s): "
-            + ", ".join(missing)
+            f"{source_name} is missing required field(s): " + ", ".join(missing)
         )
 
     bad_types = sorted(
@@ -60,14 +64,11 @@ def load_readonly_service_account_credentials(credentials_json: str) -> Credenti
     )
     if bad_types:
         raise ValueError(
-            "SPARK_SHEETS_CREDENTIALS_JSON field(s) must be non-empty strings: "
-            + ", ".join(bad_types)
+            f"{source_name} field(s) must be non-empty strings: " + ", ".join(bad_types)
         )
 
     if raw["type"] != "service_account":
-        raise ValueError(
-            "SPARK_SHEETS_CREDENTIALS_JSON must contain type 'service_account'"
-        )
+        raise ValueError(f"{source_name} must contain type 'service_account'")
 
     try:
         return Credentials.from_service_account_info(
@@ -76,9 +77,36 @@ def load_readonly_service_account_credentials(credentials_json: str) -> Credenti
         )
     except (TypeError, ValueError) as exc:
         raise ValueError(
-            "SPARK_SHEETS_CREDENTIALS_JSON contains invalid Google "
-            "service-account credentials"
+            f"{source_name} contains invalid Google service-account credentials"
         ) from exc
+
+
+def load_readonly_service_account_credentials(credentials_json: str) -> Credentials:
+    """Return Sheets credentials from ``SPARK_SHEETS_CREDENTIALS_JSON``."""
+    return _load_readonly_service_account_credentials(
+        credentials_json,
+        "SPARK_SHEETS_CREDENTIALS_JSON",
+    )
+
+
+def load_readonly_service_account_credentials_from_file(
+    credentials_file: str,
+) -> Credentials:
+    """Return Sheets credentials from ``SPARK_SHEETS_CREDENTIALS_FILE``.
+
+    The configured file path is intentionally omitted from errors so logs do
+    not reveal deployment-specific filesystem details.
+    """
+    try:
+        credentials_json = Path(credentials_file).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            "SPARK_SHEETS_CREDENTIALS_FILE must reference a readable UTF-8 file"
+        ) from exc
+    return _load_readonly_service_account_credentials(
+        credentials_json,
+        "SPARK_SHEETS_CREDENTIALS_FILE",
+    )
 
 
 def make_timeout_bound_google_request(

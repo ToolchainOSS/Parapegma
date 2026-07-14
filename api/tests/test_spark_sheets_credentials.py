@@ -7,12 +7,14 @@ service account, spreadsheet, or private key is contacted or embedded here.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 import requests
 from app.services.spark_sheets_credentials import (
     load_readonly_service_account_credentials,
+    load_readonly_service_account_credentials_from_file,
 )
 from app.services.spark_sheets_source import fetch_entries_from_sheets
 from cryptography.hazmat.primitives import serialization
@@ -83,6 +85,34 @@ def test_load_credentials_accepts_full_google_service_account_shape() -> None:
     assert credentials.universe_domain == "googleapis.com"
 
 
+def test_load_credentials_from_file_accepts_full_google_service_account_shape(
+    tmp_path: Path,
+) -> None:
+    credentials_file = tmp_path / "service-account.json"
+    credentials_file.write_text(_production_shape_credentials_json(), encoding="utf-8")
+
+    credentials = load_readonly_service_account_credentials_from_file(
+        str(credentials_file)
+    )
+
+    assert credentials.service_account_email == (
+        "spark-test@spark-production-shape-test.iam.gserviceaccount.com"
+    )
+    assert credentials.scopes == [
+        "https://www.googleapis.com/auth/spreadsheets.readonly"
+    ]
+
+
+def test_load_credentials_from_file_hides_path_in_read_errors(tmp_path: Path) -> None:
+    missing_file = tmp_path / "credential-path-must-not-appear.json"
+
+    with pytest.raises(ValueError) as exc_info:
+        load_readonly_service_account_credentials_from_file(str(missing_file))
+
+    assert str(missing_file) not in str(exc_info.value)
+    assert "SPARK_SHEETS_CREDENTIALS_FILE" in str(exc_info.value)
+
+
 def test_load_credentials_rejects_non_service_account_type() -> None:
     payload = json.loads(_production_shape_credentials_json())
     payload["type"] = "authorized_user"
@@ -109,8 +139,15 @@ def test_load_credentials_never_includes_source_json_in_errors() -> None:
     assert "token_uri" in str(exc_info.value)
 
 
+@pytest.mark.parametrize(
+    "use_credentials_file",
+    (False, True),
+    ids=("inline-json", "mounted-file"),
+)
 def test_fetch_uses_full_credentials_for_token_and_sheets_requests(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    use_credentials_file: bool,
 ) -> None:
     """Exercise real JWT signing with a generated PEM, not a mocked credential."""
     requests_seen: list[tuple[str, str, dict[str, Any]]] = []
@@ -158,11 +195,17 @@ def test_fetch_uses_full_credentials_for_token_and_sheets_requests(
 
     monkeypatch.setattr(requests.Session, "request", fake_request)
 
+    credentials_json = _production_shape_credentials_json()
+    credentials_file = tmp_path / "service-account.json"
+    if use_credentials_file:
+        credentials_file.write_text(credentials_json, encoding="utf-8")
+
     result = fetch_entries_from_sheets(
-        credentials_json=_production_shape_credentials_json(),
+        credentials_json="" if use_credentials_file else credentials_json,
         spreadsheet_id=_SPREADSHEET_ID,
         range_name=_RANGE,
         timeout=_TIMEOUT,
+        credentials_file=str(credentials_file) if use_credentials_file else "",
     )
 
     assert len(result.entries) == 1

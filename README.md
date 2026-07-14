@@ -425,8 +425,9 @@ Configure in `.env` at the repository root (see `.env.example`):
 | `FEEDBACK_PROMPT_TEXT` | `How did this prompt work for you?` | Global prompt text used for delayed feedback requests |
 | `FEEDBACK_OPTIONS` | `Works perfectly,Needs tweaks` | Up to two global feedback options for push action buttons |
 | `TZ` | `America/Toronto` | Default IANA timezone for the backend (e.g. `America/New_York`) |
-| `SPARK_SHEETS_SPREADSHEET_ID` | (none) | Google Sheets spreadsheet ID for Spark A/B prompt library; Sheets source activates only when this and `SPARK_SHEETS_CREDENTIALS_JSON` are both set |
-| `SPARK_SHEETS_CREDENTIALS_JSON` | (none) | Full service-account JSON (key file contents, not a path) for read-only Sheets access; never log this value |
+| `SPARK_SHEETS_SPREADSHEET_ID` | (none) | Google Sheets spreadsheet ID for Spark A/B prompt library; Sheets source activates only when this and one credential source are set |
+| `SPARK_SHEETS_CREDENTIALS_JSON` | (none) | Full service-account JSON for read-only Sheets access; takes precedence over `SPARK_SHEETS_CREDENTIALS_FILE`; never log this value |
+| `SPARK_SHEETS_CREDENTIALS_FILE` | (none) | Readable UTF-8 path to a mounted service-account JSON key file for read-only Sheets access; use instead of inline JSON and mount read-only |
 | `SPARK_SHEETS_RANGE` | `Sparks!A:E` | A1-notation range to fetch from the Spark spreadsheet (columns: id, title, action, reward, tags) |
 | `SPARK_SHEETS_CACHE_TTL_SECS` | `60` | Stale-while-revalidate TTL in seconds for the in-memory Spark library cache |
 | `SPARK_SHEETS_REQUEST_TIMEOUT_SECS` | `10` | HTTP request timeout in seconds for the Sheets API call |

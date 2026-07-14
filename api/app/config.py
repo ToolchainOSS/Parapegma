@@ -191,10 +191,22 @@ def get_spark_sheets_credentials_json() -> str:
     """Return the Google service-account JSON string for Sheets read-only access.
 
     Set ``SPARK_SHEETS_CREDENTIALS_JSON`` to the full service-account JSON
-    (the content of the downloaded key file, not a file path).  When absent
-    the Spark A/B library falls back to the bundled ``spark_library.json``.
+    (the content of the downloaded key file, not a file path). It takes
+    precedence over ``SPARK_SHEETS_CREDENTIALS_FILE`` when both are set.
     """
     return os.environ.get("SPARK_SHEETS_CREDENTIALS_JSON", "")
+
+
+@cache
+def get_spark_sheets_credentials_file() -> str:
+    """Return the mounted service-account key-file path for Sheets access.
+
+    Set ``SPARK_SHEETS_CREDENTIALS_FILE`` to a readable Google service-account
+    JSON file. The file is used only when ``SPARK_SHEETS_CREDENTIALS_JSON`` is
+    empty. When neither credential source is set, the Spark A/B library falls
+    back to the bundled ``spark_library.json``.
+    """
+    return os.environ.get("SPARK_SHEETS_CREDENTIALS_FILE", "")
 
 
 @cache
@@ -259,6 +271,7 @@ def clear_config_cache() -> None:
     get_log_level.cache_clear()
     get_flow_crypto_master_key.cache_clear()
     get_spark_sheets_credentials_json.cache_clear()
+    get_spark_sheets_credentials_file.cache_clear()
     get_spark_sheets_spreadsheet_id.cache_clear()
     get_spark_sheets_range.cache_clear()
     get_spark_sheets_cache_ttl.cache_clear()

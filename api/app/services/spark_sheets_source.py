@@ -53,6 +53,7 @@ import requests
 from app.services.spark_library import ALL_FRAMES, SparkFrame, SparkLibraryEntry
 from app.services.spark_sheets_credentials import (
     load_readonly_service_account_credentials,
+    load_readonly_service_account_credentials_from_file,
     make_timeout_bound_google_request,
 )
 
@@ -443,6 +444,8 @@ def fetch_entries_from_sheets(
     spreadsheet_id: str,
     range_name: str,
     timeout: float,
+    *,
+    credentials_file: str = "",
 ) -> SheetParseResult:
     """Fetch and parse Spark library entries from Google Sheets (synchronous).
 
@@ -460,7 +463,11 @@ def fetch_entries_from_sheets(
     google.auth.exceptions.TransportError
         Token refresh failed (bad credentials or network error).
     """
-    creds = load_readonly_service_account_credentials(credentials_json)
+    creds = (
+        load_readonly_service_account_credentials(credentials_json)
+        if credentials_json
+        else load_readonly_service_account_credentials_from_file(credentials_file)
+    )
     key_hint = creds.service_account_email[:24] or "<unknown>"
     logger.debug("Refreshing Sheets token for service account %r", key_hint)
 
