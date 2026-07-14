@@ -11,12 +11,12 @@ const CIRC = 2 * Math.PI * R;
 
 interface SparkTimerProps {
     frame: SparkFrame;
-    onDone: () => void;
+    onDone: (completion: "completed" | "skipped") => void;
 }
 
 export function SparkTimer({ frame, onDone }: SparkTimerProps) {
     const [left, setLeft] = useState(TOTAL);
-    const [done, setDone] = useState(false);
+    const [completion, setCompletion] = useState<"completed" | "skipped" | null>(null);
     const onDoneRef = useRef(onDone);
 
     useEffect(() => {
@@ -24,18 +24,18 @@ export function SparkTimer({ frame, onDone }: SparkTimerProps) {
     });
 
     useEffect(() => {
-        if (done) {
-            const t = setTimeout(() => onDoneRef.current(), 1100);
+        if (completion) {
+            const t = setTimeout(() => onDoneRef.current(completion), 1100);
             return () => clearTimeout(t);
         }
-    }, [done]);
+    }, [completion]);
 
     useEffect(() => {
         const iv = setInterval(() => {
             setLeft((prev) => {
                 if (prev <= 1) {
                     clearInterval(iv);
-                    setDone(true);
+                    setCompletion("completed");
                     return 0;
                 }
                 return prev - 1;
@@ -46,7 +46,8 @@ export function SparkTimer({ frame, onDone }: SparkTimerProps) {
 
     const f = FRAMINGS[frame] ?? FRAMINGS.calm;
     const offset = CIRC * (1 - left / TOTAL);
-    const skipped = done && left === 0;
+    const done = completion !== null;
+    const skipped = completion === "skipped";
 
     return (
         <div className="spark-timer-wrap">
@@ -97,7 +98,10 @@ export function SparkTimer({ frame, onDone }: SparkTimerProps) {
                         <button
                             type="button"
                             className="spark-chip"
-                            onClick={() => { setLeft(0); setDone(true); }}
+                            onClick={() => {
+                                setLeft(0);
+                                setCompletion("skipped");
+                            }}
                         >
                             Skip to end
                         </button>

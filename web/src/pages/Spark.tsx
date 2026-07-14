@@ -24,6 +24,12 @@ import { SparkTimer } from "./spark/SparkTimer";
 import { VibeWheel } from "./spark/VibeWheel";
 import { useSparkRemix } from "./spark/useSparkRemix";
 import {
+    createSparkClientId,
+    getSparkResearchIdentity,
+    type SparkIdentityProvider,
+} from "./spark/sparkResearchIdentity";
+import { useSparkEventTracker } from "./spark/sparkTelemetry";
+import {
     CONDITIONS,
     FRAME_ORDER,
     FRAMINGS,
@@ -172,6 +178,13 @@ function SparkHome({ onStart }: { onStart: (c: SparkCondition) => void }) {
                 a <strong>cue + reminder</strong>, and a short <strong>rating</strong>.
                 What changes is <strong>who chooses</strong> and <strong>how much the system personalizes</strong>.
             </p>
+
+            <p className="text-xs text-text-muted border border-dashed border-border rounded-xl p-4">
+                <strong>Research privacy:</strong> Spark works without an account. To link repeat visits,
+                it uses a random study identifier stored only in this browser plus a browser fingerprint.
+                Flow stores keyed, non-reversible versions—not the raw values. Clearing site data starts a
+                new study identity.
+            </p>
         </div>
     );
 }
@@ -183,12 +196,16 @@ function SparkHome({ onStart }: { onStart: (c: SparkCondition) => void }) {
 function ConditionA({
     onExit,
     onGoto,
+    getIdentity,
 }: {
     onExit: () => void;
     onGoto: (c: SparkCondition) => void;
+    getIdentity: SparkIdentityProvider;
 }) {
     const [step, setStep] = useState(0);
-    const [spark, actions] = useSparkRemix();
+    const [flowId] = useState(createSparkClientId);
+    const track = useSparkEventTracker({ condition: "A", flowId, getIdentity });
+    const [spark, actions] = useSparkRemix({ flowId, getIdentity });
     const [feedback, setFeedback] = useState<FeedbackState>({ tried: null, reason: null, tweak: "" });
     const [cue, setCue] = useState<string | null>(null);
     const [reminder, setReminder] = useState<string | null>(null);
@@ -237,13 +254,30 @@ function ConditionA({
             {step === 2 && spark.card && (
                 <SparkTimer
                     frame={(spark.card.frame as SparkFrame) ?? "calm"}
-                    onDone={() => setStep(3)}
+                    onDone={(completion) => {
+                        track({ event_type: "timer_finished", completion });
+                        setStep(3);
+                    }}
                 />
             )}
             {step === 3 && (
                 <>
                     <FeedbackStep state={feedback} onChange={setFeedback} />
-                    <ContinueBtn label="Next" disabled={feedback.tried === null} onClick={() => setStep(4)} />
+                    <ContinueBtn
+                        label="Next"
+                        disabled={feedback.tried === null}
+                        onClick={() => {
+                            if (feedback.tried !== null) {
+                                track({
+                                    event_type: "feedback_submitted",
+                                    tried: feedback.tried,
+                                    reason: feedback.reason,
+                                    tweak: feedback.tweak,
+                                });
+                            }
+                            setStep(4);
+                        }}
+                    />
                 </>
             )}
             {step === 4 && (
@@ -257,7 +291,21 @@ function ConditionA({
                         onReminder={setReminder}
                         onConfidence={setConfidence}
                     />
-                    <ContinueBtn label="Next" disabled={!cue} onClick={() => setStep(5)} />
+                    <ContinueBtn
+                        label="Next"
+                        disabled={!cue}
+                        onClick={() => {
+                            if (cue) {
+                                track({
+                                    event_type: "cue_selected",
+                                    cue,
+                                    reminder: reminder as "calendar" | "email" | "skip" | null,
+                                    confidence,
+                                });
+                            }
+                            setStep(5);
+                        }}
+                    />
                 </>
             )}
             {step === 5 && (
@@ -265,7 +313,17 @@ function ConditionA({
                     condition="A"
                     rating={rating}
                     onChange={setRating}
-                    onFinish={onExit}
+                    onFinish={() => {
+                        if (rating.fit && rating.clarity && rating.willing) {
+                            track({
+                                event_type: "condition_completed",
+                                fit: rating.fit,
+                                clarity: rating.clarity,
+                                willing: rating.willing,
+                            });
+                        }
+                        onExit();
+                    }}
                     onGoto={onGoto}
                 />
             )}
@@ -280,13 +338,17 @@ function ConditionA({
 function ConditionB({
     onExit,
     onGoto,
+    getIdentity,
 }: {
     onExit: () => void;
     onGoto: (c: SparkCondition) => void;
+    getIdentity: SparkIdentityProvider;
 }) {
     const [step, setStep] = useState(0);
     const [chosenFrame, setChosenFrame] = useState<SparkFrame | null>(null);
-    const [spark, actions] = useSparkRemix();
+    const [flowId] = useState(createSparkClientId);
+    const track = useSparkEventTracker({ condition: "B", flowId, getIdentity });
+    const [spark, actions] = useSparkRemix({ flowId, getIdentity });
     const [feedback, setFeedback] = useState<FeedbackState>({ tried: null, reason: null, tweak: "" });
     const [cue, setCue] = useState<string | null>(null);
     const [reminder, setReminder] = useState<string | null>(null);
@@ -308,6 +370,7 @@ function ConditionB({
                         // re-entering the wheel and picking again (same or different vibe)
                         // would show stale cards from the prior frame.
                         actions.reset();
+                        track({ event_type: "frame_selected", frame: f });
                         setChosenFrame(f);
                         setStep(1);
                     }}
@@ -333,6 +396,7 @@ function ConditionB({
                                         type="button"
                                         className="text-left rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-4 flex gap-3 transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
                                         onClick={() => {
+                                            track({ event_type: "card_selected", rank: i + 1 });
                                             actions.selectCard(card);
                                             setStep(2);
                                         }}
@@ -373,12 +437,32 @@ function ConditionB({
                 </div>
             )}
             {step === 3 && spark.card && (
-                <SparkTimer frame={(spark.card.frame as SparkFrame) ?? "calm"} onDone={() => setStep(4)} />
+                <SparkTimer
+                    frame={(spark.card.frame as SparkFrame) ?? "calm"}
+                    onDone={(completion) => {
+                        track({ event_type: "timer_finished", completion });
+                        setStep(4);
+                    }}
+                />
             )}
             {step === 4 && (
                 <>
                     <FeedbackStep state={feedback} onChange={setFeedback} />
-                    <ContinueBtn label="Next" disabled={feedback.tried === null} onClick={() => setStep(5)} />
+                    <ContinueBtn
+                        label="Next"
+                        disabled={feedback.tried === null}
+                        onClick={() => {
+                            if (feedback.tried !== null) {
+                                track({
+                                    event_type: "feedback_submitted",
+                                    tried: feedback.tried,
+                                    reason: feedback.reason,
+                                    tweak: feedback.tweak,
+                                });
+                            }
+                            setStep(5);
+                        }}
+                    />
                 </>
             )}
             {step === 5 && (
@@ -392,7 +476,21 @@ function ConditionB({
                         onReminder={setReminder}
                         onConfidence={setConfidence}
                     />
-                    <ContinueBtn label="Next" disabled={!cue} onClick={() => setStep(6)} />
+                    <ContinueBtn
+                        label="Next"
+                        disabled={!cue}
+                        onClick={() => {
+                            if (cue) {
+                                track({
+                                    event_type: "cue_selected",
+                                    cue,
+                                    reminder: reminder as "calendar" | "email" | "skip" | null,
+                                    confidence,
+                                });
+                            }
+                            setStep(6);
+                        }}
+                    />
                 </>
             )}
             {step === 6 && (
@@ -400,7 +498,17 @@ function ConditionB({
                     condition="B"
                     rating={rating}
                     onChange={setRating}
-                    onFinish={onExit}
+                    onFinish={() => {
+                        if (rating.fit && rating.clarity && rating.willing) {
+                            track({
+                                event_type: "condition_completed",
+                                fit: rating.fit,
+                                clarity: rating.clarity,
+                                willing: rating.willing,
+                            });
+                        }
+                        onExit();
+                    }}
                     onGoto={onGoto}
                 />
             )}
@@ -415,10 +523,12 @@ function ConditionAdaptive({
     condition,
     onExit,
     onGoto,
+    getIdentity,
 }: {
     condition: "C" | "D";
     onExit: () => void;
     onGoto: (c: SparkCondition) => void;
+    getIdentity: SparkIdentityProvider;
 }) {
     // Steps: 0-3 intake | 4 generation/selection | 5 card+adjust (D only) | timer | feedback | cue | reflect
     const intakeSteps = 4;
@@ -431,7 +541,9 @@ function ConditionAdaptive({
 
     const [step, setStep] = useState(0);
     const [profile, setProfile] = useState<IntakeProfile>(emptyProfile());
-    const [spark, actions] = useSparkRemix();
+    const [flowId] = useState(createSparkClientId);
+    const track = useSparkEventTracker({ condition, flowId, getIdentity });
+    const [spark, actions] = useSparkRemix({ flowId, getIdentity });
     const [feedback, setFeedback] = useState<FeedbackState>({ tried: null, reason: null, tweak: "" });
     const [cue, setCue] = useState<string | null>(null);
     const [reminder, setReminder] = useState<string | null>(null);
@@ -444,6 +556,11 @@ function ConditionAdaptive({
     }
 
     function handleIntakeAnswer(field: keyof IntakeProfile, value: string) {
+        track({
+            event_type: "intake_answered",
+            field,
+            value,
+        });
         const next = { ...profile, [field]: value };
         setProfile(next);
         if (step < intakeSteps - 1) {
@@ -526,7 +643,8 @@ function ConditionAdaptive({
                         <div className="space-y-2">
                             <RankedList
                                 cards={spark.cards}
-                                onPick={(card) => {
+                                onPick={(card, rank) => {
+                                    track({ event_type: "card_selected", rank });
                                     actions.selectCard(card);
                                     setStep(5); // card+adjust preview step
                                 }}
@@ -556,7 +674,10 @@ function ConditionAdaptive({
             {step === timerStep && spark.card && (
                 <SparkTimer
                     frame={(spark.card.frame as SparkFrame) ?? "calm"}
-                    onDone={() => setStep(fbStep)}
+                    onDone={(completion) => {
+                        track({ event_type: "timer_finished", completion });
+                        setStep(fbStep);
+                    }}
                 />
             )}
 
@@ -568,6 +689,14 @@ function ConditionAdaptive({
                             type="button"
                             className="spark-chip"
                             onClick={() => {
+                                if (feedback.tried !== null) {
+                                    track({
+                                        event_type: "feedback_submitted",
+                                        tried: feedback.tried,
+                                        reason: feedback.reason,
+                                        tweak: feedback.tweak,
+                                    });
+                                }
                                 // Remix from feedback
                                 if (feedback.tweak) actions.adjust(feedback.tweak);
                                 else actions.adjust(feedback.reason ?? "different");
@@ -580,7 +709,17 @@ function ConditionAdaptive({
                             type="button"
                             disabled={feedback.tried === null}
                             className={`spark-chip ${feedback.tried === null ? "opacity-40" : ""}`}
-                            onClick={() => setStep(cueStep)}
+                            onClick={() => {
+                                if (feedback.tried !== null) {
+                                    track({
+                                        event_type: "feedback_submitted",
+                                        tried: feedback.tried,
+                                        reason: feedback.reason,
+                                        tweak: feedback.tweak,
+                                    });
+                                }
+                                setStep(cueStep);
+                            }}
                         >
                             Next
                         </button>
@@ -599,7 +738,21 @@ function ConditionAdaptive({
                         onReminder={setReminder}
                         onConfidence={setConfidence}
                     />
-                    <ContinueBtn label="Next" disabled={!cue} onClick={() => setStep(reflectStep)} />
+                    <ContinueBtn
+                        label="Next"
+                        disabled={!cue}
+                        onClick={() => {
+                            if (cue) {
+                                track({
+                                    event_type: "cue_selected",
+                                    cue,
+                                    reminder: reminder as "calendar" | "email" | "skip" | null,
+                                    confidence,
+                                });
+                            }
+                            setStep(reflectStep);
+                        }}
+                    />
                 </>
             )}
 
@@ -608,7 +761,17 @@ function ConditionAdaptive({
                     condition={condition}
                     rating={rating}
                     onChange={setRating}
-                    onFinish={onExit}
+                    onFinish={() => {
+                        if (rating.fit && rating.clarity && rating.willing) {
+                            track({
+                                event_type: "condition_completed",
+                                fit: rating.fit,
+                                clarity: rating.clarity,
+                                willing: rating.willing,
+                            });
+                        }
+                        onExit();
+                    }}
                     onGoto={onGoto}
                 />
             )}
@@ -666,6 +829,7 @@ function ConditionTabs({
 // ---------------------------------------------------------------------------
 export function Spark() {
     const [condition, setCondition] = useState<SparkCondition | null>(null);
+    const getIdentity = getSparkResearchIdentity;
 
     function goto(c: SparkCondition | null) {
         setCondition(c);
@@ -683,16 +847,25 @@ export function Spark() {
 
                 {condition === null && <SparkHome onStart={(c) => goto(c)} />}
                 {condition === "A" && (
-                    <ConditionA onExit={() => goto(null)} onGoto={(c) => goto(c)} />
+                    <ConditionA
+                        onExit={() => goto(null)}
+                        onGoto={(c) => goto(c)}
+                        getIdentity={getIdentity}
+                    />
                 )}
                 {condition === "B" && (
-                    <ConditionB onExit={() => goto(null)} onGoto={(c) => goto(c)} />
+                    <ConditionB
+                        onExit={() => goto(null)}
+                        onGoto={(c) => goto(c)}
+                        getIdentity={getIdentity}
+                    />
                 )}
                 {condition === "C" && (
                     <ConditionAdaptive
                         condition="C"
                         onExit={() => goto(null)}
                         onGoto={(c) => goto(c)}
+                        getIdentity={getIdentity}
                     />
                 )}
                 {condition === "D" && (
@@ -700,6 +873,7 @@ export function Spark() {
                         condition="D"
                         onExit={() => goto(null)}
                         onGoto={(c) => goto(c)}
+                        getIdentity={getIdentity}
                     />
                 )}
             </div>

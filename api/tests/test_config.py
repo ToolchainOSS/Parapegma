@@ -154,3 +154,12 @@ def test_feedback_options(monkeypatch):
     monkeypatch.setenv("FEEDBACK_OPTIONS", " , ")
     config.clear_config_cache()
     assert config.get_feedback_options() == ["Works perfectly", "Needs tweaks"]
+
+
+def test_get_spark_identity_hmac_key(monkeypatch):
+    monkeypatch.delenv("SPARK_IDENTITY_HMAC_KEY", raising=False)
+    assert config.get_spark_identity_hmac_key() == ""
+
+    monkeypatch.setenv("SPARK_IDENTITY_HMAC_KEY", "study-secret")
+    config.clear_config_cache()
+    assert config.get_spark_identity_hmac_key() == "study-secret"

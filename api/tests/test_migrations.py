@@ -73,6 +73,9 @@ _EXPECTED_TABLES = {
     "notification_deliveries",
     "scheduled_tasks",
     "daily_summaries",
+    "spark_participants",
+    "spark_fingerprint_observations",
+    "spark_interactions",
 }
 
 

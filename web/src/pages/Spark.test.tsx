@@ -10,6 +10,21 @@ vi.mock("../api/client", () => ({
     },
 }));
 
+vi.mock("./spark/sparkResearchIdentity", () => ({
+    createSparkClientId: () => "00000000-0000-4000-8000-000000000001",
+    getSparkResearchIdentity: async () => ({
+        installation_id: "00000000-0000-4000-8000-000000000002",
+        fingerprint: "test-thumbmark",
+        fingerprint_version: "1.10.0",
+        timezone: "America/Toronto",
+        locale: "en-CA",
+    }),
+}));
+
+vi.mock("./spark/sparkTelemetry", () => ({
+    useSparkEventTracker: () => vi.fn(),
+}));
+
 // Minimal card fixture
 const CARD = {
     title: "Desk Reset",
@@ -58,6 +73,10 @@ describe("Spark page", () => {
         await waitFor(() => {
             expect(mockPost).toHaveBeenCalledWith("/spark/generate", {
                 body: expect.objectContaining({
+                    identity: expect.objectContaining({
+                        installation_id: "00000000-0000-4000-8000-000000000002",
+                        fingerprint: "test-thumbmark",
+                    }),
                     condition: "A",
                     adjustment_history: [],
                     count: 1,

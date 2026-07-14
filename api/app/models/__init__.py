@@ -39,6 +39,11 @@ from app.models.profile import (
     PatchAuditLog,
     UserProfileStore,
 )
+from app.models.spark_research import (
+    SparkFingerprintObservation,
+    SparkInteraction,
+    SparkParticipant,
+)
 
 __all__ = [
     "Base",
@@ -63,5 +68,8 @@ __all__ = [
     "ProjectMembership",
     "PushSubscription",
     "ScheduledTask",
+    "SparkFingerprintObservation",
+    "SparkInteraction",
+    "SparkParticipant",
     "UserProfileStore",
 ]

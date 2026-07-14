@@ -4,7 +4,7 @@ import { FRAMINGS, type SparkFrame } from "./sparkData";
 
 interface RankedListProps {
     cards: SparkCardData[];
-    onPick: (card: SparkCardData) => void;
+    onPick: (card: SparkCardData, rank: number) => void;
 }
 
 /**
@@ -42,7 +42,7 @@ export function RankedList({ cards, onPick }: RankedListProps) {
                             key={`${card.title}-${idx}`}
                             type="button"
                             className="text-left rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-4 flex gap-3 transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
-                            onClick={() => onPick(card)}
+                            onClick={() => onPick(card, idx + 1)}
                         >
                             {/* rank badge */}
                             <div

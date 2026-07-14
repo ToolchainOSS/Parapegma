@@ -184,6 +184,22 @@ def get_randomization_salt() -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Spark anonymous research identity
+# ---------------------------------------------------------------------------
+
+
+@cache
+def get_spark_identity_hmac_key() -> str:
+    """Return the deployment secret for Spark pseudonymous identifiers.
+
+    Spark's browser-local installation id and optional fingerprint are never
+    stored raw. The telemetry service requires a stable, ≥32-character secret
+    to HMAC them before persistence.
+    """
+    return os.environ.get("SPARK_IDENTITY_HMAC_KEY", "")
+
+
+# ---------------------------------------------------------------------------
 # Spark A/B Google Sheets source (additive; Sheets used only when configured)
 # ---------------------------------------------------------------------------
 
@@ -260,6 +276,7 @@ def clear_config_cache() -> None:
     get_port.cache_clear()
     get_log_level.cache_clear()
     get_randomization_salt.cache_clear()
+    get_spark_identity_hmac_key.cache_clear()
     get_spark_sheets_credentials_json.cache_clear()
     get_spark_sheets_spreadsheet_id.cache_clear()
     get_spark_sheets_range.cache_clear()

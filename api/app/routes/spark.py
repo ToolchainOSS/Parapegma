@@ -1,7 +1,9 @@
-"""Stateless Spark prototype routes.
+"""Spark prototype generation and pseudonymous research telemetry routes.
 
-These endpoints are intentionally isolated from existing Flow conversation
-state and perform no database writes.
+Spark remains isolated from existing Flow conversation state and requires no
+registration. The client carries remix state as before. Each request also
+contains a browser-local pseudonymous identifier and optional ThumbmarkJS
+fingerprint; raw values are immediately HMACed and never persisted or logged.
 
 Conditions A ("Random Spark") and B ("pick a vibe") are non-adaptive control
 groups: they are served entirely from a researcher-curated static library
@@ -28,15 +30,26 @@ import json
 import logging
 import re
 from typing import Annotated, Literal
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationError, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_llm_model, get_openai_api_key
+from app.db import get_db
 from app.llm import make_chat_llm
 from app.prompt_loader import prompt_version
+from app.schemas.spark_research import SparkClientIdentity, SparkEventRequest
 from app.services.spark_library import SparkFrame, library_version, pick_static_sparks
+from app.services.spark_research import (
+    ResolvedSparkParticipant,
+    SparkResearchConfigurationError,
+    get_spark_interaction,
+    persist_spark_interaction,
+    resolve_spark_participant,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +69,9 @@ class SparkCard(BaseModel):
 
 
 class SparkGenerateRequest(BaseModel):
+    identity: SparkClientIdentity
+    flow_id: UUID
+    client_event_id: UUID
     condition: Literal["A", "B", "C", "D"]
     frame_preference: SparkFrame | None = None
     context: str | None = Field(default=None, max_length=800)
@@ -131,18 +147,102 @@ def _build_user_prompt(body: SparkGenerateRequest) -> str:
     return json.dumps(payload, ensure_ascii=True)
 
 
+async def _resolve_participant_or_503(
+    db: AsyncSession, identity: SparkClientIdentity
+) -> ResolvedSparkParticipant:
+    try:
+        return await resolve_spark_participant(
+            db,
+            installation_id=str(identity.installation_id),
+            fingerprint=identity.fingerprint,
+            fingerprint_version=identity.fingerprint_version,
+            timezone=identity.timezone,
+            locale=identity.locale,
+        )
+    except SparkResearchConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Spark research identity is not configured",
+        ) from exc
+
+
+def _generation_event_payload(
+    body: SparkGenerateRequest, response: SparkGenerateResponse
+) -> dict[str, object]:
+    """Build persisted data without the raw browser identity inputs."""
+    request_payload: dict[str, object] = {
+        "condition": body.condition,
+        "frame_preference": body.frame_preference,
+        "context": body.context,
+        "adjustment_history": body.adjustment_history,
+        "count": body.count,
+    }
+    if body.base_card is not None:
+        request_payload["base_card"] = body.base_card.model_dump(mode="json")
+    return {
+        "request": request_payload,
+        "response": response.model_dump(mode="json"),
+    }
+
+
+async def _persist_generation_response(
+    db: AsyncSession,
+    *,
+    participant: ResolvedSparkParticipant,
+    body: SparkGenerateRequest,
+    response: SparkGenerateResponse,
+) -> SparkGenerateResponse:
+    await persist_spark_interaction(
+        db,
+        participant_id=participant.participant_id,
+        flow_id=str(body.flow_id),
+        client_event_id=str(body.client_event_id),
+        condition=body.condition,
+        event_type="generation_succeeded",
+        payload=_generation_event_payload(body, response),
+    )
+    await db.commit()
+    return response
+
+
 @router.post("/spark/generate", tags=["spark"])
 async def spark_generate(
     body: SparkGenerateRequest,
+    db: AsyncSession = Depends(get_db),
 ) -> SparkGenerateResponse:
     """Generate one or more Spark cards.
 
     Intentionally unauthenticated: Spark is a public, no-login prototype so
-    anyone can try it without creating an account.
+    anyone can try it without creating an account. The persisted research
+    identity is pseudonymous and is never an authentication factor.
 
     Conditions A and B are served from the static, researcher-curated
     library and never touch the LLM. Conditions C and D proxy to the LLM.
     """
+    participant = await _resolve_participant_or_503(db, body.identity)
+    existing = await get_spark_interaction(
+        db,
+        participant_id=participant.participant_id,
+        client_event_id=str(body.client_event_id),
+    )
+    if existing is not None:
+        if existing.event_type != "generation_succeeded":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Spark event id was already used for a different event",
+            )
+        stored_response = existing.payload_json.get("response")
+        try:
+            response = SparkGenerateResponse.model_validate(stored_response)
+        except ValidationError as exc:  # pragma: no cover - persisted corruption guard
+            logger.exception("Stored Spark generation response is invalid")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Stored Spark generation response is invalid",
+            ) from exc
+        await db.commit()
+        return response
+
     if body.condition in ("A", "B"):
         try:
             resolved = await pick_static_sparks(
@@ -175,11 +275,16 @@ async def spark_generate(
         if body.condition == "A":
             cards = cards[:1]
 
-        return SparkGenerateResponse(
-            condition=body.condition,
-            cards=cards,
-            model="static-library",
-            prompt_version=library_version(),
+        return await _persist_generation_response(
+            db,
+            participant=participant,
+            body=body,
+            response=SparkGenerateResponse(
+                condition=body.condition,
+                cards=cards,
+                model="static-library",
+                prompt_version=library_version(),
+            ),
         )
 
     llm_key = get_openai_api_key()
@@ -250,9 +355,35 @@ async def spark_generate(
             detail="Spark model returned no cards",
         )
 
-    return SparkGenerateResponse(
-        condition=body.condition,
-        cards=cards,
-        model=model_name,
-        prompt_version=prompt_version(PROMPT_NAME),
+    return await _persist_generation_response(
+        db,
+        participant=participant,
+        body=body,
+        response=SparkGenerateResponse(
+            condition=body.condition,
+            cards=cards,
+            model=model_name,
+            prompt_version=prompt_version(PROMPT_NAME),
+        ),
     )
+
+
+@router.post("/spark/events", status_code=status.HTTP_204_NO_CONTENT, tags=["spark"])
+async def spark_record_event(
+    body: SparkEventRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Persist a strictly typed, idempotent Spark interaction event."""
+    participant = await _resolve_participant_or_503(db, body.identity)
+    event_payload = body.event.model_dump(mode="json")
+    await persist_spark_interaction(
+        db,
+        participant_id=participant.participant_id,
+        flow_id=str(body.flow_id),
+        client_event_id=str(body.client_event_id),
+        condition=body.condition,
+        event_type=event_payload["event_type"],
+        payload=event_payload,
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

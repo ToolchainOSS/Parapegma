@@ -46,6 +46,10 @@ services:
       # 4-condition experiment salt (REQUIRED for engine to assign conditions).
       FLOW_RANDOMIZATION_SALT: ${FLOW_RANDOMIZATION_SALT:-}
 
+      # Required for pseudonymous, no-registration Spark research telemetry.
+      # A stable secret HMACs browser-local ids and Thumbmark fingerprints.
+      SPARK_IDENTITY_HMAC_KEY: ${SPARK_IDENTITY_HMAC_KEY:-}
+
       # VAPID Web Push (push disabled if either is empty).
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}

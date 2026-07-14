@@ -21,6 +21,10 @@ import { useCallback, useRef, useState } from "react";
 import api from "../../api/client";
 import type { SparkCard, SparkGenerateResponse } from "../../api/types";
 import type { SparkCondition, SparkFrame } from "./sparkData";
+import {
+    createSparkClientId,
+    type SparkIdentityProvider,
+} from "./sparkResearchIdentity";
 
 const MAX_HISTORY = 20;
 
@@ -53,6 +57,11 @@ interface GenerateOpts {
     count?: number;
 }
 
+interface SparkRemixResearchContext {
+    flowId: string;
+    getIdentity: SparkIdentityProvider;
+}
+
 function initialState(): SparkRemixState {
     return {
         card: null,
@@ -64,8 +73,11 @@ function initialState(): SparkRemixState {
     };
 }
 
-export function useSparkRemix(): [SparkRemixState, SparkRemixActions] {
+export function useSparkRemix(
+    research: SparkRemixResearchContext,
+): [SparkRemixState, SparkRemixActions] {
     const [state, setState] = useState<SparkRemixState>(initialState);
+    const { flowId, getIdentity } = research;
     // Keep opts from the last generate call so adjust can re-use condition/frame/context
     const optsRef = useRef<GenerateOpts>({ condition: "A" });
 
@@ -73,8 +85,12 @@ export function useSparkRemix(): [SparkRemixState, SparkRemixActions] {
         async (opts: GenerateOpts, baseCard: SparkCard | null, history: string[]) => {
             setState((s) => ({ ...s, loading: true, error: null }));
             try {
+                const identity = await getIdentity();
                 const { data, error: apiError } = await api.POST("/spark/generate", {
                     body: {
+                        identity,
+                        flow_id: flowId,
+                        client_event_id: createSparkClientId(),
                         condition: opts.condition,
                         frame_preference: opts.frame ?? undefined,
                         context: opts.context ?? undefined,
@@ -101,7 +117,7 @@ export function useSparkRemix(): [SparkRemixState, SparkRemixActions] {
                 }));
             }
         },
-        [],
+        [flowId, getIdentity],
     );
 
     const generate = useCallback(

@@ -233,7 +233,8 @@ All project-scoped endpoints require passkey authentication.
 | `POST` | `/notifications/webpush/subscriptions` | notifications | Create/upsert push subscription (user-scoped) |
 | `DELETE` | `/notifications/webpush/subscriptions/{subscription_id}` | notifications | Revoke a push subscription |
 | `GET` | `/notifications/webpush/subscriptions` | notifications | List active push subscriptions (debug) |
-| `POST` | `/spark/generate` | spark | Stateless Spark card generation via LLM proxy |
+| `POST` | `/spark/generate` | spark | Generate an idempotent, pseudonymously logged Spark card response |
+| `POST` | `/spark/events` | spark | Record a typed, idempotent anonymous Spark interaction event |
 | `GET` | `/admin/debug/status` | admin | System debug status |
 | `POST` | `/admin/debug/llm-connectivity` | admin | Test LLM connectivity |
 | `POST` | `/admin/projects` | admin | Create a new project |
@@ -282,6 +283,9 @@ RUN_PLAYWRIGHT=1 RUN_COMPOSE_E2E=1 bash scripts/ci/pre_push_quality_gate.sh
 | `participations` | auto-increment int | One row per participant in a study; carries `study_start_date`, condition assignment salt |
 | `daily_intervention_logs` | auto-increment int | Per-day telemetry (condition assigned, extracted state, script answers) |
 | `daily_summaries` | auto-increment int | EOD sterilized cross-day memory (1 row per participation/day) |
+| `spark_participants` | auto-increment int | Anonymous Spark participants keyed only by a server-HMACed browser-local id |
+| `spark_fingerprint_observations` | auto-increment int | HMACed Thumbmark observations for fingerprint stability/collision analysis |
+| `spark_interactions` | auto-increment int | Immutable typed Spark flow, generation, choice, feedback, and outcome events |
 | `user_profiles` | auto-increment int | **Store A** — structured profile JSON (1:1 with membership) |
 | `memory_items` | auto-increment int | **Store B** — semi-structured memory items per membership |
 | `patch_audit_log` | auto-increment int | Audit trail: proposals, decisions, commits |
@@ -410,6 +414,7 @@ Configure in `.env` at the repository root (see `.env.example`):
 | `OPENAI_API_KEY` | (none) | OpenAI API key for live LLM responses |
 | `H4CKATH0N_OPENAI_API_KEY` | (none) | Optional alternate name for the OpenAI key |
 | `FLOW_RANDOMIZATION_SALT` | (none) | Per-deployment salt for deterministic 4-condition daily assignment (≥32 chars in production) |
+| `SPARK_IDENTITY_HMAC_KEY` | (none) | **Required for Spark research telemetry.** Stable deployment secret (≥32 chars) used to HMAC browser-local ids and fingerprints; never log or rotate during a study. |
 | `VAPID_PUBLIC_KEY` | `""` | VAPID public key for Web Push |
 | `VAPID_PRIVATE_KEY` | `""` | VAPID private key for Web Push (never log) |
 | `VAPID_CLAIM_SUB` | `mailto:flow@oss.joefang.org` | VAPID subject claim |

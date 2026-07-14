@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
@@ -28,6 +28,9 @@ from app.models import (
     ProjectMembership,
     PushSubscription,
     ScheduledTask,
+    SparkFingerprintObservation,
+    SparkInteraction,
+    SparkParticipant,
 )
 from app.services.spark_library import clear_library_cache
 from h4ckath0n.auth.models import Base as H4ckath0nBase
@@ -43,6 +46,34 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 _test_engine = create_async_engine("sqlite+aiosqlite://", echo=False)
 _test_session_factory = async_sessionmaker(_test_engine, expire_on_commit=False)
+
+_SPARK_REQUEST_CONTEXT = {
+    "identity": {
+        "installation_id": "00000000-0000-4000-8000-000000000001",
+        "fingerprint": "test-thumbmark",
+        "fingerprint_version": "1.10.0",
+        "timezone": "America/Toronto",
+        "locale": "en-CA",
+    },
+    "flow_id": "00000000-0000-4000-8000-000000000002",
+    "client_event_id": "00000000-0000-4000-8000-000000000003",
+}
+
+
+def _spark_request(**payload: Any) -> dict[str, Any]:
+    return {**_SPARK_REQUEST_CONTEXT, **payload}
+
+
+@pytest.fixture(autouse=True)
+def _spark_research_identity_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None, None, None]:
+    monkeypatch.setenv(
+        "SPARK_IDENTITY_HMAC_KEY", "spark-test-hmac-key-at-least-32-chars"
+    )
+    clear_config_cache()
+    yield
+    clear_config_cache()
 
 
 async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -1193,14 +1224,14 @@ async def test_spark_generate_requires_openai_key(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "C", "count": 1},
+        json=_spark_request(condition="C", count=1),
     )
     assert resp.status_code == 503
     clear_config_cache()
 
 
 @pytest.mark.asyncio
-async def test_spark_generate_success_is_stateless(
+async def test_spark_generate_isolated_from_flow_chat_state(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.routes import spark as spark_routes
@@ -1243,13 +1274,13 @@ async def test_spark_generate_success_is_stateless(
 
     resp = await client.post(
         "/spark/generate",
-        json={
-            "condition": "C",
-            "frame_preference": "calm",
-            "context": "I am about to start a meeting.",
-            "adjustment_history": ["make it subtle"],
-            "count": 3,
-        },
+        json=_spark_request(
+            condition="C",
+            frame_preference="calm",
+            context="I am about to start a meeting.",
+            adjustment_history=["make it subtle"],
+            count=3,
+        ),
     )
     assert resp.status_code == 200
     payload = resp.json()
@@ -1266,6 +1297,76 @@ async def test_spark_generate_success_is_stateless(
         after_msg_count = await db.scalar(select(func.count(Message.id)))
     assert before_msg_count == after_msg_count
     clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generation_persists_pseudonymous_identity_and_is_idempotent(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("H4CKATH0N_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
+    clear_config_cache()
+    clear_library_cache()
+
+    body = _spark_request(condition="A", count=1)
+    first = await client.post("/spark/generate", json=body)
+    second = await client.post("/spark/generate", json=body)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json() == first.json()
+
+    async with _test_session_factory() as db:
+        participant = await db.scalar(select(SparkParticipant))
+        observation = await db.scalar(select(SparkFingerprintObservation))
+        interactions = list(
+            (
+                await db.scalars(select(SparkInteraction).order_by(SparkInteraction.id))
+            ).all()
+        )
+
+    assert participant is not None
+    assert (
+        participant.installation_key_hash
+        != _SPARK_REQUEST_CONTEXT["identity"]["installation_id"]
+    )
+    assert observation is not None
+    assert (
+        observation.fingerprint_hash
+        != _SPARK_REQUEST_CONTEXT["identity"]["fingerprint"]
+    )
+    assert observation.observation_count == 2
+    assert len(interactions) == 1
+    assert interactions[0].event_type == "generation_succeeded"
+    assert "identity" not in interactions[0].payload_json["request"]
+    assert interactions[0].payload_json["response"] == first.json()
+    clear_config_cache()
+    clear_library_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_event_is_persisted_once_per_client_event_id(
+    client: AsyncClient,
+) -> None:
+    body = {
+        **_SPARK_REQUEST_CONTEXT,
+        "condition": "D",
+        "event": {"event_type": "card_selected", "rank": 2},
+    }
+
+    first = await client.post("/spark/events", json=body)
+    second = await client.post("/spark/events", json=body)
+
+    assert first.status_code == 204
+    assert second.status_code == 204
+    async with _test_session_factory() as db:
+        interactions = list((await db.scalars(select(SparkInteraction))).all())
+    assert len(interactions) == 1
+    assert interactions[0].condition == "D"
+    assert interactions[0].event_type == "card_selected"
+    assert interactions[0].payload_json == {"event_type": "card_selected", "rank": 2}
 
 
 def test_spark_helper_content_to_text_variants() -> None:
@@ -1303,6 +1404,7 @@ def test_spark_build_user_prompt_is_json() -> None:
     from app.routes import spark as spark_routes
 
     body = spark_routes.SparkGenerateRequest(
+        **_SPARK_REQUEST_CONTEXT,
         condition="D",
         frame_preference="science",
         context="desk",
@@ -1331,6 +1433,7 @@ def test_spark_build_user_prompt_includes_base_card() -> None:
         fit_score=80,
     )
     body = spark_routes.SparkGenerateRequest(
+        **_SPARK_REQUEST_CONTEXT,
         condition="C",
         base_card=base,
         adjustment_history=["make it easier", "seated please"],
@@ -1347,6 +1450,7 @@ def test_spark_history_is_capped_at_twenty() -> None:
 
     long_history = [f"adjustment {i}" for i in range(30)]
     body = spark_routes.SparkGenerateRequest(
+        **_SPARK_REQUEST_CONTEXT,
         condition="A",
         adjustment_history=long_history,
         count=1,
@@ -1407,7 +1511,7 @@ async def test_spark_generate_sorts_condition_d_cards(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "D", "count": 4},
+        json=_spark_request(condition="D", count=4),
     )
     assert resp.status_code == 200
     cards = resp.json()["cards"]
@@ -1437,7 +1541,7 @@ async def test_spark_generate_condition_a_is_static_and_skips_llm(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "A", "count": 3},
+        json=_spark_request(condition="A", count=3),
     )
     assert resp.status_code == 200
     payload = resp.json()
@@ -1471,7 +1575,7 @@ async def test_spark_generate_condition_b_filters_by_frame_preference(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "B", "frame_preference": "silly", "count": 3},
+        json=_spark_request(condition="B", frame_preference="silly", count=3),
     )
     assert resp.status_code == 200
     payload = resp.json()
@@ -1495,7 +1599,7 @@ async def test_spark_generate_condition_b_requires_frame_preference(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "B", "count": 3},
+        json=_spark_request(condition="B", count=3),
     )
     assert resp.status_code == 422
     clear_config_cache()
@@ -1539,7 +1643,7 @@ async def test_spark_generate_invalid_payload_returns_502(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "C", "count": 3},
+        json=_spark_request(condition="C", count=3),
     )
     assert resp.status_code == 502
     assert resp.json()["detail"] == "Spark model produced invalid response shape"
@@ -1574,7 +1678,7 @@ async def test_spark_generate_timeout_returns_504(
 
     resp = await client.post(
         "/spark/generate",
-        json={"condition": "C", "count": 1},
+        json=_spark_request(condition="C", count=1),
     )
     assert resp.status_code == 504
     assert resp.json()["detail"] == "Spark model request timed out"
