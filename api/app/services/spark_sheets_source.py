@@ -41,23 +41,23 @@ Security notes
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import urllib.parse
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 import requests
-from google.auth.transport.requests import Request as GoogleRequest
-from google.oauth2.service_account import Credentials
 
 from app.services.spark_library import ALL_FRAMES, SparkFrame, SparkLibraryEntry
+from app.services.spark_sheets_credentials import (
+    load_readonly_service_account_credentials,
+    make_timeout_bound_google_request,
+)
 
 logger = logging.getLogger(__name__)
 
-_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 _SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
 
 # Field length limits mirror the SparkCard Pydantic constraints in routes/spark.py.
@@ -460,16 +460,15 @@ def fetch_entries_from_sheets(
     google.auth.exceptions.TransportError
         Token refresh failed (bad credentials or network error).
     """
-    creds_data: dict[str, Any] = json.loads(credentials_json)
-    creds = Credentials.from_service_account_info(creds_data, scopes=_SCOPES)
-
-    key_hint = creds_data.get("client_email", "")[:24] or "<unknown>"
+    creds = load_readonly_service_account_credentials(credentials_json)
+    key_hint = creds.service_account_email[:24] or "<unknown>"
     logger.debug("Refreshing Sheets token for service account %r", key_hint)
 
-    # Use a plain session for token refresh; pass timeout explicitly to our
-    # own HTTP call to avoid fragile session-level monkey-patching.
+    # Apply the configured bound to both OAuth token refresh and the Sheets
+    # API GET. Credentials.refresh() otherwise uses google-auth's 120 s
+    # default independently of SPARK_SHEETS_REQUEST_TIMEOUT_SECS.
     session = requests.Session()
-    creds.refresh(GoogleRequest(session=session))
+    creds.refresh(make_timeout_bound_google_request(session, timeout))
 
     url = (
         f"{_SHEETS_API_BASE}"
