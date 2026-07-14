@@ -34,6 +34,7 @@ Selection logic (unchanged)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import random
@@ -114,17 +115,18 @@ class ResolvedSpark:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class _CacheState:
     entries: tuple[SparkLibraryEntry, ...]
     version_hash: str
     source: Literal["sheets", "file"]
     fetched_at: float = field(default_factory=monotonic)
-    is_refreshing: bool = False
 
 
 _cache: _CacheState | None = None
-_startup_warmup_task: asyncio.Task[None] | None = None
+_refresh_task: asyncio.Task[bool] | None = None
+_refresh_lock: asyncio.Lock | None = None
+_refresh_lock_loop: asyncio.AbstractEventLoop | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -299,86 +301,103 @@ async def _do_refresh() -> None:
     )
 
 
-async def _background_refresh() -> None:
-    """Background coroutine: refresh the cache and reset the in-flight flag."""
-    global _cache
-    try:
-        await _do_refresh()
-    except Exception as exc:
-        logger.error("Spark library background refresh failed entirely: %s", exc)
-    finally:
-        # Reset the flag on whatever cache object is current so future stale
-        # requests can schedule another refresh attempt.
-        if _cache is not None:
-            _cache.is_refreshing = False
+def _get_refresh_lock() -> asyncio.Lock:
+    """Return the single-flight lock for the current application event loop."""
+    global _refresh_lock, _refresh_lock_loop
+
+    loop = asyncio.get_running_loop()
+    if _refresh_lock is None:
+        _refresh_lock = asyncio.Lock()
+        _refresh_lock_loop = loop
+    elif _refresh_lock_loop is not loop:
+        if _refresh_task is not None and not _refresh_task.done():
+            raise RuntimeError("Spark library refresh cannot cross event loops")
+        _refresh_lock = asyncio.Lock()
+        _refresh_lock_loop = loop
+    return _refresh_lock
 
 
-async def _run_sheets_startup_warmup() -> None:
-    """Warm the configured Sheets library without delaying API readiness."""
+async def _run_library_refresh() -> bool:
+    """Refresh once, containing failures for all concurrent task joiners."""
     try:
         await _do_refresh()
+        return _cache is not None
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         logger.error(
-            "Spark Sheets remote warmup failed entirely (%s): %s",
+            "Spark library refresh failed entirely (%s): %s",
             type(exc).__name__,
             exc,
         )
+        return False
 
 
-def schedule_sheets_startup_warmup() -> asyncio.Task[None] | None:
+async def _get_or_create_refresh_task() -> tuple[asyncio.Task[bool], bool]:
+    """Return the one in-flight refresh task, creating it exactly once."""
+    global _refresh_task
+
+    async with _get_refresh_lock():
+        if _refresh_task is None or _refresh_task.done():
+            _refresh_task = asyncio.create_task(
+                _run_library_refresh(),
+                name="spark-library-refresh",
+            )
+            return _refresh_task, True
+        return _refresh_task, False
+
+
+async def schedule_sheets_startup_warmup() -> asyncio.Task[bool] | None:
     """Schedule one non-blocking startup fetch when Sheets is configured.
 
     The returned task loads, validates, and caches the remote library. API
     startup deliberately does not await it. A first A/B request that arrives
     during the warmup awaits this task rather than issuing a duplicate fetch.
     """
-    global _startup_warmup_task
-
     if not _sheets_is_configured():
         return None
 
-    if _startup_warmup_task is None or _startup_warmup_task.done():
-        _startup_warmup_task = asyncio.create_task(
-            _run_sheets_startup_warmup(),
-            name="spark-sheets-startup-warmup",
-        )
+    task, created = await _get_or_create_refresh_task()
+    if created:
         logger.info("Spark Sheets remote warmup scheduled; API startup will not wait")
-    return _startup_warmup_task
+    return task
+
+
+async def cancel_library_refresh() -> None:
+    """Cancel and join the single in-flight refresh during application shutdown."""
+    async with _get_refresh_lock():
+        task = _refresh_task
+        if task is None or task.done():
+            return
+        task.cancel()
+
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
 
 
 async def _get_library() -> tuple[SparkLibraryEntry, ...]:
     """Return library entries, applying stale-while-revalidate semantics."""
-    global _cache
     from app.config import get_spark_sheets_cache_ttl
 
     ttl = get_spark_sheets_cache_ttl()
     now = monotonic()
+    snapshot = _cache
 
-    if _cache is not None:
-        if (now - _cache.fetched_at) < ttl:
-            return _cache.entries  # fresh: serve immediately
+    if snapshot is not None:
+        if (now - snapshot.fetched_at) < ttl:
+            return snapshot.entries  # fresh: serve immediately
 
         # Stale: return current snapshot and kick off a background refresh.
-        if not _cache.is_refreshing:
-            _cache.is_refreshing = True
-            asyncio.get_running_loop().create_task(_background_refresh())
+        await _get_or_create_refresh_task()
+        return snapshot.entries
+
+    # Cold start: join a startup refresh or create exactly one new refresh.
+    refresh_task, _ = await _get_or_create_refresh_task()
+    loaded = await asyncio.shield(refresh_task)
+    if loaded and _cache is not None:
         return _cache.entries
 
-    # Cold start: first request triggers a synchronous load.
-    if _startup_warmup_task is not None and not _startup_warmup_task.done():
-        await asyncio.shield(_startup_warmup_task)
-        if _cache is not None:
-            return _cache.entries
-
-    await _do_refresh()
-    if _cache is not None:
-        return _cache.entries
-
-    raise RuntimeError(  # pragma: no cover — _do_refresh raises before this
-        "Spark library failed to load from all sources"
-    )
+    raise RuntimeError("Spark library failed to load from all sources")
 
 
 # ---------------------------------------------------------------------------
@@ -415,10 +434,12 @@ def library_version() -> dict[str, str]:
 
 def clear_library_cache() -> None:
     """Reset the in-memory cache.  Used in tests to isolate cache state."""
-    global _cache, _startup_warmup_task
+    global _cache, _refresh_lock, _refresh_lock_loop, _refresh_task
     _cache = None
-    if _startup_warmup_task is not None and _startup_warmup_task.done():
-        _startup_warmup_task = None
+    if _refresh_task is None or _refresh_task.done():
+        _refresh_task = None
+        _refresh_lock = None
+        _refresh_lock_loop = None
 
 
 async def pick_static_sparks(

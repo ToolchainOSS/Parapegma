@@ -8,6 +8,7 @@ import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from time import monotonic
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -738,8 +739,12 @@ async def test_sheets_startup_warmup_is_nonblocking(
     monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
 
     with _capture_library_logs(logging.INFO) as messages:
-        task = spark_library.schedule_sheets_startup_warmup()
+        tasks = await asyncio.gather(
+            *(spark_library.schedule_sheets_startup_warmup() for _ in range(8))
+        )
+        task = tasks[0]
         assert task is not None
+        assert all(scheduled_task is task for scheduled_task in tasks)
         assert not task.done()
         await refresh_started.wait()
         assert not task.done()
@@ -774,7 +779,7 @@ async def test_first_request_awaits_sheets_startup_warmup(
 
     monkeypatch.setattr(spark_library, "_sheets_is_configured", lambda: True)
     monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
-    warmup_task = spark_library.schedule_sheets_startup_warmup()
+    warmup_task = await spark_library.schedule_sheets_startup_warmup()
     assert warmup_task is not None
     await refresh_started.wait()
 
@@ -790,6 +795,171 @@ async def test_first_request_awaits_sheets_startup_warmup(
 
     assert len(resolved) == 1
     assert refresh_count == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_cold_requests_share_one_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent cold A/B requests must await one shared refresh task."""
+    from app.services import spark_library
+
+    entries = _make_fake_entries()
+    refresh_started = asyncio.Event()
+    allow_refresh_to_finish = asyncio.Event()
+    refresh_count = 0
+
+    async def delayed_refresh() -> None:
+        nonlocal refresh_count
+        refresh_count += 1
+        refresh_started.set()
+        await allow_refresh_to_finish.wait()
+        spark_library._cache = spark_library._CacheState(
+            entries=entries,
+            version_hash=spark_library._compute_hash(entries),
+            source="sheets",
+        )
+
+    monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
+    requests = [
+        asyncio.create_task(
+            pick_static_sparks(condition="A", frame_preference=None, count=1)
+        )
+        for _ in range(8)
+    ]
+    await refresh_started.wait()
+
+    assert refresh_count == 1
+    assert all(not request.done() for request in requests)
+
+    allow_refresh_to_finish.set()
+    resolved = await asyncio.gather(*requests)
+
+    assert refresh_count == 1
+    assert all(len(result) == 1 for result in resolved)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_cold_request_does_not_cancel_shared_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A disconnected caller cannot cancel the shared cold-cache refresh."""
+    from app.services import spark_library
+
+    entries = _make_fake_entries()
+    refresh_started = asyncio.Event()
+    allow_refresh_to_finish = asyncio.Event()
+
+    async def delayed_refresh() -> None:
+        refresh_started.set()
+        await allow_refresh_to_finish.wait()
+        spark_library._cache = spark_library._CacheState(
+            entries=entries,
+            version_hash=spark_library._compute_hash(entries),
+            source="sheets",
+        )
+
+    monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
+    disconnected_request = asyncio.create_task(
+        pick_static_sparks(condition="A", frame_preference=None, count=1)
+    )
+    surviving_request = asyncio.create_task(
+        pick_static_sparks(condition="A", frame_preference=None, count=1)
+    )
+    await refresh_started.wait()
+
+    disconnected_request.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await disconnected_request
+
+    assert spark_library._refresh_task is not None
+    assert not spark_library._refresh_task.cancelled()
+    assert not surviving_request.done()
+
+    allow_refresh_to_finish.set()
+    resolved = await surviving_request
+
+    assert len(resolved) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_stale_requests_share_one_background_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stale requests return immediately while exactly one refresh is active."""
+    from app.config import clear_config_cache
+    from app.services import spark_library
+
+    stale_entries = _make_fake_entries()
+    refreshed_entries = tuple(reversed(stale_entries))
+    refresh_started = asyncio.Event()
+    allow_refresh_to_finish = asyncio.Event()
+    refresh_count = 0
+
+    async def delayed_refresh() -> None:
+        nonlocal refresh_count
+        refresh_count += 1
+        refresh_started.set()
+        await allow_refresh_to_finish.wait()
+        spark_library._cache = spark_library._CacheState(
+            entries=refreshed_entries,
+            version_hash=spark_library._compute_hash(refreshed_entries),
+            source="sheets",
+        )
+
+    monkeypatch.setenv("SPARK_SHEETS_CACHE_TTL_SECS", "1")
+    clear_config_cache()
+    spark_library._cache = spark_library._CacheState(
+        entries=stale_entries,
+        version_hash=spark_library._compute_hash(stale_entries),
+        source="file",
+        fetched_at=monotonic() - 2,
+    )
+    monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
+
+    resolved = await asyncio.gather(
+        *(
+            pick_static_sparks(condition="A", frame_preference=None, count=1)
+            for _ in range(8)
+        )
+    )
+    await refresh_started.wait()
+
+    assert refresh_count == 1
+    assert all(len(result) == 1 for result in resolved)
+
+    allow_refresh_to_finish.set()
+    assert spark_library._refresh_task is not None
+    await spark_library._refresh_task
+    assert spark_library._cache is not None
+    assert spark_library._cache.entries == refreshed_entries
+
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_cancel_library_refresh_cancels_active_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Application shutdown cancels an in-flight startup or stale refresh."""
+    from app.services import spark_library
+
+    refresh_started = asyncio.Event()
+
+    async def delayed_refresh() -> None:
+        refresh_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(spark_library, "_sheets_is_configured", lambda: True)
+    monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
+
+    task = await spark_library.schedule_sheets_startup_warmup()
+    assert task is not None
+    await refresh_started.wait()
+
+    await spark_library.cancel_library_refresh()
+
+    assert task.cancelled()
 
 
 @pytest.mark.asyncio
@@ -896,7 +1066,7 @@ async def test_do_refresh_preserves_snapshot_on_subsequent_sheets_error(
 async def test_stale_cache_served_immediately_and_refresh_triggered(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Stale cache is returned without blocking; background refresh flag is set."""
+    """Stale cache is returned without blocking; refresh is scheduled once."""
     import asyncio as _asyncio
 
     from app.config import clear_config_cache
@@ -915,13 +1085,12 @@ async def test_stale_cache_served_immediately_and_refresh_triggered(
         version_hash=spark_library._cache.version_hash,
         source=spark_library._cache.source,
         fetched_at=spark_library._cache.fetched_at - 9999.0,
-        is_refreshing=False,
     )
     spark_library._cache = stale_cache
 
     resolved = await pick_static_sparks(condition="A", frame_preference=None, count=1)
     assert len(resolved) == 1
-    assert spark_library._cache.is_refreshing is True
+    assert spark_library._refresh_task is not None
 
     await _asyncio.sleep(0.05)
 

@@ -77,16 +77,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     "create_all on a persistent database. "
                     "Run 'alembic upgrade head' manually or fix the migration."
                 ) from None
-        from app.services.spark_library import schedule_sheets_startup_warmup
+        from app.services.spark_library import (
+            cancel_library_refresh,
+            schedule_sheets_startup_warmup,
+        )
 
-        sheets_warmup_task = schedule_sheets_startup_warmup()
+        await schedule_sheets_startup_warmup()
         try:
             yield
         finally:
-            if sheets_warmup_task is not None and not sheets_warmup_task.done():
-                sheets_warmup_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await sheets_warmup_task
+            await cancel_library_refresh()
             await app_engine.dispose()
 
 

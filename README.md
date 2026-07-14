@@ -440,7 +440,12 @@ When the Sheets source is configured, API startup schedules a non-blocking
 remote warmup. It does not delay readiness. A successful remote fetch logs
 `Spark library loaded from remote Google Sheets`; a failed fetch logs the
 reason and falls back to the bundled library. The first A/B request awaits an
-in-progress warmup rather than starting a duplicate remote request.
+in-progress warmup rather than starting a duplicate remote request. Startup,
+cold-start, and stale-cache refreshes all share one task per API process: cold
+requests await it, while stale requests continue serving their immutable last-
+good snapshot. Application shutdown cancels and joins that task. Multiple API
+replicas maintain independent read-only caches and may each refresh their own
+snapshot.
 
 Every A/B `/spark/generate` response reports the actual cached dataset source
 at `prompt_version.source`: `google-sheets` after a validated remote fetch, or
