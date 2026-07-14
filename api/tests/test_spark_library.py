@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import csv
 import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from app.config_loader import resolve_config_path
 from app.services.spark_library import (
     ALL_FRAMES,
     SparkLibraryEntry,
@@ -87,6 +89,28 @@ def test_load_from_file_entries_have_no_video_links() -> None:
         assert "loom.com" not in blob
         assert "youtube" not in blob
         assert "youtu.be" not in blob
+
+
+def test_sheets_import_csv_matches_bundled_library() -> None:
+    """Keep the researcher-facing Sheets import CSV aligned with source data."""
+    with resolve_config_path("spark_library_sheets.csv").open(
+        encoding="utf-8",
+        newline="",
+    ) as csv_file:
+        reader = csv.DictReader(csv_file)
+        assert reader.fieldnames == ["id", "title", "action", "reward", "tags"]
+        rows = list(reader)
+
+    assert rows == [
+        {
+            "id": entry.id,
+            "title": entry.title,
+            "action": entry.action,
+            "reward": entry.reward,
+            "tags": ",".join(entry.tags),
+        }
+        for entry in _load_from_file()
+    ]
 
 
 # ---------------------------------------------------------------------------
