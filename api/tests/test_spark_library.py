@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -53,6 +56,33 @@ def _make_fake_result(
     """Wrap a tuple of entries (or freshly generated ones) in a SheetParseResult."""
     e = entries if entries is not None else _make_fake_entries()
     return SheetParseResult(entries=e, diagnostics=(), total_rows=len(e))
+
+
+@contextmanager
+def _capture_library_logs(level: int) -> Iterator[list[str]]:
+    """Collect Spark-library logs despite root logger reconfiguration in tests."""
+    messages: list[str] = []
+
+    class _Collector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            messages.append(record.getMessage())
+
+    target = logging.getLogger("app.services.spark_library")
+    handler = _Collector(level)
+    prior_level = target.level
+    prior_disabled = target.disabled
+    prior_disable = logging.root.manager.disable
+    target.addHandler(handler)
+    target.setLevel(level)
+    target.disabled = False
+    logging.disable(logging.NOTSET)
+    try:
+        yield messages
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(prior_level)
+        target.disabled = prior_disabled
+        logging.disable(prior_disable)
 
 
 # ---------------------------------------------------------------------------
@@ -670,17 +700,93 @@ async def test_get_library_uses_sheets_when_configured(
     monkeypatch.setenv("SPARK_SHEETS_CREDENTIALS_JSON", '{"type": "service_account"}')
     clear_config_cache()
 
-    with patch(
-        "app.services.spark_sheets_source.fetch_entries_from_sheets",
-        MagicMock(return_value=fake_result),
+    with (
+        _capture_library_logs(logging.INFO) as messages,
+        patch(
+            "app.services.spark_sheets_source.fetch_entries_from_sheets",
+            MagicMock(return_value=fake_result),
+        ),
     ):
         await pick_static_sparks(condition="A", frame_preference=None, count=1)
 
     assert spark_library._cache is not None
     assert spark_library._cache.source == "sheets"
     assert spark_library._cache.entries == fake_result.entries
+    assert any("loaded from remote Google Sheets" in message for message in messages)
 
     clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_sheets_startup_warmup_is_nonblocking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup schedules remote work without delaying application readiness."""
+    from app.services import spark_library
+
+    refresh_started = asyncio.Event()
+    allow_refresh_to_finish = asyncio.Event()
+
+    async def delayed_refresh() -> None:
+        refresh_started.set()
+        await allow_refresh_to_finish.wait()
+
+    monkeypatch.setattr(spark_library, "_sheets_is_configured", lambda: True)
+    monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
+
+    with _capture_library_logs(logging.INFO) as messages:
+        task = spark_library.schedule_sheets_startup_warmup()
+        assert task is not None
+        assert not task.done()
+        await refresh_started.wait()
+        assert not task.done()
+        assert any("API startup will not wait" in message for message in messages)
+
+        allow_refresh_to_finish.set()
+        await task
+
+
+@pytest.mark.asyncio
+async def test_first_request_awaits_sheets_startup_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not duplicate the remote fetch when an A/B request races startup."""
+    from app.services import spark_library
+
+    entries = _make_fake_entries()
+    refresh_started = asyncio.Event()
+    allow_refresh_to_finish = asyncio.Event()
+    refresh_count = 0
+
+    async def delayed_refresh() -> None:
+        nonlocal refresh_count
+        refresh_count += 1
+        refresh_started.set()
+        await allow_refresh_to_finish.wait()
+        spark_library._cache = spark_library._CacheState(
+            entries=entries,
+            version_hash=spark_library._compute_hash(entries),
+            source="sheets",
+        )
+
+    monkeypatch.setattr(spark_library, "_sheets_is_configured", lambda: True)
+    monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
+    warmup_task = spark_library.schedule_sheets_startup_warmup()
+    assert warmup_task is not None
+    await refresh_started.wait()
+
+    request_task = asyncio.create_task(
+        pick_static_sparks(condition="A", frame_preference=None, count=1)
+    )
+    await asyncio.sleep(0)
+    assert not request_task.done()
+    assert refresh_count == 1
+
+    allow_refresh_to_finish.set()
+    resolved = await request_task
+
+    assert len(resolved) == 1
+    assert refresh_count == 1
 
 
 @pytest.mark.asyncio

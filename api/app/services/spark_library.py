@@ -124,6 +124,7 @@ class _CacheState:
 
 
 _cache: _CacheState | None = None
+_startup_warmup_task: asyncio.Task[None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +265,7 @@ async def _do_refresh() -> None:
                 source="sheets",
             )
             logger.info(
-                "Spark library loaded from Sheets: %d entries (hash %s…)",
+                "Spark library loaded from remote Google Sheets: %d entries (hash %s…)",
                 len(result.entries),
                 _cache.version_hash[:8],
             )
@@ -312,6 +313,41 @@ async def _background_refresh() -> None:
             _cache.is_refreshing = False
 
 
+async def _run_sheets_startup_warmup() -> None:
+    """Warm the configured Sheets library without delaying API readiness."""
+    try:
+        await _do_refresh()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Spark Sheets remote warmup failed entirely (%s): %s",
+            type(exc).__name__,
+            exc,
+        )
+
+
+def schedule_sheets_startup_warmup() -> asyncio.Task[None] | None:
+    """Schedule one non-blocking startup fetch when Sheets is configured.
+
+    The returned task loads, validates, and caches the remote library. API
+    startup deliberately does not await it. A first A/B request that arrives
+    during the warmup awaits this task rather than issuing a duplicate fetch.
+    """
+    global _startup_warmup_task
+
+    if not _sheets_is_configured():
+        return None
+
+    if _startup_warmup_task is None or _startup_warmup_task.done():
+        _startup_warmup_task = asyncio.create_task(
+            _run_sheets_startup_warmup(),
+            name="spark-sheets-startup-warmup",
+        )
+        logger.info("Spark Sheets remote warmup scheduled; API startup will not wait")
+    return _startup_warmup_task
+
+
 async def _get_library() -> tuple[SparkLibraryEntry, ...]:
     """Return library entries, applying stale-while-revalidate semantics."""
     global _cache
@@ -331,6 +367,11 @@ async def _get_library() -> tuple[SparkLibraryEntry, ...]:
         return _cache.entries
 
     # Cold start: first request triggers a synchronous load.
+    if _startup_warmup_task is not None and not _startup_warmup_task.done():
+        await asyncio.shield(_startup_warmup_task)
+        if _cache is not None:
+            return _cache.entries
+
     await _do_refresh()
     if _cache is not None:
         return _cache.entries
@@ -366,8 +407,10 @@ def library_version() -> dict[str, str]:
 
 def clear_library_cache() -> None:
     """Reset the in-memory cache.  Used in tests to isolate cache state."""
-    global _cache
+    global _cache, _startup_warmup_task
     _cache = None
+    if _startup_warmup_task is not None and _startup_warmup_task.done():
+        _startup_warmup_task = None
 
 
 async def pick_static_sparks(

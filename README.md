@@ -434,6 +434,14 @@ Configure in `.env` at the repository root (see `.env.example`):
 
 <!-- ENV_TABLE_END -->
 
+### Spark Sheets verification
+
+When the Sheets source is configured, API startup schedules a non-blocking
+remote warmup. It does not delay readiness. A successful remote fetch logs
+`Spark library loaded from remote Google Sheets`; a failed fetch logs the
+reason and falls back to the bundled library. The first A/B request awaits an
+in-progress warmup rather than starting a duplicate remote request.
+
 ## Drift Prevention
 
 Documentation parity is enforced by CI. The docs check script validates:
