@@ -1,8 +1,8 @@
 """Strict request models for the anonymous Spark research telemetry plane.
 
 The browser sends a persistent, random installation identifier from localStorage
-and an optional ThumbmarkJS fingerprint. Route handlers immediately derive keyed
-HMAC values and never persist or log either raw identifier.
+and an optional ThumbmarkJS fingerprint. Route handlers immediately derive
+BLAKE3 keyed hashes and never persist or log either raw identifier.
 """
 
 from __future__ import annotations

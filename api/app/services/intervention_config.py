@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from functools import lru_cache
 
 from app.config_loader import resolve_config_path
+from app.services.crypto import content_hexdigest
 
 _INTERVENTION_CONFIG_FILENAME = "interventions.json"
 
@@ -61,8 +61,6 @@ def get_static_intervention(
     if not condition_array:
         raise ValueError(f"No interventions configured for condition '{condition}'")
 
-    hash_hex = hashlib.sha256(
-        f"{participation_id}:{day_index}:{salt}".encode()
-    ).hexdigest()
+    hash_hex = content_hexdigest(f"{participation_id}:{day_index}:{salt}".encode())
     array_index = int(hash_hex, 16) % len(condition_array)
     return condition_array[array_index]

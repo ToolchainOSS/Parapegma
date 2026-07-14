@@ -1,8 +1,9 @@
-"""Domain-separated BLAKE3 subkey derivation from Flow's master secret.
+"""Domain-separated BLAKE3 primitives for Flow-owned cryptographic operations.
 
-Every security-sensitive feature receives a distinct, fixed-length subkey.
-Calling code must never use the master secret directly or reuse a subkey across
-contexts.
+The service provides BLAKE3's three distinct modes: derive-key mode for
+domain-separated subkeys, keyed mode for Flow-owned MAC/PRF-style operations,
+and unkeyed mode for non-security content fingerprints. Calling code must never
+use the master secret directly or reuse a subkey across contexts.
 """
 
 from __future__ import annotations
@@ -19,8 +20,8 @@ from app.config import get_flow_crypto_master_key
 MASTER_KEY_BYTES = 32
 DERIVED_KEY_BYTES = 32
 
-_SPARK_IDENTITY_CONTEXT = "flow.spark.identity-hmac.v1"
-_RANDOMIZATION_CONTEXT = "flow.experiment.randomization.v1"
+_SPARK_IDENTITY_CONTEXT = "flow.spark.identity-keyed-hash.v1"
+_RANDOMIZATION_CONTEXT = "flow.experiment.randomization-keyed-hash.v1"
 
 
 class CryptoConfigurationError(RuntimeError):
@@ -61,8 +62,29 @@ def derive_subkey(context: str) -> bytes:
     return blake3(_master_key(), derive_key_context=context).digest(DERIVED_KEY_BYTES)
 
 
-def get_spark_identity_hmac_key() -> bytes:
-    """Return the domain-separated HMAC key for Spark pseudonymous identity."""
+def keyed_digest(key: bytes, payload: bytes) -> bytes:
+    """Return BLAKE3's fixed-length keyed digest for a Flow-owned payload.
+
+    BLAKE3 keyed mode is suitable for MAC/PRF-style internal uses. It is not a
+    replacement for an interoperable HMAC required by an external protocol.
+    """
+    if len(key) != DERIVED_KEY_BYTES:
+        raise ValueError("BLAKE3 keyed mode requires exactly 32 bytes of key material")
+    return blake3(payload, key=key).digest(DERIVED_KEY_BYTES)
+
+
+def keyed_hexdigest(key: bytes, payload: bytes) -> str:
+    """Return a lowercase hexadecimal BLAKE3 keyed digest."""
+    return keyed_digest(key, payload).hex()
+
+
+def content_hexdigest(payload: bytes) -> str:
+    """Return a non-secret BLAKE3 content fingerprint in hexadecimal."""
+    return blake3(payload).hexdigest()
+
+
+def get_spark_identity_key() -> bytes:
+    """Return the domain-separated BLAKE3 key for Spark pseudonymous identity."""
     return derive_subkey(_SPARK_IDENTITY_CONTEXT)
 
 

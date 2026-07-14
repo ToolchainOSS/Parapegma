@@ -288,9 +288,10 @@ psychological framing applied to nudges:
 
 Every participant is enrolled in a `Participation` row when they pass the
 INTAKE phase. The daily condition is computed deterministically by
-`app/services/randomization.py::get_daily_condition()` using HMAC-SHA-256 over
-`(participation_id, block_index)` with a BLAKE3-derived randomization subkey to
-pick a Latin square from the 24 possible 4-day permutations. This guarantees:
+`app/services/randomization.py::get_daily_condition()` using BLAKE3 keyed mode
+over `(participation_id, block_index)` with a BLAKE3-derived randomization
+subkey to pick a Latin square from the 24 possible 4-day permutations. This
+guarantees:
 
 - balanced exposure (every block uses each condition exactly once),
 - reproducible audit (the same inputs always produce the same assignment),
@@ -299,6 +300,10 @@ pick a Latin square from the 24 possible 4-day permutations. This guarantees:
 `FLOW_CRYPTO_MASTER_KEY` must be an unpadded Base64URL encoding of exactly 32
 random bytes. `app.services.crypto` derives the dedicated randomization subkey
 in BLAKE3's dedicated derive-key mode; the master secret is never used directly.
+
+Static A/B template selection is separate from condition assignment. It uses an
+unkeyed BLAKE3 content hash over `(participation_id, day_index, static_nudge)`
+to choose a reproducible template and is not a security boundary.
 
 ### Master-key rotation
 

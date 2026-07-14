@@ -3,7 +3,7 @@
 Spark remains isolated from existing Flow conversation state and requires no
 registration. The client carries remix state as before. Each request also
 contains a browser-local pseudonymous identifier and optional ThumbmarkJS
-fingerprint; raw values are immediately HMACed and never persisted or logged.
+fingerprint; raw values are immediately keyed-hashed and never persisted or logged.
 
 Conditions A ("Random Spark") and B ("pick a vibe") are non-adaptive control
 groups: they are served entirely from a researcher-curated static library

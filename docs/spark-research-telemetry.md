@@ -21,9 +21,10 @@ Every Spark request contains four client-generated fields:
    and retries do not duplicate analysis rows.
 
 The server requires `FLOW_CRYPTO_MASTER_KEY`, an unpadded Base64URL encoding of
-exactly 32 random bytes. BLAKE3 derives the dedicated Spark-identity HMAC key
-using the fixed `flow.spark.identity-hmac.v1` context; it stores neither raw
-identifier nor logs either value. Use one stable master key for a study;
+exactly 32 random bytes. BLAKE3 derives the dedicated Spark-identity key using
+the fixed `flow.spark.identity-keyed-hash.v1` context, then uses BLAKE3 keyed
+mode for each identifier. It stores neither raw identifier nor logs either
+value. Use one stable master key for a study;
 rotating it prevents future requests from linking to past participants.
 
 Clearing site data creates a new installation identity. A changed or shared
@@ -40,8 +41,8 @@ interaction records remain intact but cannot be cryptographically linked.
 
 | Table | Purpose |
 | --- | --- |
-| `spark_participants` | One row per HMACed browser-local installation ID. |
-| `spark_fingerprint_observations` | HMACed fingerprint observations, version, locale, timezone, first/last seen, and count. |
+| `spark_participants` | One row per keyed-hash browser-local installation ID. |
+| `spark_fingerprint_observations` | Keyed-hash fingerprint observations, version, locale, timezone, first/last seen, and count. |
 | `spark_interactions` | Immutable condition-scoped events, including generated cards, selection, timer outcome, feedback, cue, and final ratings. |
 
 `POST /spark/generate` persists an idempotent `generation_succeeded` event with
@@ -66,9 +67,9 @@ selection, completion, perceived fit, action clarity, and willingness to try.
 
 - Treat the browser installation as the longitudinal unit for the initial
   study, not as a person-level identity.
-- Measure fingerprint stability as distinct HMACed fingerprints per
+- Measure fingerprint stability as distinct keyed-hash fingerprints per
   `spark_participants.id`, and potential duplication as distinct participants
-  per HMACed fingerprint.
+  per keyed-hash fingerprint.
 - Compare conditions only after accounting for repeated flows from the same
   installation and the flow completion rate.
 - Do not use pseudonymous Spark identity for access control, the Flow

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hmac
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -14,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import SparkFingerprintObservation, SparkInteraction, SparkParticipant
 from app.services.crypto import (
     CryptoConfigurationError,
-    get_spark_identity_hmac_key,
+    get_spark_identity_key,
+    keyed_hexdigest,
 )
 
 
@@ -29,14 +29,14 @@ class ResolvedSparkParticipant:
     participant_id: int
 
 
-def _identity_hmac(value: str) -> str:
+def _identity_keyed_hash(value: str) -> str:
     try:
-        key = get_spark_identity_hmac_key()
+        key = get_spark_identity_key()
     except CryptoConfigurationError as exc:
         raise SparkResearchConfigurationError(
             "FLOW_CRYPTO_MASTER_KEY must be a valid 32-byte Base64URL key"
         ) from exc
-    return hmac.new(key, value.encode("utf-8"), "sha256").hexdigest()
+    return keyed_hexdigest(key, value.encode("utf-8"))
 
 
 async def _find_participant(
@@ -150,13 +150,13 @@ async def resolve_spark_participant(
     """
     now = datetime.now(UTC)
     participant = await _get_or_create_participant(
-        db, _identity_hmac(installation_id), now
+        db, _identity_keyed_hash(installation_id), now
     )
     if fingerprint is not None:
         await _record_fingerprint_observation(
             db,
             participant_id=participant.id,
-            fingerprint_hash=_identity_hmac(fingerprint),
+            fingerprint_hash=_identity_keyed_hash(fingerprint),
             fingerprint_version=fingerprint_version,
             timezone=timezone,
             locale=locale,

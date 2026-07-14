@@ -246,7 +246,10 @@ class TestStaticFeedbackScript:
 
 class TestEngineFeedbackBypass:
     async def _setup_ab_feedback(
-        self, seeded_db: dict[str, Any], condition: str
+        self,
+        seeded_db: dict[str, Any],
+        condition: str,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> dict[str, Any]:
         db = seeded_db["db"]
         conv = seeded_db["conversation"]
@@ -285,7 +288,7 @@ class TestEngineFeedbackBypass:
         async def _fake_ctx(db, membership_id, current_date):
             return condition, participation, 0
 
-        engine_mod._get_active_condition_context = _fake_ctx  # type: ignore[assignment]
+        monkeypatch.setattr(engine_mod, "_get_active_condition_context", _fake_ctx)
         return {**seeded_db, "participation": participation}
 
     @pytest.mark.asyncio
@@ -302,7 +305,7 @@ class TestEngineFeedbackBypass:
             raise AssertionError("run_feedback must not be called under condition A")
 
         monkeypatch.setattr(feedback_mod, "run_feedback", _explode)
-        await self._setup_ab_feedback(seeded_db, "A")
+        await self._setup_ab_feedback(seeded_db, "A", monkeypatch)
 
         db = seeded_db["db"]
         conv = seeded_db["conversation"]
@@ -331,9 +334,9 @@ class TestEngineFeedbackBypass:
 
     @pytest.mark.asyncio
     async def test_condition_b_feedback_uses_static_script(
-        self, seeded_db: dict[str, Any]
+        self, seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        await self._setup_ab_feedback(seeded_db, "B")
+        await self._setup_ab_feedback(seeded_db, "B", monkeypatch)
         db = seeded_db["db"]
         conv = seeded_db["conversation"]
         mid = seeded_db["membership_id"]
@@ -363,7 +366,7 @@ class TestEngineFeedbackBypass:
 class TestConditionCHistoryWindow:
     @pytest.mark.asyncio
     async def test_condition_c_excludes_old_and_framed_messages(
-        self, seeded_db: dict[str, Any]
+        self, seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         db = seeded_db["db"]
         conv = seeded_db["conversation"]
@@ -412,7 +415,7 @@ class TestConditionCHistoryWindow:
         async def _fake_ctx(db, membership_id, current_date):
             return "C", participation, 0
 
-        engine_mod._get_active_condition_context = _fake_ctx  # type: ignore[assignment]
+        monkeypatch.setattr(engine_mod, "_get_active_condition_context", _fake_ctx)
 
         user_msg = Message(
             conversation_id=conv.id,

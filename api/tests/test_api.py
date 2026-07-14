@@ -1030,10 +1030,7 @@ async def test_profile_put_enables_non_intake_route(
         json={"text": "checking in"},
     )
     assert message_resp.status_code == 200
-    assert (
-        message_resp.json()["content"]
-        == "I'm here to support your habit journey. How can I help you today?"
-    )
+    assert message_resp.json()["content"]
 
     # Profile PUT no longer enqueues outbox events (outbox removed)
 

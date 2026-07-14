@@ -5,6 +5,7 @@
 | [`../README.md`](../README.md) | Quick start, project structure, API endpoints, env vars |
 | [`../AGENTS.md`](../AGENTS.md) | Lean agent operating manual: tooling, boundaries, doc pointers |
 | [`current-architecture.md`](current-architecture.md) | Conversation engine: Router + specialists, stores, 4-condition experiment, EOD memory firewall |
+| [`crypto-primitives.md`](crypto-primitives.md) | BLAKE3 usage policy, remaining protocol exceptions, and rotation behavior |
 | [`release-process.md`](release-process.md) | CI/CD workflows, versioning, Docker tags, image signing |
 
 ## Agent domain docs (progressive disclosure)

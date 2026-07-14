@@ -283,8 +283,8 @@ RUN_PLAYWRIGHT=1 RUN_COMPOSE_E2E=1 bash scripts/ci/pre_push_quality_gate.sh
 | `participations` | auto-increment int | One row per participant in a study; carries `study_start_date`, condition assignment salt |
 | `daily_intervention_logs` | auto-increment int | Per-day telemetry (condition assigned, extracted state, script answers) |
 | `daily_summaries` | auto-increment int | EOD sterilized cross-day memory (1 row per participation/day) |
-| `spark_participants` | auto-increment int | Anonymous Spark participants keyed only by a server-HMACed browser-local id |
-| `spark_fingerprint_observations` | auto-increment int | HMACed Thumbmark observations for fingerprint stability/collision analysis |
+| `spark_participants` | auto-increment int | Anonymous Spark participants keyed only by a server-keyed-hash browser-local id |
+| `spark_fingerprint_observations` | auto-increment int | Keyed-hash Thumbmark observations for fingerprint stability/collision analysis |
 | `spark_interactions` | auto-increment int | Immutable typed Spark flow, generation, choice, feedback, and outcome events |
 | `user_profiles` | auto-increment int | **Store A** — structured profile JSON (1:1 with membership) |
 | `memory_items` | auto-increment int | **Store B** — semi-structured memory items per membership |

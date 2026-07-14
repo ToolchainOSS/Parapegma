@@ -24,7 +24,7 @@ from app.models.base import Base
 class SparkParticipant(Base):
     """Anonymous participant anchored by a hashed browser-local installation id.
 
-    ``installation_key_hash`` is an HMAC-SHA-256 digest. The raw localStorage
+    ``installation_key_hash`` is a BLAKE3 keyed digest. The raw localStorage
     identifier is never stored, logged, or exposed through an API.
     """
 

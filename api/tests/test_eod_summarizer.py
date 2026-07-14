@@ -409,7 +409,7 @@ class TestEngineSummaryInjection:
         async def _fake_ctx(db, membership_id, current_date):
             return "C", participation, 1
 
-        engine_mod._get_active_condition_context = _fake_ctx  # type: ignore[assignment]
+        monkeypatch.setattr(engine_mod, "_get_active_condition_context", _fake_ctx)
 
         # Spy: make sure ensure_summaries_up_to is invoked and load returns
         # the stored summary. We patch the imported names inside the engine
@@ -466,7 +466,7 @@ class TestEngineSummaryInjection:
         async def _fake_ctx(db, membership_id, current_date):
             return "A", participation, 1
 
-        engine_mod._get_active_condition_context = _fake_ctx  # type: ignore[assignment]
+        monkeypatch.setattr(engine_mod, "_get_active_condition_context", _fake_ctx)
 
         from app.services import eod_summarizer
 

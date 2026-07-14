@@ -143,11 +143,22 @@ class TestEngineTurnPipeline:
         assert decision.route == "INTAKE"
 
     @pytest.mark.asyncio
-    async def test_complete_profile_routes_to_coach(self, seeded_db: dict) -> None:
+    async def test_complete_profile_routes_to_coach(
+        self, seeded_db: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """With complete profile, routes to COACH."""
+        import app.agents.engine as engine_mod
+
         db = seeded_db["db"]
         conv = seeded_db["conversation"]
         mid = seeded_db["membership_id"]
+
+        async def _no_active_condition(db, membership_id, current_date):
+            return None, None, None
+
+        monkeypatch.setattr(
+            engine_mod, "_get_active_condition_context", _no_active_condition
+        )
 
         # Set up a complete profile
         profile = UserProfileData(
@@ -176,11 +187,22 @@ class TestEngineTurnPipeline:
         assert decision.route == "COACH"
 
     @pytest.mark.asyncio
-    async def test_feedback_state_routes_correctly(self, seeded_db: dict) -> None:
+    async def test_feedback_state_routes_correctly(
+        self, seeded_db: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """With FEEDBACK state set, stub engine routes to FEEDBACK."""
+        import app.agents.engine as engine_mod
+
         db = seeded_db["db"]
         conv = seeded_db["conversation"]
         mid = seeded_db["membership_id"]
+
+        async def _no_active_condition(db, membership_id, current_date):
+            return None, None, None
+
+        monkeypatch.setattr(
+            engine_mod, "_get_active_condition_context", _no_active_condition
+        )
 
         await save_user_profile(
             db,
