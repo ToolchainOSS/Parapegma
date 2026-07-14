@@ -153,6 +153,7 @@ def test_library_version_is_stable_dict_shape() -> None:
     assert version["prompt_file"] == "spark_library"
     assert isinstance(version["prompt_sha256"], str)
     assert len(version["prompt_sha256"]) == 64
+    assert version["source"] == "bundled-file"
 
 
 @pytest.mark.asyncio
@@ -169,6 +170,7 @@ async def test_library_version_reflects_cache_after_load(
     version = library_version()
     assert version["prompt_file"] == "spark_library"
     assert len(version["prompt_sha256"]) == 64
+    assert version["source"] == "bundled-file"
 
     clear_config_cache()
 
@@ -713,6 +715,7 @@ async def test_get_library_uses_sheets_when_configured(
     assert spark_library._cache.source == "sheets"
     assert spark_library._cache.entries == fake_result.entries
     assert any("loaded from remote Google Sheets" in message for message in messages)
+    assert library_version()["source"] == "google-sheets"
 
     clear_config_cache()
 
@@ -847,6 +850,7 @@ async def test_do_refresh_falls_back_to_file_on_sheets_error(
     assert len(resolved) == 1
     assert spark_library._cache is not None
     assert spark_library._cache.source == "file"
+    assert library_version()["source"] == "bundled-file"
 
     clear_config_cache()
 

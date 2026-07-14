@@ -32,7 +32,12 @@ from app.models import (
     SparkInteraction,
     SparkParticipant,
 )
-from app.services.spark_library import clear_library_cache
+from app.services.spark_library import (
+    ALL_FRAMES,
+    SparkLibraryEntry,
+    clear_library_cache,
+)
+from app.services.spark_sheets_source import SheetParseResult
 from h4ckath0n.auth.models import Base as H4ckath0nBase
 from h4ckath0n.auth.models import Device
 from h4ckath0n.realtime import AuthContext
@@ -1545,6 +1550,51 @@ async def test_spark_generate_condition_a_is_static_and_skips_llm(
     assert len(payload["cards"]) == 1
     assert payload["model"] == "static-library"
     assert payload["prompt_version"]["prompt_file"] == "spark_library"
+    assert payload["prompt_version"]["source"] == "bundled-file"
+    clear_config_cache()
+    clear_library_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_reports_google_sheets_library_source(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A/B responses identify a successfully loaded remote Sheets snapshot."""
+    entries = tuple(
+        SparkLibraryEntry(
+            id=f"remote-{frame}-{index}",
+            tags=(frame,),
+            title=f"Remote {frame} {index}",
+            action="Move for one minute.",
+            reward="Feel refreshed.",
+        )
+        for frame in ALL_FRAMES
+        for index in range(2)
+    )
+    monkeypatch.setenv("SPARK_SHEETS_SPREADSHEET_ID", "test-sheet-id")
+    monkeypatch.setenv("SPARK_SHEETS_CREDENTIALS_JSON", '{"type": "service_account"}')
+    monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_FILE", raising=False)
+    clear_config_cache()
+    clear_library_cache()
+    monkeypatch.setattr(
+        "app.services.spark_sheets_source.fetch_entries_from_sheets",
+        MagicMock(
+            return_value=SheetParseResult(
+                entries=entries,
+                diagnostics=(),
+                total_rows=len(entries),
+            )
+        ),
+    )
+
+    response = await client.post(
+        "/spark/generate",
+        json=_spark_request(condition="A", count=1),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["prompt_version"]["source"] == "google-sheets"
     clear_config_cache()
     clear_library_cache()
 

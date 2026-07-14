@@ -442,6 +442,11 @@ remote warmup. It does not delay readiness. A successful remote fetch logs
 reason and falls back to the bundled library. The first A/B request awaits an
 in-progress warmup rather than starting a duplicate remote request.
 
+Every A/B `/spark/generate` response reports the actual cached dataset source
+at `prompt_version.source`: `google-sheets` after a validated remote fetch, or
+`bundled-file` when the fallback is serving. This is authoritative even when
+the two datasets have identical content hashes.
+
 ## Drift Prevention
 
 Documentation parity is enforced by CI. The docs check script validates:

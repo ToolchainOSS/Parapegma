@@ -387,22 +387,30 @@ async def _get_library() -> tuple[SparkLibraryEntry, ...]:
 
 
 def library_version() -> dict[str, str]:
-    """Return ``{"prompt_file": ..., "prompt_sha256": ...}`` for the active dataset.
+    """Return version and source metadata for the active Spark dataset.
 
     Mirrors the shape :func:`app.prompt_loader.prompt_version` uses for LLM
-    prompts so API consumers see a consistent versioning contract regardless
-    of whether A/B data comes from Sheets or the bundled JSON.  The hash is
-    computed over entry content (not raw file bytes) for determinism across
-    sources.
+    prompts while adding ``source`` for operational diagnosis. ``source`` is
+    ``"google-sheets"`` only after a successful remote fetch; it is
+    ``"bundled-file"`` when serving the packaged fallback. The hash is computed
+    over entry content (not raw file bytes) for determinism across sources.
     """
     if _cache is not None:
-        return {"prompt_file": "spark_library", "prompt_sha256": _cache.version_hash}
+        return {
+            "prompt_file": "spark_library",
+            "prompt_sha256": _cache.version_hash,
+            "source": "google-sheets" if _cache.source == "sheets" else "bundled-file",
+        }
     # Pre-load fallback: called before any async request context (e.g. some tests).
     try:
         digest = sha256(resolve_config_path(_LIBRARY_FILENAME).read_bytes()).hexdigest()
     except FileNotFoundError:
         digest = "0" * 64
-    return {"prompt_file": "spark_library", "prompt_sha256": digest}
+    return {
+        "prompt_file": "spark_library",
+        "prompt_sha256": digest,
+        "source": "bundled-file",
+    }
 
 
 def clear_library_cache() -> None:
