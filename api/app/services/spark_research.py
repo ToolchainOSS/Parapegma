@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,8 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_spark_identity_hmac_key
 from app.models import SparkFingerprintObservation, SparkInteraction, SparkParticipant
+from app.services.crypto import (
+    CryptoConfigurationError,
+    get_spark_identity_hmac_key,
+)
 
 
 class SparkResearchConfigurationError(RuntimeError):
@@ -28,14 +30,13 @@ class ResolvedSparkParticipant:
 
 
 def _identity_hmac(value: str) -> str:
-    secret = get_spark_identity_hmac_key()
-    if len(secret) < 32:
+    try:
+        key = get_spark_identity_hmac_key()
+    except CryptoConfigurationError as exc:
         raise SparkResearchConfigurationError(
-            "SPARK_IDENTITY_HMAC_KEY must contain at least 32 characters"
-        )
-    return hmac.new(
-        secret.encode("utf-8"), value.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
+            "FLOW_CRYPTO_MASTER_KEY must be a valid 32-byte Base64URL key"
+        ) from exc
+    return hmac.new(key, value.encode("utf-8"), "sha256").hexdigest()
 
 
 async def _find_participant(

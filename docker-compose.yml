@@ -43,12 +43,9 @@ services:
       API_PORT: "${API_PORT:-8000}"
       TZ: ${TZ:-America/Toronto}
 
-      # 4-condition experiment salt (REQUIRED for engine to assign conditions).
-      FLOW_RANDOMIZATION_SALT: ${FLOW_RANDOMIZATION_SALT:-}
-
-      # Required for pseudonymous, no-registration Spark research telemetry.
-      # A stable secret HMACs browser-local ids and Thumbmark fingerprints.
-      SPARK_IDENTITY_HMAC_KEY: ${SPARK_IDENTITY_HMAC_KEY:-}
+      # One Base64URL-encoded 32-byte master key. BLAKE3 derives dedicated
+      # subkeys for condition randomization and Spark pseudonymous identity.
+      FLOW_CRYPTO_MASTER_KEY: ${FLOW_CRYPTO_MASTER_KEY:-}
 
       # VAPID Web Push (push disabled if either is empty).
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
@@ -86,8 +83,8 @@ services:
       FLOW_DATA_DIR: /app/data
       TZ: ${TZ:-America/Toronto}
 
-      # 4-condition experiment salt — worker generates condition-tagged nudges.
-      FLOW_RANDOMIZATION_SALT: ${FLOW_RANDOMIZATION_SALT:-}
+      # Same master key as the API; worker derives the randomization subkey.
+      FLOW_CRYPTO_MASTER_KEY: ${FLOW_CRYPTO_MASTER_KEY:-}
 
       # VAPID Web Push — the worker is the only push sender. Push disabled if empty.
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}

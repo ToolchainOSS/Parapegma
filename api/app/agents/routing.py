@@ -16,6 +16,10 @@ from app.models import Participation
 from app.prompt_loader import load_prompt
 from app.schemas.patches import UserProfileData
 from app.schemas.router import RouteDecision
+from app.services.crypto import (
+    CryptoConfigurationError,
+    get_randomization_key,
+)
 from app.services.randomization import get_daily_condition
 
 logger = logging.getLogger(__name__)
@@ -106,19 +110,14 @@ def route_turn_llm(
 
 
 @lru_cache(maxsize=1)
-def _get_randomization_salt() -> str:
-    from app.config import get_randomization_salt
-
-    salt = get_randomization_salt()
-    if not salt:
+def _get_randomization_key() -> bytes:
+    try:
+        return get_randomization_key()
+    except CryptoConfigurationError as exc:
         raise RuntimeError(
-            "FLOW_RANDOMIZATION_SALT must be set for participation randomization"
-        )
-    if len(salt) < 32:
-        raise RuntimeError(
-            "FLOW_RANDOMIZATION_SALT must be at least 32 characters for experimental integrity"
-        )
-    return salt
+            "FLOW_CRYPTO_MASTER_KEY must be a valid 32-byte Base64URL key "
+            "for participation randomization"
+        ) from exc
 
 
 async def _get_active_condition_context(
@@ -139,11 +138,11 @@ async def _get_active_condition_context(
 
     study_day_index = (current_date - participation.study_start_date.date()).days
 
-    salt = _get_randomization_salt()
+    key = _get_randomization_key()
     condition = get_daily_condition(
         participation_id=participation.id,
         study_start_date=participation.study_start_date,
         current_date=current_date,
-        salt=salt,
+        key=key,
     )
     return condition, participation, study_day_index

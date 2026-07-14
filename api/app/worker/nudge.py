@@ -26,6 +26,10 @@ from app.models import (
 )
 from app.prompt_loader import load_prompt
 from app.services.condition_filters import contains_condition_c_framing
+from app.services.crypto import (
+    CryptoConfigurationError,
+    get_randomization_key,
+)
 from app.services.intervention_config import get_static_intervention
 from app.services.profile_service import load_user_profile
 from app.services.prompt_context import get_prompt_context_for_membership
@@ -60,19 +64,17 @@ def _condition_to_source_tag(condition: str | None) -> str:
     return f"COND_{condition.upper()}"
 
 
-def _randomization_salt() -> str | None:
-    """Return the configured randomization salt, or None if unconfigured.
+def _randomization_key() -> bytes | None:
+    """Return the derived randomization key, or None if unconfigured.
 
-    The worker is permissive about a missing salt (it falls back to the
+    The worker is permissive about a missing master key (it falls back to the
     generic prompt) so that an unconfigured environment still produces
     useful nudges instead of failing every fire.
     """
-    from app.config import get_randomization_salt
-
-    salt = get_randomization_salt()
-    if salt and len(salt) >= 32:
-        return salt
-    return None
+    try:
+        return get_randomization_key()
+    except CryptoConfigurationError:
+        return None
 
 
 async def _resolve_condition_for_membership(
@@ -82,7 +84,7 @@ async def _resolve_condition_for_membership(
 
     Returns (condition, participation, study_day_index). Any of these may be
     None when the membership is not enrolled in the study or the
-    randomization salt is not configured.
+    cryptographic master key is not configured.
     """
     result = await db.execute(
         select(Participation)
@@ -94,8 +96,8 @@ async def _resolve_condition_for_membership(
     if participation is None:
         return None, None, None
 
-    salt = _randomization_salt()
-    if salt is None:
+    key = _randomization_key()
+    if key is None:
         return None, participation, None
 
     today = datetime.now(UTC).date()
@@ -104,7 +106,7 @@ async def _resolve_condition_for_membership(
         participation_id=participation.id,
         study_start_date=participation.study_start_date,
         current_date=today,
-        salt=salt,
+        key=key,
     )
     return condition, participation, study_day_index
 

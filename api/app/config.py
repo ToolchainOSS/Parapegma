@@ -172,31 +172,13 @@ def get_log_level() -> str:
 
 
 @cache
-def get_randomization_salt() -> str | None:
-    """Return the per-deployment salt used for deterministic 4-condition assignment.
+def get_flow_crypto_master_key() -> str:
+    """Return Flow's Base64URL-encoded 32-byte cryptographic master key.
 
-    Returns None when unset. Callers that require the salt (engine) raise; the
-    worker downgrades to the default prompt when missing. Must be ≥32 chars in
-    production deployments.
+    Feature code must obtain a domain-separated subkey from
+    ``app.services.crypto`` rather than using this value directly.
     """
-    val = os.environ.get("FLOW_RANDOMIZATION_SALT")
-    return val if val else None
-
-
-# ---------------------------------------------------------------------------
-# Spark anonymous research identity
-# ---------------------------------------------------------------------------
-
-
-@cache
-def get_spark_identity_hmac_key() -> str:
-    """Return the deployment secret for Spark pseudonymous identifiers.
-
-    Spark's browser-local installation id and optional fingerprint are never
-    stored raw. The telemetry service requires a stable, ≥32-character secret
-    to HMAC them before persistence.
-    """
-    return os.environ.get("SPARK_IDENTITY_HMAC_KEY", "")
+    return os.environ.get("FLOW_CRYPTO_MASTER_KEY", "")
 
 
 # ---------------------------------------------------------------------------
@@ -275,10 +257,12 @@ def clear_config_cache() -> None:
     get_host.cache_clear()
     get_port.cache_clear()
     get_log_level.cache_clear()
-    get_randomization_salt.cache_clear()
-    get_spark_identity_hmac_key.cache_clear()
+    get_flow_crypto_master_key.cache_clear()
     get_spark_sheets_credentials_json.cache_clear()
     get_spark_sheets_spreadsheet_id.cache_clear()
     get_spark_sheets_range.cache_clear()
     get_spark_sheets_cache_ttl.cache_clear()
     get_spark_sheets_timeout.cache_clear()
+    from app.services.crypto import clear_crypto_key_cache
+
+    clear_crypto_key_cache()

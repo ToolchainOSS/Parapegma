@@ -58,6 +58,7 @@ _SPARK_REQUEST_CONTEXT = {
     "flow_id": "00000000-0000-4000-8000-000000000002",
     "client_event_id": "00000000-0000-4000-8000-000000000003",
 }
+_TEST_CRYPTO_MASTER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 
 def _spark_request(**payload: Any) -> dict[str, Any]:
@@ -65,12 +66,10 @@ def _spark_request(**payload: Any) -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def _spark_research_identity_key(
+def _flow_crypto_master_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[None, None, None]:
-    monkeypatch.setenv(
-        "SPARK_IDENTITY_HMAC_KEY", "spark-test-hmac-key-at-least-32-chars"
-    )
+    monkeypatch.setenv("FLOW_CRYPTO_MASTER_KEY", _TEST_CRYPTO_MASTER_KEY)
     clear_config_cache()
     yield
     clear_config_cache()

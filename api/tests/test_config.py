@@ -156,10 +156,15 @@ def test_feedback_options(monkeypatch):
     assert config.get_feedback_options() == ["Works perfectly", "Needs tweaks"]
 
 
-def test_get_spark_identity_hmac_key(monkeypatch):
-    monkeypatch.delenv("SPARK_IDENTITY_HMAC_KEY", raising=False)
-    assert config.get_spark_identity_hmac_key() == ""
+def test_get_flow_crypto_master_key(monkeypatch):
+    monkeypatch.delenv("FLOW_CRYPTO_MASTER_KEY", raising=False)
+    assert config.get_flow_crypto_master_key() == ""
 
-    monkeypatch.setenv("SPARK_IDENTITY_HMAC_KEY", "study-secret")
+    monkeypatch.setenv(
+        "FLOW_CRYPTO_MASTER_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    )
     config.clear_config_cache()
-    assert config.get_spark_identity_hmac_key() == "study-secret"
+    assert (
+        config.get_flow_crypto_master_key()
+        == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    )

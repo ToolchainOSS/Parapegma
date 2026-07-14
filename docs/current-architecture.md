@@ -288,15 +288,25 @@ psychological framing applied to nudges:
 
 Every participant is enrolled in a `Participation` row when they pass the
 INTAKE phase. The daily condition is computed deterministically by
-`app/services/randomization.py::get_daily_condition()` using a SHA-256 over
-`(participation_id, block_index, FLOW_RANDOMIZATION_SALT)` to pick a Latin
-square from the 24 possible 4-day permutations. This guarantees:
+`app/services/randomization.py::get_daily_condition()` using HMAC-SHA-256 over
+`(participation_id, block_index)` with a BLAKE3-derived randomization subkey to
+pick a Latin square from the 24 possible 4-day permutations. This guarantees:
 
 - balanced exposure (every block uses each condition exactly once),
 - reproducible audit (the same inputs always produce the same assignment),
 - independence between participants.
 
-`FLOW_RANDOMIZATION_SALT` must be at least 32 characters in production.
+`FLOW_CRYPTO_MASTER_KEY` must be an unpadded Base64URL encoding of exactly 32
+random bytes. `app.services.crypto` derives the dedicated randomization subkey
+in BLAKE3's dedicated derive-key mode; the master secret is never used directly.
+
+### Master-key rotation
+
+The current master key is applied to every existing and new `Participation`
+when its condition is resolved. Changing the master key therefore changes the
+deterministic assignment for future days; existing `DailyInterventionLog` rows
+retain the previously delivered conditions for analysis. Keep a stable key for
+the duration of a study unless a deliberate reassignment is intended.
 
 ### Anti-contamination guardrails
 
@@ -353,7 +363,7 @@ tool; the static A / B script writes its raw answers there directly.
 
 | Setting | Where | Purpose |
 |---------|-------|---------|
-| `FLOW_RANDOMIZATION_SALT` | env | Per-deployment secret; ≥32 chars; missing on the engine side raises, missing on the worker side downgrades to the default prompt. |
+| `FLOW_CRYPTO_MASTER_KEY` | env | One Base64URL-encoded 32-byte master secret. BLAKE3 derives domain-separated subkeys; missing or invalid makes the engine fail and makes the worker use the generic prompt. Do not rotate during a study. |
 | `api/config/interventions.json` | repo | Lists of static nudge templates for A and B. Underscore-prefixed keys (e.g. `_comment`) are ignored. |
 | `MAX_CONDITION_C_REGEN_ATTEMPTS` | `notification_worker.py` | Worker-side regen budget before the safe fallback fires. |
 | `MAX_CONDITION_C_REWRITE_ATTEMPTS` | `coach.py` | Coach-side regen budget for chat turns. |

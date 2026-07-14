@@ -236,7 +236,7 @@ def check_app_env_reads() -> None:
 
     Every env var read by application code must appear in the README env
     table (which check_env_vars() already pins to config.py + .env.example).
-    This catches drift like `FLOW_RANDOMIZATION_SALT` being read inline in
+    This catches drift like `FLOW_CRYPTO_MASTER_KEY` being read inline in
     a module without being added to config.py / .env.example / README.
     """
     print("\n[3/4] Checking that every env var read by api/app/ is documented …")

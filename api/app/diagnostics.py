@@ -73,10 +73,14 @@ def log_startup_report(component: str) -> None:
             "web push: disabled — VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY incomplete"
         )
 
-    # Randomization salt — required by the engine to assign conditions.
-    if not config.get_randomization_salt():
+    # Cryptographic master key — required by condition assignment and Spark
+    # research telemetry. The validation helper never exposes key material.
+    from app.services.crypto import is_crypto_master_key_configured
+
+    if not is_crypto_master_key_configured():
         logger.warning(
-            "FLOW_RANDOMIZATION_SALT unset — condition assignment unavailable"
+            "FLOW_CRYPTO_MASTER_KEY missing or invalid — condition assignment "
+            "and Spark telemetry unavailable"
         )
 
     # Prompt directories — the exact resolution order, with existence flags.

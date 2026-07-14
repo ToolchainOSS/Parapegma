@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from app import config
 from app.agents.engine import process_turn
 from app.id_utils import generate_project_id, generate_server_msg_id
 from app.models import (
@@ -37,6 +38,7 @@ from app.services.condition_filters import (
 )
 from app.services.feedback_script import run_static_feedback
 from app.services.profile_service import save_user_profile
+from app.services.randomization import get_daily_condition
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -80,6 +82,44 @@ def _make_participation(
         study_start_date=datetime.now(UTC) - timedelta(days=start_offset_days),
         timezone="UTC",
     )
+
+
+@pytest.mark.asyncio
+async def test_existing_participation_uses_current_master_key(
+    seeded_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.agents import routing
+
+    monkeypatch.setenv(
+        "FLOW_CRYPTO_MASTER_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    )
+    config.clear_config_cache()
+    routing._get_randomization_key.cache_clear()
+    db = seeded_db["db"]
+    participation = _make_participation(seeded_db["membership_id"])
+    db.add(participation)
+    await db.flush()
+    current_date = datetime.now(UTC).date()
+
+    try:
+        (
+            condition,
+            resolved,
+            study_day_index,
+        ) = await routing._get_active_condition_context(
+            db, seeded_db["membership_id"], current_date
+        )
+        assert resolved is participation
+        assert study_day_index == 0
+        assert condition == get_daily_condition(
+            participation.id,
+            participation.study_start_date,
+            current_date,
+            routing._get_randomization_key(),
+        )
+    finally:
+        config.clear_config_cache()
+        routing._get_randomization_key.cache_clear()
 
 
 # ---------------------------------------------------------------------------

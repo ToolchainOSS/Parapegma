@@ -20,15 +20,21 @@ Every Spark request contains four client-generated fields:
 4. A per-flow UUID and a unique client-event UUID, so flows can be reconstructed
    and retries do not duplicate analysis rows.
 
-The server requires `SPARK_IDENTITY_HMAC_KEY` to HMAC the installation ID and
-fingerprint immediately. It stores neither raw value nor logs either value.
-Use one stable secret for a study; rotating it prevents future requests from
-linking to past participants.
+The server requires `FLOW_CRYPTO_MASTER_KEY`, an unpadded Base64URL encoding of
+exactly 32 random bytes. BLAKE3 derives the dedicated Spark-identity HMAC key
+using the fixed `flow.spark.identity-hmac.v1` context; it stores neither raw
+identifier nor logs either value. Use one stable master key for a study;
+rotating it prevents future requests from linking to past participants.
 
 Clearing site data creates a new installation identity. A changed or shared
 fingerprint never automatically merges participants: fingerprint observations
 remain separate so researchers can quantify instability and potential
 collisions before deciding whether a stronger identity technique is needed.
+
+The configured master key is applied to every incoming Spark request. Since raw
+browser identifiers are never stored, rotating it makes the next request from
+an existing installation resolve to a new pseudonymous participant; historical
+interaction records remain intact but cannot be cryptographically linked.
 
 ## Stored records
 

@@ -27,7 +27,7 @@ from app.agents.proposals import _process_proposals
 from app.agents.routing import (
     ROUTER_SYSTEM_PROMPT,
     _get_active_condition_context,
-    _get_randomization_salt,
+    _get_randomization_key,
     route_turn_deterministic,
     route_turn_llm,
 )
@@ -62,7 +62,7 @@ __all__ = [
     "_build_profile_summary",
     "_create_specialist_agent",
     "_get_active_condition_context",
-    "_get_randomization_salt",
+    "_get_randomization_key",
     "_process_proposals",
     "_run_specialist_stub",
     "_strip_feedback_plan_line",
@@ -190,7 +190,7 @@ async def process_turn(
         except RuntimeError:
             logger.warning(
                 "Could not determine condition after auto-enrollment "
-                "(FLOW_RANDOMIZATION_SALT not configured)"
+                "(FLOW_CRYPTO_MASTER_KEY not configured)"
             )
 
     # Daily-log heartbeat: ensure a DailyInterventionLog exists for today
