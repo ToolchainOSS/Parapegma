@@ -54,7 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_llm_model, get_openai_api_key
 from app.db import get_db
-from app.llm import make_chat_llm
+from app.llm import describe_llm_error, make_chat_llm
 from app.prompt_loader import prompt_version
 from app.schemas.spark_research import SparkClientIdentity, SparkEventRequest
 from app.services.spark_library import (
@@ -82,6 +82,23 @@ _MAX_HISTORY = 20
 _D_CATALOG_SIZE = len(ALL_FRAMES)
 # Cards any single response may carry.
 _MAX_CARDS = 5
+# How each class of failure is reported.
+#
+# Anything caused by the upstream model — quota exhausted, auth rejected, timed
+# out, malformed output — is reported as a client-visible 4xx, deliberately not
+# a 5xx. Cloudflare replaces origin 502/504 bodies with its own plaintext error
+# page, which destroys the ``detail`` this endpoint sets: during a credit
+# exhaustion outage the browser showed only "error code: 502" while the real
+# answer ("insufficient_quota") sat in a log nobody knew to read. 424 keeps the
+# honest meaning — this request failed because something it depends on failed —
+# and reaches the client intact.
+#
+# Failures in infrastructure *we* control (missing keys, unreadable prompts, a
+# broken library, corrupt stored state) stay 5xx: those are ours to fix, and
+# nothing the caller does will change the outcome.
+_UPSTREAM_FAILURE_STATUS = status.HTTP_424_FAILED_DEPENDENCY
+_INFRA_FAILURE_STATUS = status.HTTP_500_INTERNAL_SERVER_ERROR
+
 # Completion budget. The cap has to scale with the number of cards asked for:
 # D's catalog is five cards in a single call, and a cap sized for one truncates
 # the JSON mid-card, which fails to parse and costs the participant the whole
@@ -89,6 +106,8 @@ _MAX_CARDS = 5
 # ceilings (~1160 chars/card) with room for the JSON scaffolding.
 _TOKENS_PER_CARD = 400
 _TOKENS_RESPONSE_OVERHEAD = 200
+# Wall-clock ceiling on one model round-trip.
+_MODEL_TIMEOUT_SECONDS = 25
 
 
 class SparkCard(BaseModel):
@@ -261,9 +280,15 @@ def _build_user_prompt(
     return json.dumps(payload, ensure_ascii=True)
 
 
-async def _resolve_participant_or_503(
+async def _resolve_participant_or_500(
     db: AsyncSession, identity: SparkClientIdentity
 ) -> ResolvedSparkParticipant:
+    """Resolve the pseudonymous participant, or fail as the infra fault it is.
+
+    A missing crypto master key is a deployment defect, not something the caller
+    can do anything about, so it is reported as a 5xx rather than dressed up as
+    a client error.
+    """
     try:
         return await resolve_spark_participant(
             db,
@@ -274,8 +299,9 @@ async def _resolve_participant_or_503(
             locale=identity.locale,
         )
     except SparkResearchConfigurationError as exc:
+        logger.error("Spark research identity is not configured")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=_INFRA_FAILURE_STATUS,
             detail="Spark research identity is not configured",
         ) from exc
 
@@ -338,36 +364,41 @@ async def _invoke_spark_model(
                     HumanMessage(content=user_prompt),
                 ]
             ),
-            timeout=25,
+            timeout=_MODEL_TIMEOUT_SECONDS,
         )
         text = _content_to_text(response.content)
         cards = _parse_cards(_extract_json_object(text))
         if not cards:
             logger.warning("Spark model returned no well-formed cards")
             raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
+                status_code=_UPSTREAM_FAILURE_STATUS,
                 detail="Spark model produced invalid response shape",
             )
         return cards
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning("Spark response JSON parse failed: %s", exc)
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=_UPSTREAM_FAILURE_STATUS,
             detail="Spark model did not return valid JSON",
         ) from exc
     except TimeoutError as exc:
-        logger.warning("Spark LLM timeout")
+        logger.warning("Spark LLM timeout after %ss", _MODEL_TIMEOUT_SECONDS)
         raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            status_code=_UPSTREAM_FAILURE_STATUS,
             detail="Spark model request timed out",
         ) from exc
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover - network/provider dependent
-        logger.exception("Spark model request failed")
+        # The classified summary goes in the message *and* the detail: this is
+        # the line that was missing when Spark's credits ran out, and the detail
+        # is what finally puts the reason on the participant's screen instead of
+        # a blanket "generation failed".
+        failure = describe_llm_error(exc)
+        logger.exception("Spark model request failed: %s", failure.summary())
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Spark generation request failed",
+            status_code=_UPSTREAM_FAILURE_STATUS,
+            detail=f"Spark model unavailable ({failure.summary()})",
         ) from exc
 
 
@@ -414,7 +445,7 @@ async def spark_generate(
     Conditions A and B are served from the static, researcher-curated
     library and never touch the LLM. Conditions C and D proxy to the LLM.
     """
-    participant = await _resolve_participant_or_503(db, body.identity)
+    participant = await _resolve_participant_or_500(db, body.identity)
     existing = await get_spark_interaction(
         db,
         participant_id=participant.participant_id,
@@ -432,7 +463,7 @@ async def spark_generate(
         except ValidationError as exc:  # pragma: no cover - persisted corruption guard
             logger.exception("Stored Spark generation response is invalid")
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=_INFRA_FAILURE_STATUS,
                 detail="Stored Spark generation response is invalid",
             ) from exc
         await db.commit()
@@ -449,9 +480,9 @@ async def spark_generate(
                 else await pick_one_spark_per_frame()
             )
         except Exception as exc:
-            logger.warning("Spark A/B library error: %s", exc)
+            logger.exception("Spark A/B library error")
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status_code=_INFRA_FAILURE_STATUS,
                 detail="Spark library is temporarily unavailable",
             ) from exc
 
@@ -480,8 +511,9 @@ async def spark_generate(
 
     llm_key = get_openai_api_key()
     if not llm_key:
+        logger.error("Spark generation requested but no OpenAI API key is configured")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=_INFRA_FAILURE_STATUS,
             detail="OpenAI API key not configured",
         )
 
@@ -492,8 +524,8 @@ async def spark_generate(
     except Exception as exc:  # pragma: no cover - packaging/deployment defect
         logger.exception("Spark system prompt failed to load")
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Spark generation request failed",
+            status_code=_INFRA_FAILURE_STATUS,
+            detail="Spark system prompt failed to load",
         ) from exc
 
     # A first D generate is the catalog: one Spark per vibe, no vibe requested.
@@ -528,7 +560,7 @@ async def spark_generate(
 
     if not cards:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=_UPSTREAM_FAILURE_STATUS,
             detail="Spark model returned no cards",
         )
 
@@ -551,7 +583,7 @@ async def spark_record_event(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Persist a strictly typed, idempotent Spark interaction event."""
-    participant = await _resolve_participant_or_503(db, body.identity)
+    participant = await _resolve_participant_or_500(db, body.identity)
     event_payload = body.event.model_dump(mode="json")
     await persist_spark_interaction(
         db,

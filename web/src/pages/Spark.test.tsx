@@ -246,8 +246,8 @@ describe("Spark page", () => {
     });
 
     it("shows the API's own reason for a failure, not a blanket message", async () => {
-        // A missing key (503), a bad model payload (502) and a timeout (504) all
-        // used to render identically, which made the UI useless for diagnosis.
+        // A missing key, a bad model payload and a timeout all used to render
+        // identically, which made the UI useless for diagnosis.
         mockPost.mockResolvedValue({
             data: undefined,
             error: { detail: "OpenAI API key not configured" },

@@ -1219,6 +1219,7 @@ async def test_admin_llm_connectivity_uses_model_and_h4ckath0n_key(
 async def test_spark_generate_requires_openai_key(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A missing key is our deployment's fault, so it stays a 5xx."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("H4CKATH0N_OPENAI_API_KEY", raising=False)
     clear_config_cache()
@@ -1227,7 +1228,8 @@ async def test_spark_generate_requires_openai_key(
         "/spark/generate",
         json=_spark_request(condition="C", count=1),
     )
-    assert resp.status_code == 503
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "OpenAI API key not configured"
     clear_config_cache()
 
 
@@ -1737,6 +1739,53 @@ async def test_spark_completion_budget_scales_with_requested_cards(
 
 
 @pytest.mark.asyncio
+async def test_spark_quota_exhaustion_reaches_the_client_with_its_reason(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The outage this whole error contract exists for.
+
+    OpenAI credits ran out, the route answered 502, Cloudflare replaced the body
+    with its own error page, and the participant saw a blanket failure while the
+    reason sat in an unread log. The status must therefore be a 4xx the gateway
+    passes through, and the detail must name the cause.
+    """
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    class _QuotaError(Exception):
+        status_code = 429
+        body = {
+            "error": {
+                "message": "You have no credits remaining.",
+                "type": "insufficient_quota",
+                "code": "credit_balance_exhausted",
+            }
+        }
+
+    class _FakeChatLLM:
+        async def ainvoke(self, _prompt: Any) -> Any:
+            raise _QuotaError("Error code: 429 - no credits remaining")
+
+    monkeypatch.setattr(spark_routes, "make_chat_llm", lambda **_kwargs: _FakeChatLLM())
+
+    resp = await client.post(
+        "/spark/generate",
+        json=_spark_request(condition="C", count=1),
+    )
+
+    assert resp.status_code == 424
+    detail = resp.json()["detail"]
+    assert "quota" in detail
+    assert "429" in detail
+    # The provider's prose (and its billing URL) stays server-side.
+    assert "http" not in detail
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
 async def test_spark_generate_condition_d_remix_is_not_a_catalog(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1915,7 +1964,7 @@ async def test_spark_generate_condition_b_ignores_a_frame_preference(
 
 
 @pytest.mark.asyncio
-async def test_spark_generate_invalid_payload_returns_502(
+async def test_spark_generate_invalid_model_payload_is_a_client_visible_4xx(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.routes import spark as spark_routes
@@ -1953,13 +2002,15 @@ async def test_spark_generate_invalid_payload_returns_502(
         "/spark/generate",
         json=_spark_request(condition="C", count=3),
     )
-    assert resp.status_code == 502
+    # 4xx, not 5xx: Cloudflare replaces origin 502/504 bodies with its own error
+    # page, which would strip the detail below before any client could read it.
+    assert resp.status_code == 424
     assert resp.json()["detail"] == "Spark model produced invalid response shape"
     clear_config_cache()
 
 
 @pytest.mark.asyncio
-async def test_spark_generate_timeout_returns_504(
+async def test_spark_generate_timeout_is_a_client_visible_4xx(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.routes import spark as spark_routes
@@ -1988,7 +2039,7 @@ async def test_spark_generate_timeout_returns_504(
         "/spark/generate",
         json=_spark_request(condition="C", count=1),
     )
-    assert resp.status_code == 504
+    assert resp.status_code == 424
     assert resp.json()["detail"] == "Spark model request timed out"
     clear_config_cache()
 

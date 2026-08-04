@@ -76,11 +76,17 @@ const GENERIC_ERROR = "Spark generation failed";
 
 /** Surface the API's own explanation instead of a blanket failure string.
  *
- *  Every non-2xx used to collapse into one message, so a missing API key (503),
- *  a bad model payload (502), a timeout (504) and a rejected request (422) were
- *  indistinguishable on screen — and in any bug report. FastAPI sends `detail`
- *  as a string for handled errors and as a list of objects for validation
- *  failures; anything else falls back to the generic message.
+ *  Every non-2xx used to collapse into one message, so an upstream model
+ *  failure, a timeout and a rejected request were indistinguishable on screen —
+ *  and in any bug report. FastAPI sends `detail` as a string for handled errors
+ *  and as a list of objects for validation failures; anything else falls back to
+ *  the generic message.
+ *
+ *  The API reports upstream model failures as 424 rather than 502/504 precisely
+ *  so this function has something to read: Cloudflare replaces origin 5xx bodies
+ *  with its own error page, which strips `detail` and leaves only the generic
+ *  fallback below. A 5xx reaching here therefore means *our* infrastructure
+ *  failed, not the model.
  */
 function describeApiError(error: unknown): string {
     const detail = (error as { detail?: unknown } | null | undefined)?.detail;
