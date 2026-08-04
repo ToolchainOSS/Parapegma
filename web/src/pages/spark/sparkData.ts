@@ -131,13 +131,13 @@ export const CONDITIONS: ConditionDef[] = [
     {
         id: "D",
         name: "AI-Ranked Choice",
-        what: "A short intake, then five Sparks in every vibe, ranked by predicted fit.",
+        what: "A short intake, then one Spark per vibe, ranked by predicted fit.",
         tags: ["Intake", "AI ranks", "Choice"],
         letterBg: "var(--sf-science)",
     },
 ];
 
-/** Accent color for a condition (used by tabs, progress, badges). */
+/** Accent color for a condition (used by progress bar, home cards, badges). */
 export function conditionAccent(id: SparkCondition): string {
     return CONDITIONS.find((c) => c.id === id)?.letterBg ?? "var(--text)";
 }
@@ -211,17 +211,7 @@ export function emptyProfile(): IntakeProfile {
     return { anchor: null, action: null, time: null };
 }
 
-/** Options per vibe in condition D's catalog — mirrors `_D_OPTIONS_PER_FRAME`
- *  in `api/app/routes/spark.py`, which is what actually enforces it. */
-export const D_OPTIONS_PER_FRAME = 5;
-
-/** Partition cards into the five vibe columns, in {@link FRAME_ORDER}.
- *  Vibes with no card are dropped, so a partial catalog still renders. */
-export function groupCardsByFrame<T extends { frame: string }>(
-    cards: readonly T[],
-): { frame: SparkFrame; cards: T[] }[] {
-    return FRAME_ORDER.map((frame) => ({
-        frame,
-        cards: cards.filter((card) => card.frame === frame),
-    })).filter((group) => group.cards.length > 0);
-}
+/** Condition D's catalog: one adapted Spark per vibe, ranked against each other.
+ *  This is the count requested; the server de-duplicates vibes and serves a
+ *  shorter catalog rather than failing when the model returns fewer. */
+export const D_CATALOG_SIZE = FRAME_ORDER.length;

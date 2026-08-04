@@ -31,8 +31,7 @@ import {
 import { useSparkEventTracker } from "./spark/sparkTelemetry";
 import {
     CONDITIONS,
-    D_OPTIONS_PER_FRAME,
-    FRAME_ORDER,
+    D_CATALOG_SIZE,
     INTAKE_QUESTIONS,
     buildContextFromProfile,
     conditionAccent,
@@ -60,28 +59,28 @@ function FlowProgress({ step, total, accent, onBack }: FlowProgressProps) {
             style={{ ["--seg-accent" as string]: accent }}
             aria-label={`Step ${step + 1} of ${total}`}
         >
-            {step > 0 && (
-                <button
-                    type="button"
-                    className="spark-back-btn"
-                    onClick={onBack}
-                    aria-label="Previous step"
+            {/* Always present: at step 0 this is the only way back out of the
+                condition, since there is no condition switcher above it. */}
+            <button
+                type="button"
+                className="spark-back-btn"
+                onClick={onBack}
+                aria-label={step > 0 ? "Previous step" : "Back to all conditions"}
+            >
+                <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
                 >
-                    <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="m15 18-6-6 6-6" />
-                    </svg>
-                </button>
-            )}
+                    <path d="m15 18-6-6 6-6" />
+                </svg>
+            </button>
             <div className="spark-progress">
                 <div className="spark-progress-meta">
                     <span>
@@ -552,11 +551,11 @@ function ConditionAdaptive({
             setStep(selectStep);
             const ctx = buildContextFromProfile(next);
             // No `frame`: the intake states no vibe. C lets the model choose one;
-            // D asks the server for this many options in *every* vibe.
+            // D asks for the catalog — one adapted Spark in each vibe.
             void actions.generate({
                 condition,
                 context: ctx || undefined,
-                count: condition === "D" ? D_OPTIONS_PER_FRAME : 1,
+                count: condition === "D" ? D_CATALOG_SIZE : 1,
             });
         }
     }
@@ -584,7 +583,7 @@ function ConditionAdaptive({
                                 condition === "D"
                                     ? [
                                           "Lining up your best matches…",
-                                          "Ranking contenders in every vibe…",
+                                          "Weighing one Spark per vibe…",
                                           "Weighing what fits your day…",
                                           "Sorting Sparks by good-fit energy…",
                                           "Reading your intake like tea leaves…",
@@ -762,51 +761,6 @@ function ConditionAdaptive({
 }
 
 // ---------------------------------------------------------------------------
-// Condition tabs
-// ---------------------------------------------------------------------------
-function ConditionTabs({
-    active,
-    onSelect,
-}: {
-    active: SparkCondition | null;
-    onSelect: (c: SparkCondition | null) => void;
-}) {
-    return (
-        <div className="flex justify-center mb-6">
-            <div className="spark-segmented" role="tablist" aria-label="Spark conditions">
-                <button
-                    type="button"
-                    role="tab"
-                    aria-selected={active === null}
-                    className="spark-seg"
-                    data-active={active === null ? "true" : undefined}
-                    style={{ ["--seg-accent" as string]: "var(--text)" }}
-                    onClick={() => onSelect(null)}
-                >
-                    Home
-                </button>
-                {FRAME_ORDER.length > 0 &&
-                    (["A", "B", "C", "D"] as SparkCondition[]).map((c) => (
-                        <button
-                            key={c}
-                            type="button"
-                            role="tab"
-                            aria-selected={active === c}
-                            className="spark-seg"
-                            data-active={active === c ? "true" : undefined}
-                            data-testid={`spark-tab-${c}`}
-                            style={{ ["--seg-accent" as string]: conditionAccent(c) }}
-                            onClick={() => onSelect(c)}
-                        >
-                            {c}
-                        </button>
-                    ))}
-            </div>
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------------
 // Root export
 // ---------------------------------------------------------------------------
 export function Spark() {
@@ -825,8 +779,6 @@ export function Spark() {
                 className="spark-zone px-4 py-5 max-w-3xl mx-auto w-full"
                 data-testid="spark-page"
             >
-                <ConditionTabs active={condition} onSelect={goto} />
-
                 {condition === null && <SparkHome onStart={(c) => goto(c)} />}
                 {condition === "A" && (
                     <ConditionA

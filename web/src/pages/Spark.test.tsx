@@ -179,7 +179,7 @@ describe("Spark page", () => {
         mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
 
         render(<Spark />);
-        fireEvent.click(screen.getByTestId("spark-tab-B"));
+        fireEvent.click(screen.getByTestId("spark-cond-B"));
 
         // The sampler loads itself — no vibe question stands between the
         // participant and the intervention.
@@ -201,14 +201,9 @@ describe("Spark page", () => {
         expect(mockPost).toHaveBeenCalledTimes(1);
     });
 
-    it("condition D: browses a ranked catalog covering every vibe", async () => {
-        const catalog = ["calm", "zoomies", "silly", "challenge", "science"].flatMap((frame) =>
-            [90, 80].map((fit_score) => ({
-                ...CARD,
-                frame,
-                fit_score,
-                title: `${frame} ${fit_score}`,
-            })),
+    it("condition D: browses a ranked catalog holding one Spark per vibe", async () => {
+        const catalog = ["calm", "zoomies", "silly", "challenge", "science"].map(
+            (frame, i) => ({ ...CARD, frame, fit_score: 95 - i * 5, title: `${frame} pick` }),
         );
         mockPost.mockResolvedValue(respondWith("D", catalog));
 
@@ -220,31 +215,32 @@ describe("Spark page", () => {
             expect(mockPost).toHaveBeenCalledTimes(1);
         });
         const body = (mockPost.mock.calls[0]?.[1] as { body: Record<string, unknown> }).body;
-        // `count` is options per vibe; the server fans out across all five.
+        // One request for the whole catalog — one card per vibe, no vibe asked for.
         expect(body).toMatchObject({ condition: "D", count: 5 });
         expect(body.frame_preference).toBeUndefined();
 
-        // Every vibe gets its own column of options.
-        expect(await screen.findByText("calm 90")).toBeInTheDocument();
-        expect(screen.getByText("science 80")).toBeInTheDocument();
+        // Same choice set as condition B's sampler: every vibe, exactly once.
+        for (const frame of ["calm", "zoomies", "silly", "challenge", "science"]) {
+            expect(screen.getByTestId(`spark-ranked-${frame}`)).toBeInTheDocument();
+        }
 
         // Picking lands on the preview step, whose index is derived from the
         // intake length — not a hardcoded one that drifts when questions change.
-        fireEvent.click(screen.getByText("challenge 90"));
+        fireEvent.click(screen.getByTestId("spark-ranked-challenge"));
         expect(await screen.findByTestId("spark-card")).toBeInTheDocument();
         expect(screen.getByText("Your pick")).toBeInTheDocument();
     });
 
-    it("condition tabs switch between conditions and home", async () => {
+    it("leaves a condition through the back affordance on its first step", async () => {
         mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
 
         render(<Spark />);
-        // Navigate to condition B
-        fireEvent.click(screen.getByTestId("spark-tab-B"));
+        fireEvent.click(screen.getByTestId("spark-cond-B"));
         expect(await screen.findByText("Which one would you actually do?")).toBeInTheDocument();
 
-        // Navigate back home
-        fireEvent.click(screen.getByText("Home"));
+        // With no condition switcher above the flow, back on step 0 is the only
+        // way out — it must exit to home rather than be hidden.
+        fireEvent.click(screen.getByLabelText("Back to all conditions"));
         expect(screen.getByTestId("spark-cond-A")).toBeInTheDocument();
     });
 });

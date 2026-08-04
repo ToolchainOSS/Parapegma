@@ -14,12 +14,16 @@ the configured LLM, returning structured Spark card payloads.
 Choice model (why no condition asks for a vibe up front)
 ---------------------------------------------------------
 Participants generally cannot name the vibe they want before seeing a Spark, so
-no condition takes ``frame_preference`` as a *user* input any more. B serves one
-random Spark per vibe (five concrete cards); D fans out one LLM call per vibe and
-returns ``5 x 5`` ranked options. In both, the chosen vibe is derived from the
-card the participant actually picks. ``frame_preference`` survives only as an
-internal request field: the D catalog uses it to pin each fan-out call to one
-vibe, and C/D remixes use it to carry an explicit "switch to X vibe" adjustment.
+no condition takes ``frame_preference`` as a *user* input any more. B and D are
+the same shape — one Spark per vibe, five cards — and differ only in that B draws
+randomly from the static library while D adapts each card to the intake and ranks
+the five against each other. Holding the choice set constant is deliberate: it
+leaves adaptation and ranking as the only variables between the two conditions.
+D's coverage is a target rather than a guarantee — a model that returns four
+usable vibes yields four options, never an error.
+In both, the chosen vibe is derived from the card the participant actually picks.
+``frame_preference`` survives only as an internal request field, carrying an
+explicit "switch to X vibe" adjustment on a C/D remix.
 
 Remix model (conditions C/D only)
 ----------------------------------
@@ -74,12 +78,10 @@ router = APIRouter()
 
 PROMPT_NAME = "spark_proxy_system"
 _MAX_HISTORY = 20
-# Condition D catalog: one fan-out LLM call per vibe, this many options each.
-_D_OPTIONS_PER_FRAME = 5
-# Widest response any condition can produce (the D catalog).
-_MAX_RESPONSE_CARDS = len(ALL_FRAMES) * _D_OPTIONS_PER_FRAME
-# Cards a single LLM round-trip may return.
-_MAX_CARDS_PER_CALL = 5
+# Condition D's catalog is one adapted Spark per vibe, ranked against each other.
+_D_CATALOG_SIZE = len(ALL_FRAMES)
+# Cards any single response may carry.
+_MAX_CARDS = 5
 
 
 class SparkCard(BaseModel):
@@ -116,13 +118,34 @@ class SparkGenerateRequest(BaseModel):
 
 class SparkGenerateResponse(BaseModel):
     condition: Literal["A", "B", "C", "D"]
-    cards: list[SparkCard] = Field(min_length=1, max_length=_MAX_RESPONSE_CARDS)
+    cards: list[SparkCard] = Field(min_length=1, max_length=_MAX_CARDS)
     model: str
     prompt_version: dict[str, str]
 
 
-class _SparkModelPayload(BaseModel):
-    cards: list[SparkCard] = Field(min_length=1, max_length=_MAX_CARDS_PER_CALL)
+def _parse_cards(payload: dict[str, object]) -> list[SparkCard]:
+    """Validate the model's cards one at a time, dropping any with a bad shape.
+
+    Validating the array as a block would let a single malformed card destroy an
+    otherwise good response — the participant would get an error page instead of
+    the four Sparks that were fine. Dropping is safe precisely because the check
+    is per card: everything that survives has passed the full ``SparkCard``
+    contract, so a card is either complete or absent, never half-populated.
+    """
+    items = payload.get("cards")
+    if not isinstance(items, list):
+        raise ValueError("Spark model output must contain a 'cards' array")
+
+    cards: list[SparkCard] = []
+    for item in items[:_MAX_CARDS]:
+        try:
+            cards.append(SparkCard.model_validate(item))
+        except ValidationError as exc:
+            logger.warning(
+                "Dropping malformed Spark card: %s",
+                exc.errors(include_url=False),
+            )
+    return cards
 
 
 def _content_to_text(content: object) -> str:
@@ -165,8 +188,8 @@ def _build_user_prompt(
     """Serialize one model request.
 
     ``frame_preference`` and ``count`` are passed explicitly rather than read off
-    ``body`` because the condition D catalog issues one call per vibe, each
-    overriding both.
+    ``body`` because a condition D catalog overrides both: it asks for no vibe in
+    particular and for exactly one card per vibe, whatever the client sent.
     """
     payload: dict[str, object] = {
         "condition": body.condition,
@@ -243,10 +266,11 @@ async def _invoke_spark_model(
     system_prompt: str,
     user_prompt: str,
 ) -> list[SparkCard]:
-    """One bounded model round-trip → validated cards.
+    """One bounded model round-trip → whichever cards came back well-formed.
 
-    Every failure mode is mapped to an ``HTTPException`` here so callers — including
-    the concurrent condition D catalog — never have to re-classify provider errors.
+    Every failure mode is mapped to an ``HTTPException`` here so callers never
+    have to re-classify provider errors. Individually malformed cards are dropped
+    rather than raised on; only a response with *nothing* usable is a failure.
     """
     try:
         response = await asyncio.wait_for(
@@ -259,14 +283,14 @@ async def _invoke_spark_model(
             timeout=25,
         )
         text = _content_to_text(response.content)
-        parsed = _extract_json_object(text)
-        return _SparkModelPayload.model_validate(parsed).cards
-    except ValidationError as exc:
-        logger.warning("Spark payload validation failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Spark model produced invalid response shape",
-        ) from exc
+        cards = _parse_cards(_extract_json_object(text))
+        if not cards:
+            logger.warning("Spark model returned no well-formed cards")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Spark model produced invalid response shape",
+            )
+        return cards
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning("Spark response JSON parse failed: %s", exc)
         raise HTTPException(
@@ -289,41 +313,33 @@ async def _invoke_spark_model(
         ) from exc
 
 
-async def _generate_frame_catalog(
-    llm: BaseChatModel,
-    system_prompt: str,
-    body: SparkGenerateRequest,
-) -> list[SparkCard]:
-    """Condition D first generate — ``_D_OPTIONS_PER_FRAME`` options for every vibe.
+def _rank_catalog(cards: list[SparkCard]) -> list[SparkCard]:
+    """Condition D's catalog: at most one Spark per vibe, best predicted fit first.
 
-    The five calls are independent, so they are issued concurrently (applicative,
-    not sequential). ``return_exceptions=True`` lets every call settle before the
-    first failure is re-raised — ``gather`` would otherwise leave the siblings
-    running detached against the provider. Failure is all-or-nothing on purpose:
-    a participant seeing three of five vibes would be a silent confound.
+    The catalog is one model call, so vibe coverage cannot be pinned per request
+    the way condition B's library sampler pins it. Full coverage is therefore a
+    target, not a guarantee — and a *shortfall is not an error*: four real options
+    serve the participant far better than an error page, and every card shown has
+    passed the whole ``SparkCard`` contract either way. Repeats collapse to the
+    better-scoring card so no vibe is offered twice.
 
-    Each call is pinned to one vibe and the returned cards are forced to it, so
-    the five categories are structurally guaranteed rather than model-trusted.
+    The shortfall is logged so model adherence is measurable; if it turns out to
+    be common, a retry belongs here.
     """
-    results = await asyncio.gather(
-        *(
-            _invoke_spark_model(
-                llm,
-                system_prompt,
-                _build_user_prompt(body, frame, _D_OPTIONS_PER_FRAME),
-            )
-            for frame in ALL_FRAMES
-        ),
-        return_exceptions=True,
-    )
+    best: dict[SparkFrame, SparkCard] = {}
+    for card in cards:
+        incumbent = best.get(card.frame)
+        if incumbent is None or (card.fit_score or 0) > (incumbent.fit_score or 0):
+            best[card.frame] = card
 
-    catalog: list[SparkCard] = []
-    for frame, result in zip(ALL_FRAMES, results, strict=True):
-        if isinstance(result, BaseException):
-            raise result
-        ranked = sorted(result, key=lambda card: card.fit_score or 0, reverse=True)
-        catalog.extend(card.model_copy(update={"frame": frame}) for card in ranked)
-    return catalog
+    if len(best) < len(ALL_FRAMES):
+        logger.warning(
+            "Spark D catalog covered %d of %d vibes: %s",
+            len(best),
+            len(ALL_FRAMES),
+            sorted(best),
+        )
+    return sorted(best.values(), key=lambda card: card.fit_score or 0, reverse=True)
 
 
 @router.post("/spark/generate", tags=["spark"])
@@ -423,29 +439,32 @@ async def spark_generate(
         ) from exc
 
     model_name = get_llm_model()
-
-    # A D catalog call returns five full cards, so it needs a wider budget than
-    # the single-card C generate or a remix.
-    is_catalog = body.condition == "D" and body.base_card is None
     llm = make_chat_llm(
         model=model_name,
         api_key=llm_key,
         temperature=0.6,
-        max_tokens=1600 if is_catalog else 800,
+        max_tokens=800,
+    )
+
+    # A first D generate is the catalog: one Spark per vibe, no vibe requested.
+    # Every other path (C, and any remix) honours whatever the client asked for.
+    is_catalog = body.condition == "D" and body.base_card is None
+    cards = await _invoke_spark_model(
+        llm,
+        system_prompt,
+        _build_user_prompt(
+            body,
+            None if is_catalog else body.frame_preference,
+            _D_CATALOG_SIZE if is_catalog else body.count,
+        ),
     )
 
     if is_catalog:
-        cards = await _generate_frame_catalog(llm, system_prompt, body)
-    else:
-        cards = await _invoke_spark_model(
-            llm,
-            system_prompt,
-            _build_user_prompt(body, body.frame_preference, body.count),
-        )
-        if body.condition == "C":
-            cards = cards[:1]
-        elif body.condition == "D":
-            cards = sorted(cards, key=lambda card: card.fit_score or 0, reverse=True)
+        cards = _rank_catalog(cards)
+    elif body.condition == "C":
+        cards = cards[:1]
+    elif body.condition == "D":
+        cards = sorted(cards, key=lambda card: card.fit_score or 0, reverse=True)
 
     if not cards:
         raise HTTPException(

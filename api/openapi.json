@@ -2067,7 +2067,7 @@
             "items": {
               "$ref": "#/components/schemas/SparkCard"
             },
-            "maxItems": 25,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Cards",
             "type": "array"

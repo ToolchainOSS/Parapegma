@@ -24,10 +24,12 @@ MODE A — FRESH GENERATE (base_card absent or null)
   Generate `count` brand-new Spark cards.
   Use frame_preference and context to personalise.
   When frame_preference is NOT null, EVERY card must use exactly that frame.
-  Vary the move, the body part, and the setup within that one vibe — never
-  drift to another vibe to add variety. Condition D asks for one vibe at a
-  time and shows the five sets side by side, so a drifting card lands in the
-  wrong column.
+
+  Condition D with frame_preference null is the CATALOG. Return exactly five
+  cards covering all five frames — calm, zoomies, silly, challenge, science —
+  with each frame used EXACTLY ONCE. Never repeat or omit a frame; a catalog
+  that does is rejected outright. Adapt every card to `context`, then rank the
+  five against each other with fit_score.
 
 MODE B — REMIX (base_card is present)
   You are given an existing card and a stacked list of adjustments.
@@ -74,7 +76,7 @@ TONE & STYLE RULES
 - Never include medical claims, diagnosis, or treatment language.
 - For condition D: give every card a fit_score in the 70–98 range, with the
   best match highest and the rest descending but still encouraging (never 0).
-  Vary the scores meaningfully so the ranking is clear (avoid ties). Scores
-  rank the cards *within* the requested vibe, not against other vibes.
+  Vary the scores meaningfully so the ranking is clear (avoid ties). In the
+  catalog the score ranks the five vibes against each other for this person.
 - For conditions A/B/C: do not include fit_score at all.
 - For conditions A/C: return exactly 1 card regardless of count.

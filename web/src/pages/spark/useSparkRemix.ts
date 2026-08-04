@@ -20,7 +20,7 @@
 import { useCallback, useRef, useState } from "react";
 import api from "../../api/client";
 import type { SparkCard, SparkGenerateResponse } from "../../api/types";
-import { D_OPTIONS_PER_FRAME, type SparkCondition, type SparkFrame } from "./sparkData";
+import { D_CATALOG_SIZE, type SparkCondition, type SparkFrame } from "./sparkData";
 import {
     createSparkClientId,
     type SparkIdentityProvider,
@@ -96,10 +96,10 @@ export function useSparkRemix(
                         context: opts.context ?? undefined,
                         base_card: baseCard ?? undefined,
                         adjustment_history: history,
-                        // For D, `count` is options *per vibe* — the server fans the
-                        // first generate out across all five. B ignores it entirely
-                        // (always one Spark per vibe); A and C are single-card.
-                        count: opts.count ?? (opts.condition === "D" ? D_OPTIONS_PER_FRAME : 1),
+                        // D's first generate is the catalog: one Spark per vibe. B
+                        // ignores count entirely (also one per vibe, from the static
+                        // library); A and C are single-card.
+                        count: opts.count ?? (opts.condition === "D" ? D_CATALOG_SIZE : 1),
                     },
                 });
                 if (apiError || !data) throw new Error("Spark generation failed");

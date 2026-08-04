@@ -57,10 +57,10 @@ excludes identity inputs from the stored payload.
 - `frame_selected` — emitted when a participant picks a card, carrying that
   card's vibe. It is a *revealed* preference (chosen after seeing concrete
   Sparks), never a stated one.
-- `card_selected` — `rank` is the position **within the list chosen from**:
-  1–5 across condition B's one-per-vibe sampler, or 1–5 within one vibe's column
-  in condition D's 5×5 catalog. It is never an index into D's full 25 cards;
-  join it with the `frame_selected` event emitted at the same moment.
+- `card_selected` — `rank` is the position within the list chosen from, 1–5.
+  Conditions B and D both offer one Spark per vibe, so rank is unordered in B
+  (the sampler is random) and meaningful in D (ranked by predicted fit). Join it
+  with the `frame_selected` event emitted at the same moment to identify the card.
 - `timer_finished`
 - `feedback_submitted`
 - `cue_selected`

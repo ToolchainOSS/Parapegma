@@ -1,16 +1,18 @@
-/** Condition D — the ranked catalog: five options in each of the five vibes.
+/** Condition D — the ranked catalog: one adapted Spark per vibe.
  *
- *  The intake no longer asks which vibe the participant wants, so the catalog
- *  shows every vibe and ranks *within* each one. Picking is browsing concrete
- *  Sparks rather than committing to a label first; the chosen card's frame is
- *  what tells us the preferred vibe.
+ *  Same choice set as condition B's sampler — one Spark per vibe — so the two
+ *  conditions differ only in that these are adapted to the intake and ranked
+ *  against each other. Renders whatever the catalog contains: a vibe the model
+ *  failed to supply is simply absent, never an error. The participant browses concrete Sparks instead
+ *  of committing to a vibe label first; whichever card they pick is what tells
+ *  us the preferred vibe.
  */
 import type { SparkCard as SparkCardData } from "../../api/types";
-import { FRAMINGS, groupCardsByFrame, type SparkFrame } from "./sparkData";
+import { FRAMINGS, type SparkFrame } from "./sparkData";
 
 interface RankedListProps {
     cards: readonly SparkCardData[];
-    /** `rank` is 1-based *within the card's own vibe*, not across the catalog. */
+    /** `rank` is 1-based across the whole catalog — one position per vibe. */
     onPick: (card: SparkCardData, rank: number, frame: SparkFrame) => void;
 }
 
@@ -28,82 +30,71 @@ function matchFor(score: number | null | undefined, rank: number): { pct: number
 }
 
 export function RankedList({ cards, onPick }: RankedListProps) {
-    const groups = groupCardsByFrame(cards);
-
     return (
-        <div className="space-y-5">
+        <div className="space-y-4">
             <div>
                 <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">
                     Condition D · AI-Ranked Choice
                 </p>
                 <h2 className="text-2xl font-bold text-text">Ranked for your day</h2>
                 <p className="text-sm text-text-muted mt-1">
-                    Built from your intake, in every vibe — ranked by best match inside each one.
-                    Browse them all and pick anything that appeals; you stay in control.
+                    A Spark from each vibe, shaped by your intake and ordered by predicted fit.
+                    Pick whichever appeals — you stay in control.
                 </p>
             </div>
 
-            {groups.map(({ frame, cards: framed }) => {
-                const f = FRAMINGS[frame];
-                return (
-                    <section key={frame} className="space-y-2">
-                        <div className="flex items-baseline gap-2 flex-wrap">
-                            <span
-                                className="spark-framechip text-xs font-semibold rounded-full px-3 py-1 inline-flex items-center gap-1.5"
-                                style={{ background: f.tintVar, color: f.colorVar }}
+            <div className="flex flex-col gap-3">
+                {cards.map((card, idx) => {
+                    const frame = card.frame as SparkFrame;
+                    const f = FRAMINGS[frame] ?? FRAMINGS.calm;
+                    const { pct, label } = matchFor(card.fit_score, idx);
+                    return (
+                        <button
+                            key={`${card.title}-${idx}`}
+                            type="button"
+                            data-testid={`spark-ranked-${card.frame}`}
+                            className="text-left rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-4 flex gap-3 transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
+                            onClick={() => onPick(card, idx + 1, frame)}
+                        >
+                            {/* rank badge */}
+                            <div
+                                className="flex-none w-7 h-7 rounded-lg grid place-items-center text-white font-bold text-sm"
+                                style={{ background: f.colorVar }}
+                                aria-label={`Rank ${idx + 1}`}
                             >
-                                <span aria-hidden="true">{f.emoji}</span> {f.label}
-                            </span>
-                            <span className="text-xs text-text-muted">{f.desc}</span>
-                        </div>
-
-                        <div className="flex flex-col gap-3">
-                            {framed.map((card, idx) => {
-                                const { pct, label } = matchFor(card.fit_score, idx);
-                                return (
-                                    <button
-                                        key={`${card.title}-${idx}`}
-                                        type="button"
-                                        className="text-left rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-4 flex gap-3 transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
-                                        onClick={() => onPick(card, idx + 1, frame)}
-                                    >
-                                        {/* rank badge — position within this vibe */}
-                                        <div
-                                            className="flex-none w-7 h-7 rounded-lg grid place-items-center text-white font-bold text-sm"
-                                            style={{ background: f.colorVar }}
-                                            aria-label={`${f.label} rank ${idx + 1}`}
-                                        >
-                                            {idx + 1}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="font-bold text-text">{card.title}</div>
-                                            <p className="text-sm text-text-muted mt-0.5 line-clamp-2">{card.action}</p>
-                                            {/* match bar */}
-                                            <div className="spark-fitbar mt-2">
-                                                <div
-                                                    className="spark-fitbar-fill"
-                                                    style={{ width: `${pct}%`, background: f.colorVar }}
-                                                />
-                                            </div>
-                                            <p className="text-xs mt-1 font-semibold" style={{ color: f.colorVar }}>
-                                                {idx === 0 ? "✨ " : ""}
-                                                {label} · {pct}% match
-                                            </p>
-                                            {card.why && (
-                                                <p className="text-xs text-text-muted mt-0.5">{card.why}</p>
-                                            )}
-                                        </div>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </section>
-                );
-            })}
+                                {idx + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="font-bold text-text">
+                                    {card.title}{" "}
+                                    <span className="text-xs font-semibold" style={{ color: f.colorVar }}>
+                                        · {f.emoji} {f.short}
+                                    </span>
+                                </div>
+                                <p className="text-sm text-text-muted mt-0.5 line-clamp-2">{card.action}</p>
+                                {/* match bar */}
+                                <div className="spark-fitbar mt-2">
+                                    <div
+                                        className="spark-fitbar-fill"
+                                        style={{ width: `${pct}%`, background: f.colorVar }}
+                                    />
+                                </div>
+                                <p className="text-xs mt-1 font-semibold" style={{ color: f.colorVar }}>
+                                    {idx === 0 ? "✨ " : ""}
+                                    {label} · {pct}% match
+                                </p>
+                                {card.why && (
+                                    <p className="text-xs text-text-muted mt-0.5">{card.why}</p>
+                                )}
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
 
             <p className="text-xs text-text-muted border border-dashed border-border rounded-xl p-3">
-                Ranking is transparent on purpose: each card shows how strong a match it is and why.
-                Scores compare Sparks inside a vibe, not one vibe against another.
+                Ranking is transparent on purpose: each card shows how strong a match it is
+                and why.
             </p>
         </div>
     );
