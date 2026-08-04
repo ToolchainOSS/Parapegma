@@ -50,15 +50,19 @@ OUTPUT SCHEMA
 {
   "cards": [
     {
-      "title":     "short evocative title (max 8 words)",
+      "title":     "short evocative title (max 100 characters)",
       "frame":     "calm|zoomies|silly|challenge|science",
-      "action":    "clear 1-minute instruction, energetic and direct (max 120 words)",
-      "reward":    "short sensory or motivational payoff — what they'll feel (max 60 words)",
-      "why":       "brief reason this fits the person right now (max 80 words)",
+      "action":    "clear 1-minute instruction, energetic and direct (max 480 characters)",
+      "reward":    "short sensory or motivational payoff — what they'll feel (max 240 characters)",
+      "why":       "brief reason this fits the person right now (max 320 characters)",
       "fit_score": 70–98 for D (omit entirely for other conditions)
     }
   ]
 }
+
+The character limits are hard: the server discards any card that exceeds one,
+and a card discarded is a Spark the participant never sees. Stay comfortably
+under them — these are ceilings, not targets. Terse cards are good cards.
 
 ===========================================================================
 TONE & STYLE RULES

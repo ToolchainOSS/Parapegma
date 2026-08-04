@@ -1632,6 +1632,111 @@ async def test_spark_generate_drops_only_the_malformed_cards(
 
 
 @pytest.mark.asyncio
+async def test_spark_generate_trims_overlong_prose_instead_of_dropping_the_card(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wordiness must not cost the participant a Spark.
+
+    Length is the one contract breach that is safe to repair — the card is real
+    and complete, just longer than it can be displayed. Dropping it would turn
+    condition C, whose response is a single card, into an error page.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    _fake_llm_returning(
+        monkeypatch,
+        [
+            {
+                "title": "Long winded reset",
+                "frame": "calm",
+                "action": "Roll your shoulders and breathe out slowly. " * 40,
+                "reward": "You will feel looser and steadier than before. " * 20,
+                "why": "It suits the moment you are in right now. " * 30,
+            }
+        ],
+    )
+
+    resp = await client.post(
+        "/spark/generate",
+        json=_spark_request(condition="C", count=1),
+    )
+    assert resp.status_code == 200
+    (card,) = resp.json()["cards"]
+    assert len(card["action"]) <= 600
+    assert len(card["reward"]) <= 300
+    assert len(card["why"]) <= 400
+    # Trimmed, not blanked — the Spark still reads as itself.
+    assert card["action"].startswith("Roll your shoulders")
+    assert card["title"] == "Long winded reset"
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_completion_budget_scales_with_requested_cards(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A budget sized for one card truncates D's five-card catalog mid-JSON.
+
+    The truncated response fails to parse, so the participant loses the whole
+    catalog rather than one card. The cap therefore has to track the ask.
+    """
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    budgets: list[int | None] = []
+
+    class _FakeResponse:
+        content = json.dumps(
+            {"cards": [_catalog_card(frame, 90) for frame in ALL_FRAMES]}
+        )
+
+    class _FakeChatLLM:
+        async def ainvoke(self, _prompt: Any) -> _FakeResponse:
+            return _FakeResponse()
+
+    def _capture(**kwargs: Any) -> _FakeChatLLM:
+        budgets.append(kwargs.get("max_tokens"))
+        return _FakeChatLLM()
+
+    monkeypatch.setattr(spark_routes, "make_chat_llm", _capture)
+
+    # Distinct client_event_ids: a repeated id replays the stored response
+    # instead of calling the model, and would capture only one budget.
+    single = await client.post(
+        "/spark/generate",
+        json=_spark_request(
+            condition="C",
+            count=1,
+            client_event_id="00000000-0000-4000-8000-0000000000c1",
+        ),
+    )
+    catalog = await client.post(
+        "/spark/generate",
+        json=_spark_request(
+            condition="D",
+            count=1,
+            client_event_id="00000000-0000-4000-8000-0000000000d1",
+        ),
+    )
+    assert single.status_code == 200
+    assert catalog.status_code == 200
+
+    one_card, five_cards = budgets
+    assert one_card is not None and five_cards is not None
+    # The catalog asks for len(ALL_FRAMES) cards regardless of the client's count.
+    assert five_cards > one_card
+    assert five_cards - one_card == spark_routes._TOKENS_PER_CARD * (
+        len(ALL_FRAMES) - 1
+    )
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
 async def test_spark_generate_condition_d_remix_is_not_a_catalog(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

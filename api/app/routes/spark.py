@@ -82,6 +82,13 @@ _MAX_HISTORY = 20
 _D_CATALOG_SIZE = len(ALL_FRAMES)
 # Cards any single response may carry.
 _MAX_CARDS = 5
+# Completion budget. The cap has to scale with the number of cards asked for:
+# D's catalog is five cards in a single call, and a cap sized for one truncates
+# the JSON mid-card, which fails to parse and costs the participant the whole
+# response rather than one card. Sized from the prompt's per-field character
+# ceilings (~1160 chars/card) with room for the JSON scaffolding.
+_TOKENS_PER_CARD = 400
+_TOKENS_RESPONSE_OVERHEAD = 200
 
 
 class SparkCard(BaseModel):
@@ -123,6 +130,57 @@ class SparkGenerateResponse(BaseModel):
     prompt_version: dict[str, str]
 
 
+def _prose_limits() -> dict[str, int]:
+    """Read the per-field character ceilings straight off :class:`SparkCard`.
+
+    Derived rather than restated so the trimming below cannot drift away from
+    the contract it is meant to satisfy.
+    """
+    limits: dict[str, int] = {}
+    for name, field in SparkCard.model_fields.items():
+        for constraint in field.metadata:
+            max_length = getattr(constraint, "max_length", None)
+            if isinstance(max_length, int):
+                limits[name] = max_length
+    return limits
+
+
+_PROSE_LIMITS = _prose_limits()
+
+
+def _trim_to_limit(value: str, limit: int) -> str:
+    """Shorten one over-long prose field to fit, at a word boundary if possible."""
+    if len(value) <= limit:
+        return value
+    clipped = value[: limit - 1].rstrip()
+    last_space = clipped.rfind(" ")
+    if last_space > 0:
+        clipped = clipped[:last_space]
+    return clipped.rstrip(" ,;:-") + "…"
+
+
+def _fit_prose(item: object) -> object:
+    """Bring a candidate card's prose within the ``SparkCard`` length ceilings.
+
+    Length is the one contract breach that is safe to repair: an over-long
+    ``action`` is still a real, complete Spark, just wordier than the card can
+    display. Dropping it instead costs the participant an entire Spark — and in
+    condition C, where the response is a single card, the entire response. Every
+    other breach (unknown vibe, missing field, non-string prose) is left alone so
+    it still fails validation and the card is dropped.
+    """
+    if not isinstance(item, dict):
+        return item
+    return {
+        key: (
+            _trim_to_limit(value, _PROSE_LIMITS[key])
+            if isinstance(value, str) and key in _PROSE_LIMITS
+            else value
+        )
+        for key, value in item.items()
+    }
+
+
 def _parse_cards(payload: dict[str, object]) -> list[SparkCard]:
     """Validate the model's cards one at a time, dropping any with a bad shape.
 
@@ -139,7 +197,7 @@ def _parse_cards(payload: dict[str, object]) -> list[SparkCard]:
     cards: list[SparkCard] = []
     for item in items[:_MAX_CARDS]:
         try:
-            cards.append(SparkCard.model_validate(item))
+            cards.append(SparkCard.model_validate(_fit_prose(item)))
         except ValidationError as exc:
             logger.warning(
                 "Dropping malformed Spark card: %s",
@@ -438,24 +496,26 @@ async def spark_generate(
             detail="Spark generation request failed",
         ) from exc
 
+    # A first D generate is the catalog: one Spark per vibe, no vibe requested.
+    # Every other path (C, and any remix) honours whatever the client asked for.
+    is_catalog = body.condition == "D" and body.base_card is None
+    requested_cards = _D_CATALOG_SIZE if is_catalog else body.count
+
     model_name = get_llm_model()
     llm = make_chat_llm(
         model=model_name,
         api_key=llm_key,
         temperature=0.6,
-        max_tokens=800,
+        max_tokens=_TOKENS_RESPONSE_OVERHEAD + _TOKENS_PER_CARD * requested_cards,
     )
 
-    # A first D generate is the catalog: one Spark per vibe, no vibe requested.
-    # Every other path (C, and any remix) honours whatever the client asked for.
-    is_catalog = body.condition == "D" and body.base_card is None
     cards = await _invoke_spark_model(
         llm,
         system_prompt,
         _build_user_prompt(
             body,
             None if is_catalog else body.frame_preference,
-            _D_CATALOG_SIZE if is_catalog else body.count,
+            requested_cards,
         ),
     )
 
