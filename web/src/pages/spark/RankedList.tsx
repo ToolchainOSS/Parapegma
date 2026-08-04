@@ -8,7 +8,9 @@
  *  us the preferred vibe.
  */
 import type { SparkCard as SparkCardData } from "../../api/types";
-import { FRAMINGS, type SparkFrame } from "./sparkData";
+import { SectionHeader } from "../../components";
+import { FramingChip, framingOf } from "./FramingChip";
+import type { SparkFrame } from "./sparkData";
 
 interface RankedListProps {
     cards: readonly SparkCardData[];
@@ -32,54 +34,47 @@ function matchFor(score: number | null | undefined, rank: number): { pct: number
 export function RankedList({ cards, onPick }: RankedListProps) {
     return (
         <div className="space-y-4">
-            <div>
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">
-                    Condition D · AI-Ranked Choice
-                </p>
-                <h2 className="text-2xl font-bold text-text">Ranked for your day</h2>
-                <p className="text-sm text-text-muted mt-1">
-                    A Spark from each vibe, shaped by your intake and ordered by predicted fit.
-                    Pick whichever appeals — you stay in control.
-                </p>
-            </div>
+            <SectionHeader
+                size="lg"
+                eyebrow="Condition D · AI-Ranked Choice"
+                title="Ranked for your day"
+                subtitle="A Spark from each vibe, shaped by your intake and ordered by predicted fit. Pick whichever appeals — you stay in control."
+            />
 
             <div className="flex flex-col gap-3">
                 {cards.map((card, idx) => {
                     const frame = card.frame as SparkFrame;
-                    const f = FRAMINGS[frame] ?? FRAMINGS.calm;
+                    const f = framingOf(card.frame);
                     const { pct, label } = matchFor(card.fit_score, idx);
                     return (
                         <button
                             key={`${card.title}-${idx}`}
                             type="button"
                             data-testid={`spark-ranked-${card.frame}`}
-                            className="text-left rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-4 flex gap-3 transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
+                            className="text-left rounded-lg border border-border bg-surface shadow-sm p-4 flex gap-3 transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
                             onClick={() => onPick(card, idx + 1, frame)}
                         >
                             {/* rank badge */}
                             <div
-                                className="flex-none w-7 h-7 rounded-lg grid place-items-center text-white font-bold text-sm"
-                                style={{ background: f.colorVar }}
+                                className={`flex-none w-7 h-7 rounded-md grid place-items-center text-on-primary font-medium text-sm ${f.accentBg}`}
                                 aria-label={`Rank ${idx + 1}`}
                             >
                                 {idx + 1}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <div className="font-bold text-text">
-                                    {card.title}{" "}
-                                    <span className="text-xs font-semibold" style={{ color: f.colorVar }}>
-                                        · {f.emoji} {f.short}
-                                    </span>
+                                <div className="flex flex-wrap items-baseline gap-2">
+                                    <span className="font-medium text-text">{card.title}</span>
+                                    <FramingChip frame={card.frame} short />
                                 </div>
                                 <p className="text-sm text-text-muted mt-0.5 line-clamp-2">{card.action}</p>
                                 {/* match bar */}
-                                <div className="spark-fitbar mt-2">
+                                <div className="mt-2 h-1 rounded-pill bg-surface-3 overflow-hidden">
                                     <div
-                                        className="spark-fitbar-fill"
-                                        style={{ width: `${pct}%`, background: f.colorVar }}
+                                        className={`h-full rounded-pill transition-[width] duration-500 ease-[var(--ease-out)] ${f.accentBg}`}
+                                        style={{ width: `${pct}%` }}
                                     />
                                 </div>
-                                <p className="text-xs mt-1 font-semibold" style={{ color: f.colorVar }}>
+                                <p className={`text-xs mt-1 font-medium ${f.accentText}`}>
                                     {idx === 0 ? "✨ " : ""}
                                     {label} · {pct}% match
                                 </p>

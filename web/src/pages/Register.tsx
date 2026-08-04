@@ -117,7 +117,7 @@ export function Register() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-gradient-to-br from-primary/15 to-accent/10 rounded-[var(--radius-md)] ring-1 ring-inset ring-primary/10">
+            <div className="p-2.5 bg-gradient-to-br from-primary/15 to-accent/10 rounded-md ring-1 ring-inset ring-primary/10">
               {step === "email" ? (
                 <Mail className="w-5 h-5 text-primary" />
               ) : step === "passkey" ? (
@@ -127,7 +127,7 @@ export function Register() {
               )}
             </div>
             <div>
-              <h2 className="text-xl font-bold text-text">
+              <h2 className="display-sm text-[1.25rem] text-text">
                 {step === "email"
                   ? "Your Email"
                   : step === "passkey"

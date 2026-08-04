@@ -1,4 +1,6 @@
 /** Intake step — one question at a time for conditions C & D */
+import { Card, CardContent } from "../../components";
+import { ChipGroup } from "../../components/ui";
 import type { IntakeProfile } from "./sparkData";
 import { INTAKE_QUESTIONS } from "./sparkData";
 
@@ -14,47 +16,38 @@ export function IntakeStep({ stepIndex, profile, onAnswer }: IntakeStepProps) {
 
     return (
         <div className="space-y-4">
-            <p className="text-xs font-semibold text-text-muted">
+            <p className="eyebrow text-text-subtle">
                 Intake · {stepIndex + 1} of {INTAKE_QUESTIONS.length}
             </p>
 
-            <div className="rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-5">
-                {/* AI avatar row on first question */}
-                {stepIndex === 0 && (
-                    <div className="flex gap-3 mb-4">
-                        <div
-                            className="flex-none w-9 h-9 rounded-[10px] grid place-items-center text-white text-sm font-bold"
-                            style={{ background: "conic-gradient(from 0deg, var(--sf-calm), var(--sf-science), var(--sf-calm))" }}
-                            aria-hidden="true"
-                        >
-                            AI
-                        </div>
-                        <p className="text-sm text-text-muted self-center">
-                            I'm your micro-coach. Let's find a tiny way to move that fits your day.
-                        </p>
-                    </div>
-                )}
-
-                <p className="font-semibold text-base text-text">{q.question}</p>
-                <p className="text-sm text-text-muted mt-1 mb-3">{q.sub}</p>
-
-                <div className="flex flex-col gap-2">
-                    {q.options.map((opt) => {
-                        const selected = profile[q.field] === opt.value;
-                        return (
-                            <button
-                                key={opt.value}
-                                type="button"
-                                className="text-left border border-border rounded-xl px-4 py-3 text-sm font-medium transition-colors hover:border-text-subtle"
-                                style={selected ? { background: "var(--text)", color: "var(--bg)", borderColor: "var(--text)" } : {}}
-                                onClick={() => onAnswer(q.field, opt.value)}
+            <Card>
+                <CardContent>
+                    {/* AI avatar row on first question */}
+                    {stepIndex === 0 && (
+                        <div className="flex gap-3 mb-5">
+                            <div
+                                className="flex-none w-9 h-9 rounded-md grid place-items-center bg-primary text-on-primary text-xs font-medium"
+                                aria-hidden="true"
                             >
-                                {opt.label}
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
+                                AI
+                            </div>
+                            <p className="text-sm text-text-muted self-center">
+                                I'm your micro-coach. Let's find a tiny way to move that fits your day.
+                            </p>
+                        </div>
+                    )}
+
+                    <p className="display-sm text-[1.125rem] text-text">{q.question}</p>
+                    <p className="text-sm text-text-muted mt-1 mb-4">{q.sub}</p>
+
+                    <ChipGroup
+                        layout="stack"
+                        options={q.options.map((opt) => ({ value: opt.value, label: opt.label }))}
+                        value={profile[q.field]}
+                        onSelect={(value) => onAnswer(q.field, value)}
+                    />
+                </CardContent>
+            </Card>
         </div>
     );
 }

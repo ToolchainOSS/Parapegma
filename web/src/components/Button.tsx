@@ -8,11 +8,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variants = {
   primary:
-    "bg-primary text-on-primary shadow-[var(--shadow-primary)] hover:bg-primary-hover hover:-translate-y-px hover:shadow-[var(--shadow-md)] active:translate-y-0 active:shadow-[var(--shadow-xs)]",
+    "bg-primary text-on-primary shadow-primary hover:bg-primary-hover hover:-translate-y-px hover:shadow-md active:translate-y-0 active:shadow-xs",
   secondary:
-    "bg-surface text-text border border-border shadow-[var(--shadow-xs)] hover:bg-surface-2 hover:border-text-subtle/40 active:bg-surface-3",
+    "bg-surface text-text border border-border shadow-xs hover:bg-surface-2 hover:border-text-subtle/40 active:bg-surface-3",
   danger:
-    "bg-danger text-on-danger shadow-[var(--shadow-sm)] hover:bg-danger-hover hover:-translate-y-px active:translate-y-0",
+    "bg-danger text-on-danger shadow-sm hover:bg-danger-hover hover:-translate-y-px active:translate-y-0",
   ghost: "text-text hover:bg-surface-2 active:bg-surface-3",
 };
 
@@ -31,7 +31,7 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center font-medium rounded-[var(--radius-pill)] transition-[transform,background-color,box-shadow,border-color] duration-200 ease-[var(--ease-out)] outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-50 disabled:pointer-events-none disabled:shadow-none ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex items-center justify-center font-medium rounded-pill transition-[transform,background-color,box-shadow,border-color] duration-200 ease-[var(--ease-out)] outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-50 disabled:pointer-events-none disabled:shadow-none ${variants[variant]} ${sizes[size]} ${className}`}
       {...props}
     >
       {children}

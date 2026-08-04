@@ -35,7 +35,7 @@ export function ListRow({
           }
           : undefined
       }
-      className={`group flex items-center gap-3 px-3 mx-1 h-[72px] rounded-[var(--radius-md)] hover:bg-surface-2 active:bg-surface-3 transition-colors duration-150 cursor-pointer ${className}`}
+      className={`group flex items-center gap-3 px-3 mx-1 h-[72px] rounded-md hover:bg-surface-2 active:bg-surface-3 transition-colors duration-150 cursor-pointer ${className}`}
     >
       {avatar && <div className="shrink-0">{avatar}</div>}
       <div className="flex-1 min-w-0">

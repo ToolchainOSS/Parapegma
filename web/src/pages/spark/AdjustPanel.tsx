@@ -1,4 +1,5 @@
 import type { SparkCard as SparkCardData } from "../../api/types";
+import { Chip, ChipGroup } from "../../components/ui";
 import { FRAME_ORDER, FRAMINGS, type SparkFrame } from "./sparkData";
 import { SparkThinking } from "./SparkThinking";
 import { VoiceControl } from "./VoiceControl";
@@ -15,12 +16,22 @@ interface AdjustPanelProps {
     saved?: boolean;
 }
 
-const QUICK_CHIPS = [
-    { label: "Make it easier", text: "make it easier" },
-    { label: "More energetic", text: "more energetic" },
-    { label: "Less awkward", text: "less awkward, something more subtle" },
-    { label: "Give me another", text: "give me a different one" },
-];
+/** Quick adjustments are *actions*, so the group latches nothing. */
+const QUICK_ADJUSTMENTS = [
+    { value: "make it easier", label: "Make it easier" },
+    { value: "more energetic", label: "More energetic" },
+    { value: "less awkward, something more subtle", label: "Less awkward" },
+    { value: "give me a different one", label: "Give me another" },
+] as const;
+
+const FRAME_OPTIONS = FRAME_ORDER.map((k) => ({
+    value: k,
+    label: (
+        <>
+            <span aria-hidden="true">{FRAMINGS[k].emoji}</span> {FRAMINGS[k].short}
+        </>
+    ),
+}));
 
 export function AdjustPanel({
     card,
@@ -47,54 +58,24 @@ export function AdjustPanel({
                     ]}
                 />
             )}
-            {/* Quick chips */}
-            <div>
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">
-                    Adjust this Spark
-                </p>
-                <div className="spark-chips">
-                    {QUICK_CHIPS.map((c) => (
-                        <button
-                            key={c.label}
-                            type="button"
-                            className="spark-chip"
-                            disabled={loading}
-                            onClick={() => onAdjust(c.text)}
-                        >
-                            {c.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
 
-            {/* Frame toggle */}
-            <div>
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">
-                    Switch the vibe (same action)
-                </p>
-                <div className="spark-chips">
-                    {FRAME_ORDER.map((k) => {
-                        const f = FRAMINGS[k];
-                        return (
-                            <button
-                                key={k}
-                                type="button"
-                                className="spark-chip"
-                                data-active={currentFrame === k ? "true" : undefined}
-                                data-ghost={currentFrame !== k ? "true" : undefined}
-                                disabled={loading}
-                                onClick={() => onFrameSwitch(k)}
-                            >
-                                {f.emoji} {f.short}
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
+            <ChipGroup
+                label="Adjust this Spark"
+                options={QUICK_ADJUSTMENTS}
+                onSelect={onAdjust}
+                disabled={loading}
+            />
 
-            {/* Voice / type */}
+            <ChipGroup
+                label="Switch the vibe (same action)"
+                options={FRAME_OPTIONS}
+                value={currentFrame}
+                onSelect={onFrameSwitch}
+                disabled={loading}
+            />
+
             <div>
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">
+                <p className="eyebrow text-text-subtle mb-2">
                     Or tell it what to change
                 </p>
                 <VoiceControl
@@ -103,23 +84,16 @@ export function AdjustPanel({
                     onText={onAdjust}
                 />
                 {lastAdjustment && (
-                    <p className="mt-1.5 text-xs font-semibold" style={{ color: "var(--sf-calm)" }}>
+                    <p className="mt-1.5 text-xs font-medium text-accent">
                         Spark updated: "{lastAdjustment}"
                     </p>
                 )}
             </div>
 
-            {/* Save */}
             {onSave && (
-                <button
-                    type="button"
-                    className="spark-chip text-sm"
-                    data-active={saved ? "true" : undefined}
-                    onClick={onSave}
-                    aria-pressed={saved}
-                >
+                <Chip selected={saved} onClick={onSave}>
                     {saved ? "★ Saved" : "☆ Save this Spark"}
-                </button>
+                </Chip>
             )}
         </div>
     );

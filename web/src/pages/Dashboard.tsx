@@ -117,7 +117,7 @@ export function Dashboard() {
             value={search}
             onChange={(e) => { setSearch(e.target.value); }}
             data-testid="chat-search"
-            className="w-full pl-9 pr-4 py-2 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-[var(--radius-pill)] border-none focus:outline-none focus-visible:ring-2 focus-visible:ring-focus transition-colors"
+            className="w-full pl-9 pr-4 py-2 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-pill border-none focus:outline-none focus-visible:ring-2 focus-visible:ring-focus transition-colors"
           />
         </div>
       </div>
@@ -142,7 +142,7 @@ export function Dashboard() {
 
         {!isLoading && (memberships?.length ?? 0) === 0 && !error && (
           <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-            <div className="w-16 h-16 rounded-[var(--radius-xl)] bg-gradient-to-br from-primary/15 to-accent/10 flex items-center justify-center mb-4 ring-1 ring-inset ring-primary/10">
+            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary/15 to-accent/10 flex items-center justify-center mb-4 ring-1 ring-inset ring-primary/10">
               <MessageSquare className="w-7 h-7 text-primary" />
             </div>
             <p className="text-[16px] font-semibold text-text">No chats yet</p>
@@ -196,7 +196,7 @@ export function Dashboard() {
       {/* FAB */}
       <button
         onClick={() => { setShowFab(true); }}
-        className="fixed right-4 w-14 h-14 rounded-[var(--radius-lg)] bg-primary text-on-primary shadow-[var(--shadow-primary)] flex items-center justify-center hover:bg-primary-hover hover:scale-105 hover:shadow-[var(--shadow-lg)] active:scale-95 transition-all duration-200 ease-[var(--ease-spring)] z-40"
+        className="fixed right-4 w-14 h-14 rounded-lg bg-primary text-on-primary shadow-primary flex items-center justify-center hover:bg-primary-hover hover:scale-105 hover:shadow-lg active:scale-95 transition-all duration-200 ease-[var(--ease-spring)] z-40"
         style={{ bottom: "calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + 16px)" }}
         aria-label="Join project"
       >
@@ -205,8 +205,8 @@ export function Dashboard() {
 
       {/* FAB modal */}
       {showFab && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-blue-slate-950/50 backdrop-blur-sm">
-          <div className="w-full max-w-sm mx-4 mb-4 md:mb-0 bg-surface border border-border rounded-[var(--radius-xl)] shadow-[var(--shadow-lg)] p-6 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-cream-950/50 backdrop-blur-sm">
+          <div className="w-full max-w-sm mx-4 mb-4 md:mb-0 bg-surface border border-border rounded-xl shadow-lg p-6 space-y-4">
             <h2 className="text-[18px] font-semibold tracking-[-0.01em] text-text">
               Join a Project
             </h2>
@@ -218,7 +218,7 @@ export function Dashboard() {
               placeholder="Invite link or /p/.../activate"
               value={inviteInput}
               onChange={(e) => { setInviteInput(e.target.value); }}
-              className="w-full px-4 py-2.5 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-[var(--radius-pill)] border border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              className="w-full px-4 py-2.5 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-pill border border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleJoinFromFab();

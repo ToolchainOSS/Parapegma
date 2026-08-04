@@ -31,7 +31,7 @@ export function OnboardingNotifications() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Bell className="w-6 h-6 text-primary" />
-            <h1 className="text-xl font-bold text-text">Don't miss a nudge</h1>
+            <h1 className="display-sm text-[1.25rem] text-text">Don't miss a nudge</h1>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

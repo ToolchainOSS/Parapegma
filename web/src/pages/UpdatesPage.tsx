@@ -24,7 +24,7 @@ export function UpdatesPage() {
         <button onClick={() => void navigate(-1)} className="p-2 rounded-full hover:bg-surface-2">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-2xl font-bold">Updates</h1>
+        <h1 className="display-sm text-text">Updates</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-4 pb-4">

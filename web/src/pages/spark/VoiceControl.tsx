@@ -164,11 +164,11 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
     }
 
     return (
-        <div className={`spark-voice-wrap space-y-1.5 ${className}`}>
-            <div className="spark-voice-row">
+        <div className={`space-y-1.5 ${className}`}>
+            <div className="flex items-end gap-2 rounded-lg border border-border bg-surface p-2 focus-within:border-primary focus-within:ring-3 focus-within:ring-focus transition-[border-color,box-shadow]">
                 <textarea
                     ref={taRef}
-                    className="spark-voice-input"
+                    className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-text placeholder:text-text-subtle outline-none"
                     placeholder={placeholder}
                     rows={2}
                     value={text}
@@ -180,18 +180,22 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
                         }
                     }}
                 />
-                <div className="spark-voice-actions">
+                <div className="flex items-center gap-1 shrink-0">
                     {micSupported && (
                         <button
                             type="button"
-                            className={`spark-mic-btn${recording ? " spark-mic-recording" : ""}`}
+                            className={`spark-mic-btn grid place-items-center w-10 h-10 rounded-full border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+                                recording
+                                    ? "bg-danger border-danger text-on-danger"
+                                    : "bg-surface-2 border-border text-text-muted hover:text-text hover:border-text-subtle"
+                            }`}
                             data-recording={recording ? "true" : "false"}
                             aria-label={recording ? "Stop recording" : "Speak your change"}
                             aria-pressed={recording}
                             onClick={toggleMic}
                         >
                             {recording ? (
-                                <svg viewBox="0 0 24 24" fill="#fff" width="18" height="18" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
                                     <rect x="6" y="6" width="12" height="12" rx="2" />
                                 </svg>
                             ) : (
@@ -215,7 +219,7 @@ export function VoiceControl({ placeholder = "Type or speak a change…", hint, 
                     )}
                     <button
                         type="button"
-                        className="spark-send-btn"
+                        className="grid place-items-center w-10 h-10 rounded-full bg-primary text-on-primary transition-colors hover:bg-primary-hover disabled:bg-surface-3 disabled:text-text-subtle disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-focus"
                         aria-label="Send"
                         disabled={!canSubmit}
                         onClick={submit}

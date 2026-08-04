@@ -8,8 +8,30 @@ place via tokens), **consolidated** (folded into a canonical primitive), **new**
 
 | Item | File | Role |
 | --- | --- | --- |
-| `Badge` | [web/src/components/Badge.tsx](web/src/components/Badge.tsx) | **new** — canonical pill/chip/status-dot. `tone` (neutral/primary/accent/info/success/warning/danger) + `dot`. |
+| `Badge` | [web/src/components/Badge.tsx](web/src/components/Badge.tsx) | **new** — canonical read-only pill/status-dot (`<span>`). `tone` + `dot`. |
+| `Chip` | [web/src/components/ui/Chip.tsx](web/src/components/ui/Chip.tsx) | **new** — canonical *selectable* pill (`<button aria-pressed>`). Split from `Badge` by interactivity, not appearance. `block` switches pill → full-width row. |
+| `ChipGroup` | [web/src/components/ui/ChipGroup.tsx](web/src/components/ui/ChipGroup.tsx) | **new** — single-select (or action) group, generic in the option type. `layout` = `wrap` \| `stack`. |
+| `ScaleControl` | [web/src/components/ui/ScaleControl.tsx](web/src/components/ui/ScaleControl.tsx) | **new** — the one anchored 1–N rating instrument. |
+| `framingOf()` / `FramingChip` | [web/src/pages/spark/FramingChip.tsx](web/src/pages/spark/FramingChip.tsx) | **new** — total lookup from an untrusted frame string to a framing definition, plus the vibe marker pill. |
 | `NAV_ITEMS` config | [web/src/config/nav.tsx](web/src/config/nav.tsx) | **new** — single source of truth for primary navigation data. |
+
+## Claude re-theme round — Spark de-duplication
+
+| Old (duplicated) | New canonical | Status |
+| --- | --- | --- |
+| `.spark-chip` in [spark.css](web/src/pages/spark/spark.css), used across 6 Spark files | `Chip` / `ChipGroup` | consolidated + deleted |
+| `.spark-scale` + local `ScaleControl` in [CueStep.tsx](web/src/pages/spark/CueStep.tsx) **and** inline scale in [ReflectStep.tsx](web/src/pages/spark/ReflectStep.tsx) | `ScaleControl` | consolidated (two renderings of one research instrument) |
+| `ContinueBtn` local component in [Spark.tsx](web/src/pages/Spark.tsx), 12 call sites | `Button size="lg" className="w-full mt-5"` | consolidated + deleted |
+| `.spark-back-btn` | `IconButton` | consolidated + deleted |
+| `.spark-home-card` / `.spark-cond-grid` | `Card` + a Tailwind grid | consolidated + deleted |
+| `.spark-framechip` re-typed in SparkCard / SparkSampler / RankedList | `FramingChip` | consolidated |
+| `FRAMINGS[x] ?? FRAMINGS.calm` in 4 files | `framingOf()` | consolidated |
+| Eyebrow + `h2` + lede triple, re-typed in 6 Spark surfaces | `SectionHeader` (`eyebrow` + `size="lg"`) | consolidated |
+| `.spark-voice-*`, `.spark-timer-*`, `.spark-fitbar*`, `.spark-progress*`, `.spark-thinking` layout | Tailwind utilities | migrated |
+| `--sf-*` vibe palette (inline `style={{ color: f.colorVar }}`) | `--color-frame-*` theme tokens → `text-frame-*` / `bg-frame-*` classes | migrated |
+| `.spark-zone` token-alias shim (`--text`, `--surface`, …) | deleted — no hand-written stylesheet left to alias for | deleted |
+| `rounded-[var(--radius-*)]` / `shadow-[var(--shadow-*)]`, 56 occurrences across 24 files | canonical `rounded-*` / `shadow-*` utilities generated from the theme | migrated |
+| Bold sans `h1`/`h2` across 10 pages | `display-lg` / `display-sm` serif utilities | migrated |
 
 ## Inline badge/pill patterns → `Badge`
 

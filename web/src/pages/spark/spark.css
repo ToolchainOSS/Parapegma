@@ -1,237 +1,86 @@
 /*
-  Spark Prototype — scoped visual exception
-  ==========================================
-  This stylesheet intentionally extends beyond the global calm token system
-  to deliver the energetic framing palette required by the prototype.
-  All rules are scoped under .spark-zone so no global tokens are polluted.
+  Spark — motion only.
+  =====================
+  Everything Spark once styled here now lives in the global token layer or in a
+  shared primitive: surfaces, type, the five framing accents, chips, scales,
+  buttons and cards. What remains is the one thing utilities genuinely cannot
+  express — multi-step keyframe animation — and each rule is gated behind
+  `prefers-reduced-motion: no-preference`.
 
-  Per-framing CSS custom properties mirror the prototype's six named vibes.
-  Motion (ring timer, mic pulse, card band) is gated by prefers-reduced-motion.
+  The old file also aliased `--color-*` theme tokens to bare `--text` / `--surface`
+  names so a hand-written stylesheet could read them. With no hand-written
+  stylesheet left, that shim is gone too.
 */
 
-/* ---- per-frame tokens ---- */
-.spark-zone {
-  /* Alias the global Tailwind v4 @theme tokens (--color-*) to the bare names
-     this stylesheet uses. Without these, var(--text)/var(--surface)/etc. would
-     resolve to nothing — e.g. an active chip's `background: var(--text)` would
-     stay transparent, so selections never changed colour. */
-  --text: var(--color-text);
-  --bg: var(--color-bg);
-  --surface: var(--color-surface);
-  --surface-2: var(--color-surface-2);
-  --border: var(--color-border);
-  --divider: var(--color-divider);
-  --text-muted: var(--color-text-muted);
-  --text-subtle: var(--color-text-subtle);
-  --primary: var(--color-primary);
-  --focus: var(--color-focus);
+@media (prefers-reduced-motion: no-preference) {
+  /* Ring timer: the sweep is driven by strokeDashoffset in React, so only the
+     colour transition belongs here. */
+  .spark-ring-progress {
+    transition: stroke-dashoffset 1s linear;
+  }
 
-  --sf-calm: #2e9c8e;
-  --sf-calm-tint: #e5f3f0;
-  --sf-zoomies: #ef6433;
-  --sf-zoomies-tint: #fceae0;
-  --sf-silly: #d74c97;
-  --sf-silly-tint: #fae6f1;
-  --sf-challenge: #5a5ad0;
-  --sf-challenge-tint: #e8e8fa;
-  --sf-science: #2c7cd1;
-  --sf-science-tint: #e2eefa;
+  /* Recording mic: a pulsing halo, sized off the danger tone it is painted in. */
+  .spark-mic-btn[data-recording="true"] {
+    animation: spark-mic-pulse 1.1s infinite;
+  }
 
-  /* shared card geometry */
-  --sf-radius: 20px;
-  --sf-band-h: 8px;
-}
+  /* Thinking loader: bobbing orb, expanding ring, wiggling emoji, walking dots. */
+  .spark-thinking-orb {
+    position: relative;
+    animation: spark-orb-bob 1.8s ease-in-out infinite;
+  }
 
-/* ---- condition home grid ---- */
-.spark-cond-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-@media (max-width: 560px) {
-  .spark-cond-grid {
-    grid-template-columns: 1fr;
+  .spark-thinking-orb::before {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    opacity: 0.3;
+    animation: spark-orb-ring 1.8s ease-out infinite;
+  }
+
+  .spark-thinking-emoji {
+    display: inline-block;
+    line-height: 1;
+    animation: spark-orb-wiggle 1.8s ease-in-out infinite;
+  }
+
+  .spark-thinking-dots span {
+    animation: spark-dot 1.2s ease-in-out infinite;
+  }
+
+  .spark-thinking-dots span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .spark-thinking-dots span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  .spark-thinking-phrase {
+    animation: spark-phrase-in 0.45s ease;
   }
 }
 
-/* ---- framing chip ---- */
-.spark-framechip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 5px 11px;
-  border-radius: 999px;
-}
-
-/* ---- card colored band ---- */
-.spark-band {
-  height: var(--sf-band-h);
-  border-radius: var(--sf-radius) var(--sf-radius) 0 0;
-}
-
-/* ---- quick-chip pill row ---- */
-.spark-chips {
+/* Static structure the animations hang off. */
+.spark-thinking-dots {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.spark-chip {
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s,
-    transform 0.12s;
-}
-.spark-chip:hover {
-  border-color: var(--text-subtle);
-  background: var(--surface-2);
-}
-.spark-chip:active {
-  transform: translateY(1px);
-}
-.spark-chip[data-active="true"] {
-  background: var(--text);
-  color: var(--bg);
-  border-color: var(--text);
-  box-shadow: var(--shadow-xs);
-}
-.spark-chip[data-ghost="true"] {
-  color: var(--text-muted);
-}
-
-/* ---- flow progress (back + animated step bar) ---- */
-.spark-flowbar {
-  --seg-accent: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 22px;
-}
-.spark-back-btn {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
-}
-.spark-back-btn:hover {
-  background: var(--surface-2);
-  border-color: var(--text-subtle);
-  transform: translateX(-1px);
-}
-.spark-progress {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
 }
-.spark-progress-meta {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-}
-.spark-progress-track {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  overflow: hidden;
-}
-.spark-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--seg-accent);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .spark-progress-fill {
-    transition: width 0.35s ease;
-  }
+
+.spark-thinking-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
 }
 
-/* ---- feel-good match / tuned badge ---- */
-.spark-match {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 3px 10px;
-  border-radius: 999px;
+.spark-thinking-phrase {
+  min-height: 1.4em;
 }
 
-/* ---- home condition card accent ---- */
-.spark-home-card {
-  --seg-accent: var(--text);
-  position: relative;
-  transition: transform 0.16s, border-color 0.16s, box-shadow 0.16s;
-}
-.spark-home-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 14px;
-  bottom: 14px;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--seg-accent);
-  opacity: 0.85;
-}
-.spark-home-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--text-subtle);
-  box-shadow: var(--shadow-md);
-}
-
-/* ---- fit bar (condition D) ---- */
-.spark-fitbar {
-  height: 6px;
-  background: var(--surface-2);
-  border-radius: 999px;
-  margin-top: 8px;
-  overflow: hidden;
-}
-.spark-fitbar-fill {
-  height: 100%;
-  border-radius: 999px;
-}
-
-/* ---- vibe wheel grid ---- */
-/* ---- 1-minute ring timer ---- */
-.spark-timer-wrap {
-  text-align: center;
-  padding: 28px 0;
-}
-.spark-timer-ring {
-  display: block;
-  margin: 0 auto;
-}
-.spark-timer-number {
-  font-weight: 800;
-  font-size: 48px;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .spark-ring-progress {
-    transition: stroke-dashoffset 0.9s linear;
-  }
-}
-
-/* ---- mic pulse animation ---- */
 @keyframes spark-mic-pulse {
   0% {
     box-shadow: 0 0 0 0 rgba(239, 100, 51, 0.45);
@@ -243,227 +92,7 @@
     box-shadow: 0 0 0 0 rgba(239, 100, 51, 0);
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .spark-mic-recording {
-    animation: spark-mic-pulse 1.1s infinite;
-  }
-}
 
-/* ---- voice input row ---- */
-.spark-voice-wrap {
-  /* Lets the action row react to the COMPOSER's own available width (it can
-     sit in a wide card or a narrow side panel) rather than the viewport, so
-     the buttons always get the breathing room they need wherever embedded. */
-  container-type: inline-size;
-  container-name: spark-voice;
-}
-.spark-voice-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.spark-voice-input {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 11px 13px;
-  font-family: inherit;
-  font-size: 14px;
-  resize: vertical;
-  min-height: 46px;
-  background: var(--surface);
-  color: var(--text);
-}
-.spark-voice-input:focus {
-  outline: 2px solid var(--focus);
-  border-color: var(--primary);
-}
-/* Trailing action row: mic (optional) + shared Send, side by side and
-   vertically centered against the textarea so neither ever floats away from
-   it regardless of how tall the (resizable) textarea is. */
-.spark-voice-actions {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-}
-/* Below ~360px of available composer width, two 48px buttons squeezed beside
-   the textarea start to feel cramped and starve the textarea of room. Drop
-   the actions onto their own full-width row, right-aligned with generous
-   spacing — a comfortable mobile layout instead of a packed-in one. */
-@container spark-voice (max-width: 360px) {
-  .spark-voice-row {
-    flex-wrap: wrap;
-  }
-  .spark-voice-input {
-    flex-basis: 100%;
-  }
-  .spark-voice-actions {
-    flex-basis: 100%;
-    justify-content: flex-end;
-    gap: 14px;
-  }
-}
-.spark-mic-btn,
-.spark-send-btn {
-  flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    border-color 0.12s,
-    opacity 0.12s;
-}
-.spark-mic-btn {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-}
-.spark-mic-btn:hover {
-  border-color: var(--text-subtle);
-}
-.spark-mic-btn[data-recording="true"] {
-  background: var(--sf-zoomies);
-  border-color: var(--sf-zoomies);
-}
-/* Shared Send: the single submit affordance for both typed and dictated text. */
-.spark-send-btn {
-  border: 1px solid var(--primary);
-  background: var(--primary);
-  color: #fff;
-}
-.spark-send-btn:hover:not(:disabled) {
-  filter: brightness(0.94);
-}
-.spark-send-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-.spark-mic-btn:focus-visible,
-.spark-send-btn:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-/* ---- rating scale ---- */
-.spark-scale {
-  display: flex;
-  gap: 7px;
-}
-.spark-scale-btn {
-  flex: 1;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: 11px;
-  padding: 11px 0;
-  font-weight: 700;
-  font-size: 15px;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-.spark-scale-btn:hover {
-  border-color: var(--text-subtle);
-}
-.spark-scale-btn[data-selected="true"] {
-  background: var(--text);
-  color: var(--bg);
-  border-color: var(--text);
-}
-
-/* ---- playful "thinking" loader ---- */
-.spark-thinking {
-  --seg-accent: var(--text);
-  --seg-tint: var(--surface-2);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  padding: 44px 16px;
-  text-align: center;
-}
-.spark-thinking-compact {
-  flex-direction: row;
-  justify-content: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-}
-.spark-thinking-orb {
-  position: relative;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 28px;
-  background: var(--seg-tint);
-}
-.spark-thinking-orb::before {
-  content: "";
-  position: absolute;
-  inset: -5px;
-  border-radius: 50%;
-  border: 2px solid var(--seg-accent);
-  opacity: 0.3;
-}
-.spark-thinking-emoji {
-  display: inline-block;
-  line-height: 1;
-}
-.spark-thinking-dots {
-  display: flex;
-  gap: 6px;
-}
-.spark-thinking-dots span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--seg-accent);
-  opacity: 0.45;
-}
-.spark-thinking-phrase {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  min-height: 1.4em;
-  margin: 0;
-}
-.spark-thinking-compact .spark-thinking-phrase {
-  font-size: 14px;
-  color: var(--text-muted);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .spark-thinking-orb {
-    animation: spark-orb-bob 1.8s ease-in-out infinite;
-  }
-  .spark-thinking-orb::before {
-    animation: spark-orb-ring 1.8s ease-out infinite;
-  }
-  .spark-thinking-emoji {
-    animation: spark-orb-wiggle 1.8s ease-in-out infinite;
-  }
-  .spark-thinking-dots span {
-    animation: spark-dot 1.2s ease-in-out infinite;
-  }
-  .spark-thinking-dots span:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-  .spark-thinking-dots span:nth-child(3) {
-    animation-delay: 0.3s;
-  }
-  .spark-thinking-phrase {
-    animation: spark-phrase-in 0.45s ease;
-  }
-}
 @keyframes spark-orb-bob {
   0%,
   100% {
@@ -473,6 +102,7 @@
     transform: translateY(-6px);
   }
 }
+
 @keyframes spark-orb-ring {
   0% {
     transform: scale(1);
@@ -486,6 +116,7 @@
     opacity: 0;
   }
 }
+
 @keyframes spark-orb-wiggle {
   0%,
   100% {
@@ -495,6 +126,7 @@
     transform: rotate(8deg);
   }
 }
+
 @keyframes spark-dot {
   0%,
   100% {
@@ -506,6 +138,7 @@
     opacity: 1;
   }
 }
+
 @keyframes spark-phrase-in {
   from {
     opacity: 0;
@@ -515,14 +148,4 @@
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* ---- done checkmark ---- */
-.spark-check-circle {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  margin: 6px auto 0;
 }

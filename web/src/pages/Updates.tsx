@@ -66,7 +66,7 @@ export function Updates() {
       <div className="flex-1">
         {/* Install CTA */}
         {canPrompt && !installed && (
-          <div className="mx-4 mt-3 mb-1 flex items-center gap-3 p-3 bg-surface rounded-[var(--radius-md)] border border-border">
+          <div className="mx-4 mt-3 mb-1 flex items-center gap-3 p-3 bg-surface rounded-md border border-border">
             <Download className="w-5 h-5 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-[14px] font-medium text-text">

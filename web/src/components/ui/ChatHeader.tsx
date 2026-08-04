@@ -96,7 +96,7 @@ export function ChatHeader({
               <MoreVertical className="w-5 h-5" />
             </IconButton>
             {menuOpen && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-border rounded-[var(--radius-md)] shadow-md py-1 z-50">
+              <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-border rounded-md shadow-md py-1 z-50">
                 {menuItems.map((item) => (
                   <button
                     key={item.label}

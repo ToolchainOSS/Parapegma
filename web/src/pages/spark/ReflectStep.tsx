@@ -1,3 +1,5 @@
+import { Button, Card, CardContent, SectionHeader } from "../../components";
+import { Chip, ScaleControl } from "../../components/ui";
 import type { SparkCondition } from "./sparkData";
 
 export interface RatingState {
@@ -25,61 +27,42 @@ export function ReflectStep({ condition, rating, onChange, onFinish, onGoto }: R
 
     return (
         <div className="space-y-4">
-            <div>
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                    Rate this experience
-                </p>
-                <h2 className="text-2xl font-bold text-text mt-1">
-                    Before you go — Condition {condition}
-                </h2>
-            </div>
+            <SectionHeader
+                size="lg"
+                eyebrow="Rate this experience"
+                title={`Before you go — Condition ${condition}`}
+            />
 
             {ITEMS.map(({ key, label, sub }) => (
-                <div key={key} className="rounded-[var(--radius-lg)] border border-border bg-surface p-4 space-y-2">
-                    <p className="text-sm font-semibold text-text">{label}</p>
-                    <p className="text-xs text-text-muted">{sub}</p>
-                    <div className="spark-scale">
-                        {[1, 2, 3, 4, 5].map((n) => (
-                            <button
-                                key={n}
-                                type="button"
-                                className="spark-scale-btn"
-                                data-selected={rating[key] === n ? "true" : undefined}
-                                onClick={() => onChange({ ...rating, [key]: n })}
-                            >
-                                {n}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="flex justify-between text-xs text-text-muted">
-                        <span>Low</span>
-                        <span>High</span>
-                    </div>
-                </div>
+                <Card key={key}>
+                    <CardContent className="space-y-3">
+                        <div>
+                            <p className="text-sm font-medium text-text">{label}</p>
+                            <p className="text-xs text-text-subtle mt-0.5">{sub}</p>
+                        </div>
+                        <ScaleControl
+                            value={rating[key]}
+                            onPick={(n) => onChange({ ...rating, [key]: n })}
+                            lo="Low"
+                            hi="High"
+                            label={label}
+                        />
+                    </CardContent>
+                </Card>
             ))}
 
-            <button
-                type="button"
-                className={`w-full py-3 rounded-[var(--radius-lg)] font-bold text-base transition-opacity ${allRated ? "bg-text text-bg" : "bg-text/40 text-bg cursor-not-allowed"}`}
-                disabled={!allRated}
-                onClick={onFinish}
-            >
+            <Button variant="primary" size="lg" className="w-full" disabled={!allRated} onClick={onFinish}>
                 Finish Condition {condition}
-            </button>
+            </Button>
 
             {/* Quick jump to other conditions */}
             <div className="flex gap-2 flex-wrap">
                 {(["A", "B", "C", "D"] as SparkCondition[])
                     .filter((c) => c !== condition)
                     .map((c) => (
-                        <button
-                            key={c}
-                            type="button"
-                            className="spark-chip"
-                            onClick={() => onGoto(c)}
-                        >
+                        <Chip key={c} tone="quiet" onClick={() => onGoto(c)}>
                             Go to {c}
-                        </button>
+                        </Chip>
                     ))}
             </div>
         </div>

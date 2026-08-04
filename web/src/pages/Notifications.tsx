@@ -26,7 +26,7 @@ export function Notifications() {
 
   return (
     <div className="max-w-md mx-auto space-y-4">
-      <h1 className="text-2xl font-bold text-text">Notifications</h1>
+      <h1 className="display-sm text-text">Notifications</h1>
 
       {showsIOSGuide && (
         <Card>

@@ -9,9 +9,9 @@ export function Landing() {
   return (
     <div className="max-w-2xl mx-auto text-center py-20 px-4">
       <div className="flex justify-center mb-8">
-        <div className="relative p-5 rounded-[var(--radius-xl)] bg-gradient-to-br from-primary/15 to-accent/10 ring-1 ring-inset ring-primary/15 shadow-[var(--shadow-md)]">
+        <div className="relative p-5 rounded-xl bg-gradient-to-br from-primary/15 to-accent/10 ring-1 ring-inset ring-primary/15 shadow-md">
           <Shield className="w-12 h-12 text-primary" />
-          <span className="absolute inset-0 rounded-[var(--radius-xl)] bg-primary/5 blur-2xl -z-10" />
+          <span className="absolute inset-0 rounded-xl bg-primary/5 blur-2xl -z-10" />
         </div>
       </div>
 
@@ -19,7 +19,7 @@ export function Landing() {
         HCI Research Platform
       </p>
 
-      <h1 className="text-4xl sm:text-5xl font-bold tracking-[-0.02em] text-text mb-5">
+      <h1 className="display-lg sm:display-xl text-text mb-5">
         Welcome to{" "}
         <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
           Flow

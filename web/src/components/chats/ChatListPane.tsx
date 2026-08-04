@@ -78,7 +78,7 @@ export function ChatListPane({ embedded }: ChatListPaneProps) {
             value={search}
             onChange={(e) => { setSearch(e.target.value); }}
             data-testid="chat-search"
-            className="w-full pl-9 pr-4 py-2 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-[var(--radius-pill)] border-none focus:outline-none focus-visible:ring-2 focus-visible:ring-focus transition-colors"
+            className="w-full pl-9 pr-4 py-2 bg-surface-2 text-[16px] text-text placeholder:text-text-subtle rounded-pill border-none focus:outline-none focus-visible:ring-2 focus-visible:ring-focus transition-colors"
           />
         </div>
       </div>
@@ -99,7 +99,7 @@ export function ChatListPane({ embedded }: ChatListPaneProps) {
 
         {!isLoading && memberships.length === 0 && !error && (
           <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-            <div className="w-16 h-16 rounded-[var(--radius-xl)] bg-gradient-to-br from-primary/15 to-accent/10 flex items-center justify-center mb-4 ring-1 ring-inset ring-primary/10">
+            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary/15 to-accent/10 flex items-center justify-center mb-4 ring-1 ring-inset ring-primary/10">
               <MessageSquare className="w-7 h-7 text-primary" />
             </div>
             <p className="text-[16px] font-semibold text-text">No chats yet</p>

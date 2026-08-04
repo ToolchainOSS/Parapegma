@@ -98,7 +98,7 @@ export const MessageBubble = memo(function MessageBubble({
         }`}
     >
       <div
-        className={`${bubbleColor} text-text text-[15px] leading-[1.4] px-3.5 py-2.5 max-w-[80%] md:max-w-[65%] shadow-[var(--shadow-xs)] ${isUser ? "whitespace-pre-wrap" : ""}`}
+        className={`${bubbleColor} text-text text-[15px] leading-[1.4] px-3.5 py-2.5 max-w-[80%] md:max-w-[65%] shadow-xs ${isUser ? "whitespace-pre-wrap" : ""}`}
         style={{ borderRadius }}
       >
         {isUser ? (

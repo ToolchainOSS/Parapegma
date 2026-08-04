@@ -109,7 +109,7 @@ export function Activation() {
     <div className="max-w-md mx-auto">
       <Card>
         <CardHeader>
-          <h1 className="text-xl font-bold text-text">Join Project</h1>
+          <h1 className="display-sm text-[1.25rem] text-text">Join Project</h1>
           <p className="text-sm text-text-muted mt-1">
             You've been invited to join a research project.
           </p>

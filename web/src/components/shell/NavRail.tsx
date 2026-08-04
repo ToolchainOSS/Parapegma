@@ -22,7 +22,7 @@ export function NavRail() {
               to={item.to}
               data-testid={item.testId}
               title={item.label}
-              className={`group relative flex flex-col items-center justify-center gap-0.5 w-14 h-14 rounded-[var(--radius-md)] text-[11px] transition-all duration-200 ease-[var(--ease-out)] ${active
+              className={`group relative flex flex-col items-center justify-center gap-0.5 w-14 h-14 rounded-md text-[11px] transition-all duration-200 ease-[var(--ease-out)] ${active
                 ? "text-primary bg-primary/10 font-semibold"
                 : "text-text-muted hover:bg-surface-2 hover:text-text"
                 }`}

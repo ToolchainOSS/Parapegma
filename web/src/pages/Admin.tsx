@@ -198,7 +198,7 @@ export function Admin() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-text">Admin Panel</h1>
+        <h1 className="display-sm text-text">Admin Panel</h1>
         <p className="text-text-muted">
           Server-side RBAC enforces all operations
         </p>

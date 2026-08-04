@@ -9,9 +9,14 @@ export interface FramingDef {
     label: string;
     short: string;
     emoji: string;
-    /** CSS custom-property name resolving to the accent color, e.g. "var(--sf-calm)" */
-    colorVar: string;
-    tintVar: string;
+    /** Tailwind text/background class for the accent, e.g. "text-frame-calm".
+     *  These resolve to `--color-frame-*` theme tokens, so the vibe palette
+     *  retheme in one place with everything else — no inline hex, no
+     *  `style={{ color: ... }}` escape hatch. */
+    accentText: string;
+    accentBg: string;
+    accentBorder: string;
+    tintBg: string;
     desc: string;
     reward: string;
 }
@@ -22,8 +27,10 @@ export const FRAMINGS: Record<SparkFrame, FramingDef> = {
         label: "Calm me",
         short: "Calm",
         emoji: "🌿",
-        colorVar: "var(--sf-calm)",
-        tintVar: "var(--sf-calm-tint)",
+        accentText: "text-frame-calm",
+        accentBg: "bg-frame-calm",
+        accentBorder: "border-frame-calm",
+        tintBg: "bg-frame-calm-tint",
         desc: "Slow it down and release tension.",
         reward: "A slower reset — notice your shoulders drop and your breath even out.",
     },
@@ -32,8 +39,10 @@ export const FRAMINGS: Record<SparkFrame, FramingDef> = {
         label: "Give me zoomies",
         short: "Zoomies",
         emoji: "⚡",
-        colorVar: "var(--sf-zoomies)",
-        tintVar: "var(--sf-zoomies-tint)",
+        accentText: "text-frame-zoomies",
+        accentBg: "bg-frame-zoomies",
+        accentBorder: "border-frame-zoomies",
+        tintBg: "bg-frame-zoomies-tint",
         desc: "A quick jolt of energy.",
         reward: "A quick jolt — get the blood moving and shake off the sluggish feeling.",
     },
@@ -42,8 +51,10 @@ export const FRAMINGS: Record<SparkFrame, FramingDef> = {
         label: "Make it silly",
         short: "Silly",
         emoji: "🤪",
-        colorVar: "var(--sf-silly)",
-        tintVar: "var(--sf-silly-tint)",
+        accentText: "text-frame-silly",
+        accentBg: "bg-frame-silly",
+        accentBorder: "border-frame-silly",
+        tintBg: "bg-frame-silly-tint",
         desc: "Permission to look a little ridiculous.",
         reward: "Permission to look a little ridiculous. A grin counts as a rep.",
     },
@@ -52,8 +63,10 @@ export const FRAMINGS: Record<SparkFrame, FramingDef> = {
         label: "Challenge me",
         short: "Challenge",
         emoji: "🔥",
-        colorVar: "var(--sf-challenge)",
-        tintVar: "var(--sf-challenge-tint)",
+        accentText: "text-frame-challenge",
+        accentBg: "bg-frame-challenge",
+        accentBorder: "border-frame-challenge",
+        tintBg: "bg-frame-challenge-tint",
         desc: "Push the pace and make it count.",
         reward: "Make it count — keep it crisp and see if you hold the pace all 60 seconds.",
     },
@@ -62,8 +75,10 @@ export const FRAMINGS: Record<SparkFrame, FramingDef> = {
         label: "Give me the science",
         short: "Science",
         emoji: "🔬",
-        colorVar: "var(--sf-science)",
-        tintVar: "var(--sf-science-tint)",
+        accentText: "text-frame-science",
+        accentBg: "bg-frame-science",
+        accentBorder: "border-frame-science",
+        tintBg: "bg-frame-science-tint",
         desc: "The why behind the move.",
         reward: "Short movement bursts boost circulation and help refocus attention.",
     },
@@ -103,7 +118,8 @@ export interface ConditionDef {
     name: string;
     what: string;
     tags: string[];
-    letterBg: string; // inline bg color for the letter badge
+    /** Tailwind background class for the letter badge. */
+    letterBg: string;
 }
 
 export const CONDITIONS: ConditionDef[] = [
@@ -112,34 +128,34 @@ export const CONDITIONS: ConditionDef[] = [
         name: "Random Spark",
         what: "You receive one randomly chosen Spark and act on it.",
         tags: ["No choice", "No intake"],
-        letterBg: "#8A8F84",
+        letterBg: "bg-text-subtle",
     },
     {
         id: "B",
         name: "Spark Wheel",
         what: "You see one Spark from each of the five vibes and pick the one you like.",
         tags: ["Choice", "No intake"],
-        letterBg: "var(--sf-challenge)",
+        letterBg: "bg-frame-challenge",
     },
     {
         id: "C",
         name: "AI-Adapted Spark",
         what: "A short intake, then one Spark adapted to you.",
         tags: ["Intake", "AI adapts"],
-        letterBg: "var(--sf-calm)",
+        letterBg: "bg-frame-calm",
     },
     {
         id: "D",
         name: "AI-Ranked Choice",
         what: "A short intake, then one Spark per vibe, ranked by predicted fit.",
         tags: ["Intake", "AI ranks", "Choice"],
-        letterBg: "var(--sf-science)",
+        letterBg: "bg-frame-science",
     },
 ];
 
-/** Accent color for a condition (used by progress bar, home cards, badges). */
+/** Tailwind accent class for a condition (progress bar, home cards, badges). */
 export function conditionAccent(id: SparkCondition): string {
-    return CONDITIONS.find((c) => c.id === id)?.letterBg ?? "var(--text)";
+    return CONDITIONS.find((c) => c.id === id)?.letterBg ?? "bg-text";
 }
 
 /** Intake question definitions for conditions C & D.

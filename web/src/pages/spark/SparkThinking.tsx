@@ -7,7 +7,8 @@
  * prefers-reduced-motion; reduced-motion users see a single steady line.
  */
 import { useEffect, useMemo, useState } from "react";
-import { FRAMINGS, type SparkFrame } from "./sparkData";
+import { framingOf } from "./FramingChip";
+import type { SparkFrame } from "./sparkData";
 
 const PHRASES = [
     "Warming up your Spark…",
@@ -49,7 +50,7 @@ export function SparkThinking({
     compact = false,
     className = "",
 }: SparkThinkingProps) {
-    const f = frame ? (FRAMINGS[frame] ?? FRAMINGS.calm) : FRAMINGS.calm;
+    const f = framingOf(frame);
     const order = useMemo(() => shuffled(phrases.length), [phrases.length]);
     const [tick, setTick] = useState(0);
 
@@ -71,14 +72,13 @@ export function SparkThinking({
 
     return (
         <div
-            className={`spark-thinking ${compact ? "spark-thinking-compact" : ""} ${className}`}
-            style={{
-                ["--seg-accent" as string]: f.colorVar,
-                ["--seg-tint" as string]: f.tintVar,
-            }}
+            className={`spark-thinking flex flex-col items-center text-center ${compact ? "py-3 gap-2" : "py-10 gap-4"} ${f.accentText} ${className}`}
         >
             {!compact && (
-                <div className="spark-thinking-orb" aria-hidden="true">
+                <div
+                    className={`spark-thinking-orb w-16 h-16 rounded-full grid place-items-center text-2xl ${f.tintBg}`}
+                    aria-hidden="true"
+                >
                     <span className="spark-thinking-emoji">{f.emoji}</span>
                 </div>
             )}
@@ -87,7 +87,7 @@ export function SparkThinking({
                 <span />
                 <span />
             </div>
-            <p className="spark-thinking-phrase" key={tick}>
+            <p className="spark-thinking-phrase text-sm text-text-muted" key={tick}>
                 {phrase}
             </p>
             <p className="sr-only" role="status" aria-live="polite">

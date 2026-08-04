@@ -1,17 +1,17 @@
 /**
  * Spark — One-Minute Micro-Coach  (full prototype port)
  *
- * Four conditions (A/B/C/D) are reachable from a home grid and switchable
- * at any time via the top condition tabs. Each condition runs its own
- * multi-step state machine. Adjustments remix cumulatively on the prior card
- * via useSparkRemix — the card *evolves*, it doesn't reset.
+ * Four conditions (A/B/C/D) are reachable from the home grid. Each runs its
+ * own multi-step state machine. Adjustments remix cumulatively on the prior
+ * card via useSparkRemix — the card *evolves*, it doesn't reset.
  *
- * Visual design: scoped `.spark-zone` exception; framing palette + timer/mic
- * animation live in spark/spark.css; global tokens untouched.
+ * Visual design: no Spark-local styling exception. Surfaces, type and the five
+ * framing accents all resolve through the global token layer, and controls come
+ * from the shared primitives. Only keyframe animation lives in spark.css.
  */
 import { useEffect, useRef, useState } from "react";
-import { PageHeader } from "../components/ui/PageHeader";
-import { Alert } from "../components/Alert";
+import { Alert, Badge, Button, Card, SectionHeader } from "../components";
+import { Chip, IconButton, PageHeader } from "../components/ui";
 import { AdjustPanel } from "./spark/AdjustPanel";
 import { CueStep } from "./spark/CueStep";
 import { FeedbackStep, type FeedbackState } from "./spark/FeedbackStep";
@@ -48,24 +48,20 @@ import "./spark/spark.css";
 interface FlowProgressProps {
     step: number;
     total: number;
+    /** Tailwind background class for the fill, from `conditionAccent`. */
     accent: string;
     onBack: () => void;
 }
 function FlowProgress({ step, total, accent, onBack }: FlowProgressProps) {
     const pct = Math.round(((step + 1) / total) * 100);
     return (
-        <div
-            className="spark-flowbar"
-            style={{ ["--seg-accent" as string]: accent }}
-            aria-label={`Step ${step + 1} of ${total}`}
-        >
+        <div className="flex items-center gap-3 mb-6" aria-label={`Step ${step + 1} of ${total}`}>
             {/* Always present: at step 0 this is the only way back out of the
                 condition, since there is no condition switcher above it. */}
-            <button
-                type="button"
-                className="spark-back-btn"
+            <IconButton
+                label={step > 0 ? "Previous step" : "Back to all conditions"}
                 onClick={onBack}
-                aria-label={step > 0 ? "Previous step" : "Back to all conditions"}
+                className="shrink-0 border border-border"
             >
                 <svg
                     width="16"
@@ -73,51 +69,28 @@ function FlowProgress({ step, total, accent, onBack }: FlowProgressProps) {
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2.2"
+                    strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     aria-hidden="true"
                 >
                     <path d="m15 18-6-6 6-6" />
                 </svg>
-            </button>
-            <div className="spark-progress">
-                <div className="spark-progress-meta">
+            </IconButton>
+            <div className="flex-1">
+                <div className="flex justify-between text-xs text-text-subtle mb-1.5">
                     <span>
                         Step {step + 1} of {total}
                     </span>
                     <span>{pct}%</span>
                 </div>
-                <div className="spark-progress-track">
-                    <div className="spark-progress-fill" style={{ width: `${pct}%` }} />
+                <div className="h-1 rounded-pill bg-surface-3 overflow-hidden">
+                    <div
+                        className={`h-full rounded-pill transition-[width] duration-500 ease-[var(--ease-out)] ${accent}`}
+                        style={{ width: `${pct}%` }}
+                    />
                 </div>
             </div>
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Continue button
-// ---------------------------------------------------------------------------
-function ContinueBtn({
-    label = "Continue",
-    onClick,
-    disabled = false,
-}: {
-    label?: string;
-    onClick: () => void;
-    disabled?: boolean;
-}) {
-    return (
-        <div className="mt-5">
-            <button
-                type="button"
-                disabled={disabled}
-                className={`w-full py-3.5 rounded-[var(--radius-lg)] font-bold text-base transition-opacity ${disabled ? "bg-text/40 text-bg cursor-not-allowed" : "bg-text text-bg hover:opacity-90"}`}
-                onClick={onClick}
-            >
-                {label}
-            </button>
         </div>
     );
 }
@@ -127,64 +100,64 @@ function ContinueBtn({
 // ---------------------------------------------------------------------------
 function SparkHome({ onStart }: { onStart: (c: SparkCondition) => void }) {
     return (
-        <div className="space-y-6">
+        <div className="space-y-8">
             <div>
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                <p className="eyebrow text-text-subtle">
                     One-minute movement micro-coach · research prototype
                 </p>
-                <h1 className="text-4xl font-bold text-text mt-2 leading-tight">
+                <h1 className="display-lg text-text mt-3">
                     Four ways to deliver a one-minute Spark.
                 </h1>
-                <p className="text-sm text-text-muted mt-2 max-w-prose">
-                    Same one-minute action, four designs for <strong>choice</strong> and{" "}
-                    <strong>personalization</strong>. Step through each, adjust the Spark by tapping
-                    or by voice — adjustments remix cumulatively, not single-shot.
-                    Switch conditions anytime from the top bar.
+                <p className="text-base text-text-body mt-3 max-w-prose leading-relaxed">
+                    Same one-minute action, four designs for <strong className="font-medium text-text">choice</strong> and{" "}
+                    <strong className="font-medium text-text">personalization</strong>. Step through each,
+                    adjust the Spark by tapping or by voice — adjustments remix cumulatively, not single-shot.
                 </p>
             </div>
 
-            <div className="spark-cond-grid">
+            <div className="grid gap-3 sm:grid-cols-2">
                 {CONDITIONS.map((c) => (
-                    <button
+                    <Card
                         key={c.id}
-                        type="button"
-                        data-testid={`spark-cond-${c.id}`}
-                        className="spark-home-card text-left bg-surface border border-border rounded-[var(--radius-lg)] p-5 shadow-[var(--shadow-sm)] flex flex-col gap-2 min-h-[160px]"
-                        style={{ ["--seg-accent" as string]: c.letterBg }}
                         onClick={() => onStart(c.id)}
+                        className="p-6 flex flex-col gap-2 min-h-[168px]"
+                        data-testid={`spark-cond-${c.id}`}
                     >
                         <div
-                            className="w-9 h-9 rounded-[10px] grid place-items-center text-white text-sm font-bold shadow-[var(--shadow-xs)]"
-                            style={{ background: c.letterBg }}
+                            className={`w-9 h-9 rounded-md grid place-items-center text-on-primary text-sm font-medium ${c.letterBg}`}
                         >
                             {c.id}
                         </div>
-                        <div className="font-bold text-lg text-text">{c.name}</div>
+                        <div className="display-sm text-[1.125rem] text-text mt-1">{c.name}</div>
                         <div className="text-sm text-text-muted">{c.what}</div>
-                        <div className="flex gap-1.5 flex-wrap mt-auto">
+                        <div className="flex gap-1.5 flex-wrap mt-auto pt-2">
                             {c.tags.map((t) => (
-                                <span key={t} className="text-xs font-semibold px-2 py-0.5 rounded-full border border-border text-text-muted bg-surface-2">
-                                    {t}
-                                </span>
+                                <Badge key={t}>{t}</Badge>
                             ))}
                         </div>
-                    </button>
+                    </Card>
                 ))}
             </div>
 
-            <p className="text-xs text-text-muted border border-dashed border-border rounded-xl p-4">
-                Every condition shares: a <strong>Spark card</strong>, a <strong>1-minute timer</strong>,
-                an <strong>adjust panel</strong> (tap or voice-to-text), <strong>feedback</strong>,
-                a <strong>cue + reminder</strong>, and a short <strong>rating</strong>.
-                What changes is <strong>who chooses</strong> and <strong>how much the system personalizes</strong>.
-            </p>
+            <div className="space-y-3">
+                <p className="text-xs text-text-muted border border-dashed border-border rounded-lg p-4 leading-relaxed">
+                    Every condition shares: a <strong className="font-medium text-text">Spark card</strong>, a{" "}
+                    <strong className="font-medium text-text">1-minute timer</strong>, an{" "}
+                    <strong className="font-medium text-text">adjust panel</strong> (tap or voice-to-text),{" "}
+                    <strong className="font-medium text-text">feedback</strong>, a{" "}
+                    <strong className="font-medium text-text">cue + reminder</strong>, and a short{" "}
+                    <strong className="font-medium text-text">rating</strong>. What changes is{" "}
+                    <strong className="font-medium text-text">who chooses</strong> and{" "}
+                    <strong className="font-medium text-text">how much the system personalizes</strong>.
+                </p>
 
-            <p className="text-xs text-text-muted border border-dashed border-border rounded-xl p-4">
-                <strong>Research privacy:</strong> Spark works without an account. To link repeat visits,
-                it uses a random study identifier stored only in this browser plus a browser fingerprint.
-                Flow stores keyed, non-reversible versions—not the raw values. Clearing site data starts a
-                new study identity.
-            </p>
+                <p className="text-xs text-text-muted border border-dashed border-border rounded-lg p-4 leading-relaxed">
+                    <strong className="font-medium text-text">Research privacy:</strong> Spark works without an
+                    account. To link repeat visits, it uses a random study identifier stored only in this browser
+                    plus a browser fingerprint. Flow stores keyed, non-reversible versions—not the raw values.
+                    Clearing site data starts a new study identity.
+                </p>
+            </div>
         </div>
     );
 }
@@ -222,33 +195,36 @@ function ConditionA({
             <FlowProgress step={step} total={6} accent={conditionAccent("A")} onBack={back} />
             {step === 0 && (
                 <div className="space-y-4">
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Condition A · Random Spark</p>
-                    <h2 className="text-2xl font-bold text-text">A Spark, sent to you</h2>
-                    <p className="text-sm text-text-muted">
-                        No menu, no questions. Tap once and we'll send one Spark for you to act on.
-                        Tests whether simply delivering a short action is enough.
-                    </p>
+                    <SectionHeader
+                        size="lg"
+                        eyebrow="Condition A · Random Spark"
+                        title="A Spark, sent to you"
+                        subtitle="No menu, no questions. Tap once and we'll send one Spark for you to act on. Tests whether simply delivering a short action is enough."
+                    />
                     {spark.error && <Alert variant="error" data-testid="spark-error">{spark.error}</Alert>}
                     {spark.loading ? (
                         <SparkThinking />
                     ) : (
-                        <ContinueBtn
-                            label="Get my Spark"
+                        <Button
+                            size="lg"
+                            className="w-full mt-5"
                             disabled={spark.loading}
                             onClick={() => {
                                 void actions.generate({ condition: "A" }).then(() => setStep(1));
                             }}
-                        />
+                        >
+                            Get my Spark
+                        </Button>
                     )}
                 </div>
             )}
             {step === 1 && spark.card && (
                 <div className="space-y-2">
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your Spark</p>
+                    <p className="eyebrow text-text-subtle">Your Spark</p>
                     <SparkCard card={spark.card} data-testid="spark-card" />
                     {/* Control group: no adjust/remix — the Spark is delivered as-is. */}
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
-                    <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(2)} />
+                    <Button size="lg" className="w-full mt-5" onClick={() => setStep(2)}>Start 1-minute timer</Button>
                 </div>
             )}
             {step === 2 && spark.card && (
@@ -263,8 +239,9 @@ function ConditionA({
             {step === 3 && (
                 <>
                     <FeedbackStep state={feedback} onChange={setFeedback} />
-                    <ContinueBtn
-                        label="Next"
+                    <Button
+                        size="lg"
+                        className="w-full mt-5"
                         disabled={feedback.tried === null}
                         onClick={() => {
                             if (feedback.tried !== null) {
@@ -277,7 +254,9 @@ function ConditionA({
                             }
                             setStep(4);
                         }}
-                    />
+                    >
+                        Next
+                    </Button>
                 </>
             )}
             {step === 4 && (
@@ -291,8 +270,9 @@ function ConditionA({
                         onReminder={setReminder}
                         onConfidence={setConfidence}
                     />
-                    <ContinueBtn
-                        label="Next"
+                    <Button
+                        size="lg"
+                        className="w-full mt-5"
                         disabled={!cue}
                         onClick={() => {
                             if (cue) {
@@ -305,7 +285,9 @@ function ConditionA({
                             }
                             setStep(5);
                         }}
-                    />
+                    >
+                        Next
+                    </Button>
                 </>
             )}
             {step === 5 && (
@@ -394,20 +376,23 @@ function ConditionB({
                     ) : spark.loading ? (
                         <SparkThinking />
                     ) : (
-                        <ContinueBtn
-                            label="Show me five Sparks"
+                        <Button
+                            size="lg"
+                            className="w-full mt-5"
                             onClick={() => void generate({ condition: "B" })}
-                        />
+                        >
+                            Show me five Sparks
+                        </Button>
                     )}
                 </div>
             )}
             {step === 1 && spark.card && (
                 <div className="space-y-2">
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your Spark</p>
+                    <p className="eyebrow text-text-subtle">Your Spark</p>
                     <SparkCard card={spark.card} data-testid="spark-card" />
                     {/* Control group: choice happens at the sampler; no post-pick remix. */}
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
-                    <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(2)} />
+                    <Button size="lg" className="w-full mt-5" onClick={() => setStep(2)}>Start 1-minute timer</Button>
                 </div>
             )}
             {step === 2 && spark.card && (
@@ -422,8 +407,9 @@ function ConditionB({
             {step === 3 && (
                 <>
                     <FeedbackStep state={feedback} onChange={setFeedback} />
-                    <ContinueBtn
-                        label="Next"
+                    <Button
+                        size="lg"
+                        className="w-full mt-5"
                         disabled={feedback.tried === null}
                         onClick={() => {
                             if (feedback.tried !== null) {
@@ -436,7 +422,9 @@ function ConditionB({
                             }
                             setStep(4);
                         }}
-                    />
+                    >
+                        Next
+                    </Button>
                 </>
             )}
             {step === 4 && (
@@ -450,8 +438,9 @@ function ConditionB({
                         onReminder={setReminder}
                         onConfidence={setConfidence}
                     />
-                    <ContinueBtn
-                        label="Next"
+                    <Button
+                        size="lg"
+                        className="w-full mt-5"
                         disabled={!cue}
                         onClick={() => {
                             if (cue) {
@@ -464,7 +453,9 @@ function ConditionB({
                             }
                             setStep(5);
                         }}
-                    />
+                    >
+                        Next
+                    </Button>
                 </>
             )}
             {step === 5 && (
@@ -602,10 +593,11 @@ function ConditionAdaptive({
 
                     {condition === "C" && spark.card && (
                         <div className="space-y-2">
-                            <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                                Condition C · {condLabel}
-                            </p>
-                            <h2 className="text-2xl font-bold text-text">Here's your adapted Spark</h2>
+                            <SectionHeader
+                                size="lg"
+                                eyebrow={`Condition C · ${condLabel}`}
+                                title="Here's your adapted Spark"
+                            />
                             <SparkCard card={spark.card} showWhy tuned data-testid="spark-card" />
                             <AdjustPanel
                                 card={spark.card}
@@ -614,7 +606,7 @@ function ConditionAdaptive({
                                 onAdjust={actions.adjust}
                                 onFrameSwitch={actions.switchFrame}
                             />
-                            <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(timerStep)} />
+                            <Button size="lg" className="w-full mt-5" onClick={() => setStep(timerStep)}>Start 1-minute timer</Button>
                         </div>
                     )}
 
@@ -638,7 +630,7 @@ function ConditionAdaptive({
             {/* D only: card+adjust preview after selection */}
             {hasSelection && step === previewStep && spark.card && (
                 <div className="space-y-2">
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your pick</p>
+                    <p className="eyebrow text-text-subtle">Your pick</p>
                     <SparkCard card={spark.card} showWhy tuned data-testid="spark-card" />
                     <AdjustPanel
                         card={spark.card}
@@ -648,7 +640,7 @@ function ConditionAdaptive({
                         onFrameSwitch={actions.switchFrame}
                     />
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
-                    <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(timerStep)} />
+                    <Button size="lg" className="w-full mt-5" onClick={() => setStep(timerStep)}>Start 1-minute timer</Button>
                 </div>
             )}
 
@@ -666,9 +658,7 @@ function ConditionAdaptive({
                 <>
                     <FeedbackStep state={feedback} onChange={setFeedback} rich />
                     <div className="flex gap-3 mt-4 flex-wrap">
-                        <button
-                            type="button"
-                            className="spark-chip"
+                        <Chip
                             onClick={() => {
                                 if (feedback.tried !== null) {
                                     track({
@@ -685,11 +675,9 @@ function ConditionAdaptive({
                             }}
                         >
                             ↻ Adapt Spark from feedback
-                        </button>
-                        <button
-                            type="button"
+                        </Chip>
+                        <Chip
                             disabled={feedback.tried === null}
-                            className={`spark-chip ${feedback.tried === null ? "opacity-40" : ""}`}
                             onClick={() => {
                                 if (feedback.tried !== null) {
                                     track({
@@ -703,7 +691,7 @@ function ConditionAdaptive({
                             }}
                         >
                             Next
-                        </button>
+                        </Chip>
                     </div>
                 </>
             )}
@@ -719,8 +707,9 @@ function ConditionAdaptive({
                         onReminder={setReminder}
                         onConfidence={setConfidence}
                     />
-                    <ContinueBtn
-                        label="Next"
+                    <Button
+                        size="lg"
+                        className="w-full mt-5"
                         disabled={!cue}
                         onClick={() => {
                             if (cue) {
@@ -733,7 +722,9 @@ function ConditionAdaptive({
                             }
                             setStep(reflectStep);
                         }}
-                    />
+                    >
+                        Next
+                    </Button>
                 </>
             )}
 
@@ -776,7 +767,7 @@ export function Spark() {
         <div className="flex flex-col flex-1 bg-bg">
             <PageHeader title="Spark" data-testid="spark-heading" />
             <div
-                className="spark-zone px-4 py-5 max-w-3xl mx-auto w-full"
+                className="px-4 py-6 max-w-3xl mx-auto w-full"
                 data-testid="spark-page"
             >
                 {condition === null && <SparkHome onStart={(c) => goto(c)} />}
