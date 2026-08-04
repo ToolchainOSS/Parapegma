@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from h4ckath0n.auth.dependencies import require_admin
 from h4ckath0n.auth.models import User
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import config
 from app.db import get_db
+from app.errors import AppError, Fault
 from app.models import (
     FlowUserProfile,
     ProjectMembership,
@@ -85,7 +86,7 @@ async def admin_push_test(
     vapid_private_key = config.get_vapid_private_key()
 
     if not vapid_private_key:
-        raise HTTPException(status_code=503, detail="VAPID private key not configured")
+        raise AppError(Fault.INTERNAL, "VAPID private key not configured")
 
     # Load subscriptions
     result = await db.execute(

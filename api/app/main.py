@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.exception_handlers import http_exception_handler
 from h4ckath0n import create_app
 from h4ckath0n.realtime import (
     AuthError,
@@ -18,12 +19,13 @@ from h4ckath0n.realtime import (
 )
 from pydantic import BaseModel
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from app import config
 from app.db import engine as app_engine
 from app.db import init_db
 from app.db_migrations.migrate import upgrade_to_head
+from app.errors import AppError
 from app.logging_conf import configure_logging
 from app.middleware import add_csp_middleware
 from app.middleware_logging import LoggingMiddleware
@@ -94,6 +96,21 @@ _base_app.router.lifespan_context = _lifespan
 app = _base_app
 app.add_middleware(LoggingMiddleware)
 add_csp_middleware(app)
+
+
+@app.exception_handler(AppError)
+async def _app_error_handler(request: Request, exc: Exception) -> Response:
+    """Log faults that are ours, then hand rendering back to FastAPI.
+
+    Only the observation is added here — one line at the boundary instead of a
+    ``logger.exception`` remembered at each raise site.
+    """
+    assert isinstance(exc, AppError)
+    if not exc.fault.is_caller_visible:
+        _logger.error("Request failed (%s): %s", exc.fault.name, exc.detail)
+    return await http_exception_handler(request, exc)
+
+
 app.include_router(router)
 
 

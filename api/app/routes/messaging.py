@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 
 from app.config import get_llm_model, get_openai_api_key
 from app.db import async_session_factory, get_db
+from app.errors import AppError, Fault
 from app.id_utils import generate_server_msg_id
 from app.llm import make_chat_llm
 from app.models import (
@@ -85,7 +86,7 @@ async def list_messages(
         raise
     except Exception as exc:
         logger.exception("Failed to load messages")
-        raise HTTPException(status_code=500, detail="Failed to load messages") from exc
+        raise AppError(Fault.INTERNAL, "Failed to load messages") from exc
 
 
 @router.post("/p/{project_id}/messages", tags=["messaging"])
@@ -145,7 +146,7 @@ async def send_message(
                 )
             )
             if (turn := existing.scalars().first()) is None:
-                raise HTTPException(status_code=500, detail="Turn conflict") from None
+                raise AppError(Fault.INTERNAL, "Turn conflict") from None
             if turn.status == "completed" and turn.assistant_message_id is not None:
                 asst_result = await db.execute(
                     select(Message).where(
@@ -242,7 +243,7 @@ async def send_message(
         )
         conv = conv_result.scalars().first()
         if conv is None:
-            raise HTTPException(status_code=500, detail="Conversation not found")
+            raise AppError(Fault.INTERNAL, "Conversation not found")
 
     # --- Process the turn (winner path) -----------------------------------
     try:

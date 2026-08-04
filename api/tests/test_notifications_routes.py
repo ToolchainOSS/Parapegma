@@ -306,9 +306,14 @@ async def test_unified_notification_read_not_found(
 
 @pytest.mark.asyncio
 async def test_webpush_vapid_key(client: AsyncClient) -> None:
-    """GET /notifications/webpush/vapid-public-key returns 503 when not configured."""
+    """An unconfigured VAPID key is our gap, so it reports as a 5xx.
+
+    Previously 503. A missing key in our own deployment is not something the
+    caller can act on, and the project reports only caller-actionable failures
+    as 4xx.
+    """
     resp = await client.get("/notifications/webpush/vapid-public-key")
-    assert resp.status_code == 503
+    assert resp.status_code == 500
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from h4ckath0n.auth import require_user
 from h4ckath0n.auth.models import User
 from sqlalchemy import func, select
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import config
 from app.db import get_db
+from app.errors import AppError, Fault
 from app.models import (
     Notification,
     NotificationDelivery,
@@ -110,10 +111,7 @@ async def list_unified_notifications(
         raise
     except Exception as exc:
         logger.exception("Failed to list unified notifications")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to load notifications",
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to load notifications") from exc
 
 
 @router.get("/notifications/unread-count", tags=["notifications"])
@@ -144,10 +142,7 @@ async def get_unified_unread_count(
         raise
     except Exception as exc:
         logger.exception("Failed to get unified unread count")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to load unread count",
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to load unread count") from exc
 
 
 @router.post("/notifications/{notification_id}/read", tags=["notifications"])
@@ -171,7 +166,7 @@ async def mark_unified_notification_read(
         )
         row = result.one_or_none()
         if not row:
-            raise HTTPException(status_code=404, detail="Notification not found")
+            raise AppError(Fault.NOT_FOUND, "Notification not found")
 
         notification, _project_id = row
         if not notification.read_at:
@@ -202,10 +197,7 @@ async def mark_unified_notification_read(
         raise
     except Exception as exc:
         logger.exception("Failed to mark notification as read")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to mark notification as read",
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to mark notification as read") from exc
 
 
 @router.get("/notifications/webpush/vapid-public-key", tags=["notifications"])
@@ -216,18 +208,13 @@ async def webpush_vapid_public_key(
     try:
         key = config.get_vapid_public_key()
         if not key:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="VAPID public key not configured",
-            )
+            raise AppError(Fault.INTERNAL, "VAPID public key not configured")
         return VapidPublicKeyResponse(public_key=key)
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Failed to get VAPID public key")
-        raise HTTPException(
-            status_code=500, detail="Failed to get VAPID public key"
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to get VAPID public key") from exc
 
 
 @router.post("/notifications/webpush/subscriptions", tags=["notifications"])
@@ -270,7 +257,7 @@ async def webpush_subscribe(
         raise
     except Exception as exc:
         logger.exception("Push subscription failed")
-        raise HTTPException(status_code=500, detail="Internal server error") from exc
+        raise AppError(Fault.INTERNAL, "Internal server error") from exc
 
 
 @router.delete(
@@ -291,10 +278,7 @@ async def webpush_unsubscribe(
         )
         sub = result.scalar_one_or_none()
         if sub is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Subscription not found",
-            )
+            raise AppError(Fault.NOT_FOUND, "Subscription not found")
         sub.revoked_at = datetime.now(UTC)
         await db.commit()
         return {"ok": True}
@@ -302,7 +286,7 @@ async def webpush_unsubscribe(
         raise
     except Exception as exc:
         logger.exception("Push unsubscribe failed")
-        raise HTTPException(status_code=500, detail="Failed to unsubscribe") from exc
+        raise AppError(Fault.INTERNAL, "Failed to unsubscribe") from exc
 
 
 @router.get("/notifications/webpush/subscriptions", tags=["notifications"])
@@ -334,6 +318,4 @@ async def webpush_list_subscriptions(
         raise
     except Exception as exc:
         logger.exception("Failed to list push subscriptions")
-        raise HTTPException(
-            status_code=500, detail="Failed to list subscriptions"
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to list subscriptions") from exc

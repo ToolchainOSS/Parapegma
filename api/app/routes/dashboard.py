@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.db import get_db
+from app.errors import AppError, Fault
 from app.models import (
     Conversation,
     FlowUserProfile,
@@ -121,7 +122,7 @@ async def dashboard(
         raise
     except Exception as exc:
         logger.exception("Failed to load dashboard")
-        raise HTTPException(status_code=500, detail="Failed to load dashboard") from exc
+        raise AppError(Fault.INTERNAL, "Failed to load dashboard") from exc
 
 
 @router.get("/auth/me", tags=["auth"])
@@ -154,9 +155,7 @@ async def get_me(
         raise
     except Exception as exc:
         logger.exception("Failed to load user profile")
-        raise HTTPException(
-            status_code=500, detail="Failed to load user profile"
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to load user profile") from exc
 
 
 @router.patch("/me", tags=["user"])
@@ -184,13 +183,9 @@ async def update_me(
             # None = don't update; empty string = invalid
             trimmed = body.display_name.strip()
             if len(trimmed) > 255:
-                raise HTTPException(
-                    status_code=422, detail="Display name too long (max 255)"
-                )
+                raise AppError(Fault.UNPROCESSABLE, "Display name too long (max 255)")
             if len(trimmed) == 0:
-                raise HTTPException(
-                    status_code=422, detail="Display name cannot be empty"
-                )
+                raise AppError(Fault.UNPROCESSABLE, "Display name cannot be empty")
 
             profile.display_name = trimmed
 
@@ -215,9 +210,7 @@ async def update_me(
         raise
     except Exception as exc:
         logger.exception("Failed to update user profile")
-        raise HTTPException(
-            status_code=500, detail="Failed to update user profile"
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to update user profile") from exc
 
 
 @router.post("/me/timezone", tags=["user"])
@@ -233,8 +226,8 @@ async def update_timezone(
         try:
             ZoneInfo(body.timezone)
         except (ZoneInfoNotFoundError, KeyError):
-            raise HTTPException(
-                status_code=422, detail=f"Invalid IANA timezone: {body.timezone}"
+            raise AppError(
+                Fault.UNPROCESSABLE, f"Invalid IANA timezone: {body.timezone}"
             ) from None
 
         profile_result = await db.execute(
@@ -287,9 +280,7 @@ async def update_timezone(
         raise
     except Exception as exc:
         logger.exception("Failed to update timezone")
-        raise HTTPException(
-            status_code=500, detail="Failed to update timezone"
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to update timezone") from exc
 
 
 @router.get("/auth/sessions", tags=["auth"])
@@ -318,7 +309,7 @@ async def auth_sessions(
         raise
     except Exception as exc:
         logger.exception("Failed to load sessions")
-        raise HTTPException(status_code=500, detail="Failed to load sessions") from exc
+        raise AppError(Fault.INTERNAL, "Failed to load sessions") from exc
 
 
 @router.post("/auth/sessions/{device_id}/revoke", tags=["auth"])
@@ -335,7 +326,7 @@ async def revoke_auth_session(
         )
         device = result.scalar_one_or_none()
         if device is None:
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise AppError(Fault.NOT_FOUND, "Session not found")
         if device.revoked_at is None:
             device.revoked_at = datetime.now(UTC)
             await db.commit()
@@ -344,4 +335,4 @@ async def revoke_auth_session(
         raise
     except Exception as exc:
         logger.exception("Failed to revoke session")
-        raise HTTPException(status_code=500, detail="Failed to revoke session") from exc
+        raise AppError(Fault.INTERNAL, "Failed to revoke session") from exc

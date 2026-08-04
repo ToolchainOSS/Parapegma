@@ -8,13 +8,14 @@ import logging
 import secrets
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from h4ckath0n.auth.dependencies import require_admin
 from h4ckath0n.auth.models import User
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.errors import AppError, Fault
 from app.models import (
     Conversation,
     FlowUserProfile,
@@ -113,12 +114,12 @@ async def admin_update_project(
 ) -> dict[str, str]:
     result = await db.execute(select(Project).where(Project.id == project_id))
     if (project := result.scalar_one_or_none()) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise AppError(Fault.NOT_FOUND, "Project not found")
     if body.display_name is not None:
         project.display_name = body.display_name.strip()
     if body.status is not None:
         if body.status not in ("active", "paused", "ended"):
-            raise HTTPException(status_code=422, detail="Invalid status")
+            raise AppError(Fault.UNPROCESSABLE, "Invalid status")
         project.status = body.status
     await db.commit()
     return {"project_id": project.id, "display_name": project.display_name or ""}
@@ -132,10 +133,10 @@ async def admin_create_invites(
     db: AsyncSession = Depends(get_db),
 ) -> AdminCreateInvitesResponse:
     if body.count < 1:
-        raise HTTPException(status_code=400, detail="count must be >= 1")
+        raise AppError(Fault.MALFORMED, "count must be >= 1")
     project_result = await db.execute(select(Project).where(Project.id == project_id))
     if project_result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise AppError(Fault.NOT_FOUND, "Project not found")
 
     invite_codes: list[str] = []
     for _ in range(body.count):

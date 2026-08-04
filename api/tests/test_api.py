@@ -1165,7 +1165,8 @@ async def test_admin_debug_endpoints(
         "/admin/debug/llm-connectivity",
         json={"model": "gpt-4o-mini", "prompt": "test"},
     )
-    assert llm_resp.status_code == 503
+    # An unconfigured key is our deployment's gap, not the caller's: 5xx.
+    assert llm_resp.status_code == 500
 
 
 @pytest.mark.asyncio

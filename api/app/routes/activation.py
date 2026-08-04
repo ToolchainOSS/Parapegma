@@ -7,7 +7,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from h4ckath0n.auth import require_user
 from h4ckath0n.auth.models import User
 from sqlalchemy import func, or_, select, update
@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 
 from app.config import get_llm_model, get_openai_api_key
 from app.db import get_db
+from app.errors import AppError, Fault
 from app.id_utils import generate_server_msg_id
 from app.llm import make_chat_llm
 from app.models import (
@@ -64,10 +65,7 @@ async def claim_invite(
         raise
     except Exception as exc:
         logger.exception("Claim invite failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Internal server error") from exc
 
 
 async def _claim_invite_impl(
@@ -79,9 +77,7 @@ async def _claim_invite_impl(
     # Verify project exists
     proj_result = await db.execute(select(Project).where(Project.id == project_id))
     if proj_result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
-        )
+        raise AppError(Fault.NOT_FOUND, "Project not found")
 
     # Require email on Flow user profile before joining
     profile_result = await db.execute(
@@ -111,10 +107,7 @@ async def _claim_invite_impl(
     if membership is not None and (
         membership.status == "ended" or membership.ended_at is not None
     ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Membership ended",
-        )
+        raise AppError(Fault.FORBIDDEN, "Membership ended")
 
     if membership is not None:
         # Existing non-ended membership: idempotent success regardless of invite validity
@@ -131,18 +124,12 @@ async def _claim_invite_impl(
             )
         )
         if (invite := invite_result.scalar_one_or_none()) is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired invite code",
-            )
+            raise AppError(Fault.MALFORMED, "Invalid or expired invite code")
 
         expires_at = invite.expires_at
         compare_now = now if expires_at.tzinfo else now.replace(tzinfo=None)
         if invite.revoked_at is not None or expires_at <= compare_now:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired invite code",
-            )
+            raise AppError(Fault.MALFORMED, "Invalid or expired invite code")
 
         membership = ProjectMembership(
             project_id=project_id, user_id=user.id, status="active"
@@ -181,10 +168,7 @@ async def _claim_invite_impl(
             )
             if cast("CursorResult[Any]", consume_result).rowcount != 1:
                 await db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid or expired invite code",
-                )
+                raise AppError(Fault.MALFORMED, "Invalid or expired invite code")
 
     # Create conversation if absent
     conv_result = await db.execute(
@@ -341,8 +325,8 @@ async def project_me(
         raise
     except Exception as exc:
         logger.exception("Failed to load project membership info")
-        raise HTTPException(
-            status_code=500, detail="Failed to load project membership info"
+        raise AppError(
+            Fault.INTERNAL, "Failed to load project membership info"
         ) from exc
 
 
@@ -359,7 +343,7 @@ async def get_profile(
         raise
     except Exception as exc:
         logger.exception("Failed to load profile")
-        raise HTTPException(status_code=500, detail="Failed to load profile") from exc
+        raise AppError(Fault.INTERNAL, "Failed to load profile") from exc
 
 
 @router.put("/p/{project_id}/profile", tags=["profile"])
@@ -382,4 +366,4 @@ async def put_profile(
         raise
     except Exception as exc:
         logger.exception("Failed to update profile")
-        raise HTTPException(status_code=500, detail="Failed to update profile") from exc
+        raise AppError(Fault.INTERNAL, "Failed to update profile") from exc

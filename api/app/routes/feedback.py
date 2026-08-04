@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.engine import process_turn as engine_process_turn
 from app.config import get_llm_model, get_openai_api_key
 from app.db import get_db
+from app.errors import AppError, Fault
 from app.id_utils import generate_server_msg_id
 from app.llm import make_chat_llm
 from app.models import (
@@ -77,7 +78,7 @@ async def _submit_feedback_event_impl(
         )
         notification = notif_result.scalar_one_or_none()
         if notification is None:
-            raise HTTPException(status_code=404, detail="Notification not found")
+            raise AppError(Fault.NOT_FOUND, "Notification not found")
 
         conv = await _get_conversation(db, notification.membership_id)
         poll_msg_result = await db.execute(
@@ -109,7 +110,7 @@ async def _submit_feedback_event_impl(
                     poll_msg = candidate
                     break
         if poll_msg is None:
-            raise HTTPException(status_code=404, detail="Poll message not found")
+            raise AppError(Fault.NOT_FOUND, "Poll message not found")
 
         poll_metadata = dict(poll_msg.metadata_ or {})
         if poll_metadata.get("status") == "completed":
@@ -140,7 +141,7 @@ async def _submit_feedback_event_impl(
                 action_title = str(action.get("title") or action_title)
                 break
         if selected_action_id is None:
-            raise HTTPException(status_code=400, detail="Invalid feedback action")
+            raise AppError(Fault.MALFORMED, "Invalid feedback action")
 
         poll_metadata["status"] = "completed"
         poll_metadata["selected_action_id"] = selected_action_id
@@ -254,9 +255,7 @@ async def _submit_feedback_event_impl(
         raise
     except Exception as exc:
         logger.exception("Failed to store feedback event")
-        raise HTTPException(
-            status_code=500, detail="Failed to store feedback event"
-        ) from exc
+        raise AppError(Fault.INTERNAL, "Failed to store feedback event") from exc
 
 
 @router.post("/p/{project_id}/chat/events/feedback", tags=["notifications"])

@@ -6,12 +6,13 @@ import asyncio
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 from h4ckath0n.auth.dependencies import require_admin
 from h4ckath0n.auth.models import User
 
 from app import config
 from app.config import get_openai_api_key
+from app.errors import AppError, Fault
 from app.llm import make_chat_llm
 from app.routes.schemas import (
     AdminDebugStatusResponse,
@@ -52,10 +53,7 @@ async def admin_debug_llm_connectivity(
 ) -> AdminLLMConnectivityResponse:
     llm_key = get_openai_api_key()
     if not llm_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenAI API key not configured",
-        )
+        raise AppError(Fault.INTERNAL, "OpenAI API key not configured")
 
     started = time.perf_counter()
     try:
