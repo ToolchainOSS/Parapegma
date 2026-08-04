@@ -32,6 +32,9 @@ place via tokens), **consolidated** (folded into a canonical primitive), **new**
 | `.spark-zone` token-alias shim (`--text`, `--surface`, …) | deleted — no hand-written stylesheet left to alias for | deleted |
 | `rounded-[var(--radius-*)]` / `shadow-[var(--shadow-*)]`, 56 occurrences across 24 files | canonical `rounded-*` / `shadow-*` utilities generated from the theme | migrated |
 | Bold sans `h1`/`h2` across 10 pages | `display-lg` / `display-sm` serif utilities | migrated |
+| Condition A landing step + `Get my Spark` tap | removed — `useSparkRemix({ autoGenerate })` fetches on entry, matching B | deleted |
+| `requested` ref + mount effect in `ConditionB` | `useSparkRemix({ autoGenerate })` owns the once-only guard | consolidated |
+| Bare step indices in `ConditionA` / `ConditionB` | named `A_STEP` / `B_STEP` maps | migrated |
 
 ## Inline badge/pill patterns → `Badge`
 

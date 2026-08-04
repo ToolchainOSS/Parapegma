@@ -85,16 +85,14 @@ describe("Spark page", () => {
         expect(screen.getByTestId("spark-cond-D")).toBeInTheDocument();
     });
 
-    it("condition A: first generate sends no base_card and empty history", async () => {
+    it("condition A: fetches on entry, with no base_card and empty history", async () => {
         mockPost.mockResolvedValue(SUCCESS_RESPONSE);
 
         render(<Spark />);
 
-        // Enter condition A from home grid
+        // Entering the condition IS the request — no second tap to confirm it,
+        // which is also what keeps A in step with B's sampler.
         fireEvent.click(screen.getByTestId("spark-cond-A"));
-
-        // Click "Get my Spark"
-        fireEvent.click(screen.getByText("Get my Spark"));
 
         await waitFor(() => {
             expect(mockPost).toHaveBeenCalledWith("/spark/generate", {
@@ -117,6 +115,22 @@ describe("Spark page", () => {
 
         // Spark card title visible after generation
         expect(await screen.findByText("Desk Reset")).toBeInTheDocument();
+    });
+
+    it("auto-fetching conditions request exactly once on entry", async () => {
+        // The once-only guard lives in useSparkRemix, so a re-render (or
+        // StrictMode's double effect) must not fire a second generate — which
+        // would also double-count the participant's flow in the telemetry.
+        mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
+
+        const { rerender } = render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-B"));
+        await screen.findByTestId("spark-sample-calm");
+
+        rerender(<Spark />);
+        await waitFor(() => {
+            expect(mockPost).toHaveBeenCalledTimes(1);
+        });
     });
 
     it("adjust (conditions C/D only) sends base_card + accumulated adjustment_history", async () => {

@@ -17,7 +17,7 @@
  * This is the "client-carried history → stateless endpoint" pattern — the backend
  * stays stateless, the frontend owns the remix chain.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api from "../../api/client";
 import type { SparkCard, SparkGenerateResponse } from "../../api/types";
 import { D_CATALOG_SIZE, type SparkCondition, type SparkFrame } from "./sparkData";
@@ -60,6 +60,16 @@ interface GenerateOpts {
 interface SparkRemixResearchContext {
     flowId: string;
     getIdentity: SparkIdentityProvider;
+    /**
+     * Fire this generate exactly once on mount.
+     *
+     * Conditions A and B both open straight onto their Spark — the participant
+     * has already chosen the condition, so a second "fetch it now" tap is a
+     * step that asks nothing. Owning the once-only guard here (rather than a
+     * ref + effect re-typed per condition) means a caller cannot forget it and
+     * double-fire under StrictMode's remount.
+     */
+    autoGenerate?: GenerateOpts;
 }
 
 const GENERIC_ERROR = "Spark generation failed";
@@ -84,13 +94,15 @@ function describeApiError(error: unknown): string {
     return GENERIC_ERROR;
 }
 
-function initialState(): SparkRemixState {
+function initialState(pending = false): SparkRemixState {
     return {
         card: null,
         cards: [],
         adjustmentHistory: [],
         lastAdjustment: null,
-        loading: false,
+        // An auto-generating flow is loading from the first paint, so the empty
+        // state never flashes before the mount effect runs.
+        loading: pending,
         error: null,
     };
 }
@@ -98,8 +110,10 @@ function initialState(): SparkRemixState {
 export function useSparkRemix(
     research: SparkRemixResearchContext,
 ): [SparkRemixState, SparkRemixActions] {
-    const [state, setState] = useState<SparkRemixState>(initialState);
-    const { flowId, getIdentity } = research;
+    const { flowId, getIdentity, autoGenerate } = research;
+    const [state, setState] = useState<SparkRemixState>(() =>
+        initialState(autoGenerate !== undefined),
+    );
     // Keep opts from the last generate call so adjust can re-use condition/frame/context
     const optsRef = useRef<GenerateOpts>({ condition: "A" });
 
@@ -186,6 +200,15 @@ export function useSparkRemix(
     const reset = useCallback(() => {
         setState(initialState());
     }, []);
+
+    const autoFired = useRef(false);
+    useEffect(() => {
+        if (autoGenerate === undefined || autoFired.current) return;
+        autoFired.current = true;
+        void generate(autoGenerate);
+        // `autoGenerate` is read once; later identity changes must not refetch.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [generate]);
 
     return [state, { generate, adjust, switchFrame, selectCard, reset }];
 }

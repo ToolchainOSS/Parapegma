@@ -9,7 +9,7 @@
  * framing accents all resolve through the global token layer, and controls come
  * from the shared primitives. Only keyframe animation lives in spark.css.
  */
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Alert, Badge, Button, Card, SectionHeader } from "../components";
 import { Chip, IconButton, PageHeader } from "../components/ui";
 import { AdjustPanel } from "./spark/AdjustPanel";
@@ -164,8 +164,17 @@ function SparkHome({ onStart }: { onStart: (c: SparkCondition) => void }) {
 
 // ---------------------------------------------------------------------------
 // Condition A — Random Spark
-// steps: 0 landing | 1 card+adjust | 2 timer | 3 feedback | 4 cue | 5 reflect
+// steps: 0 card | 1 timer | 2 feedback | 3 cue | 4 reflect
+//
+// No landing step: choosing the condition already *is* the request, so a
+// "Get my Spark" tap would ask nothing and would put A out of step with B,
+// which opens straight onto its Sparks.
 // ---------------------------------------------------------------------------
+/** Condition A's linear flow. Named so a step can be inserted or removed
+ *  without hand-renumbering every guard and transition. */
+const A_STEP = { card: 0, timer: 1, feedback: 2, cue: 3, reflect: 4 } as const;
+const A_TOTAL = Object.keys(A_STEP).length;
+
 function ConditionA({
     onExit,
     onGoto,
@@ -175,10 +184,14 @@ function ConditionA({
     onGoto: (c: SparkCondition) => void;
     getIdentity: SparkIdentityProvider;
 }) {
-    const [step, setStep] = useState(0);
+    const [step, setStep] = useState<number>(A_STEP.card);
     const [flowId] = useState(createSparkClientId);
     const track = useSparkEventTracker({ condition: "A", flowId, getIdentity });
-    const [spark, actions] = useSparkRemix({ flowId, getIdentity });
+    const [spark, actions] = useSparkRemix({
+        flowId,
+        getIdentity,
+        autoGenerate: { condition: "A" },
+    });
     const [feedback, setFeedback] = useState<FeedbackState>({ tried: null, reason: null, tweak: "" });
     const [cue, setCue] = useState<string | null>(null);
     const [reminder, setReminder] = useState<string | null>(null);
@@ -192,51 +205,47 @@ function ConditionA({
 
     return (
         <div>
-            <FlowProgress step={step} total={6} accent={conditionAccent("A")} onBack={back} />
-            {step === 0 && (
+            <FlowProgress step={step} total={A_TOTAL} accent={conditionAccent("A")} onBack={back} />
+            {step === A_STEP.card && (
                 <div className="space-y-4">
                     <SectionHeader
                         size="lg"
                         eyebrow="Condition A · Random Spark"
                         title="A Spark, sent to you"
-                        subtitle="No menu, no questions. Tap once and we'll send one Spark for you to act on. Tests whether simply delivering a short action is enough."
+                        subtitle="No menu, no questions — one Spark, chosen at random, for you to act on. Tests whether simply delivering a short action is enough."
                     />
                     {spark.error && <Alert variant="error" data-testid="spark-error">{spark.error}</Alert>}
-                    {spark.loading ? (
+                    {spark.card ? (
+                        <>
+                            {/* Control group: no adjust/remix — delivered as-is. */}
+                            <SparkCard card={spark.card} data-testid="spark-card" />
+                            <Button size="lg" className="w-full mt-5" onClick={() => setStep(A_STEP.timer)}>
+                                Start 1-minute timer
+                            </Button>
+                        </>
+                    ) : spark.loading ? (
                         <SparkThinking />
                     ) : (
                         <Button
                             size="lg"
                             className="w-full mt-5"
-                            disabled={spark.loading}
-                            onClick={() => {
-                                void actions.generate({ condition: "A" }).then(() => setStep(1));
-                            }}
+                            onClick={() => void actions.generate({ condition: "A" })}
                         >
-                            Get my Spark
+                            Try again
                         </Button>
                     )}
                 </div>
             )}
-            {step === 1 && spark.card && (
-                <div className="space-y-2">
-                    <p className="eyebrow text-text-subtle">Your Spark</p>
-                    <SparkCard card={spark.card} data-testid="spark-card" />
-                    {/* Control group: no adjust/remix — the Spark is delivered as-is. */}
-                    {spark.error && <Alert variant="error">{spark.error}</Alert>}
-                    <Button size="lg" className="w-full mt-5" onClick={() => setStep(2)}>Start 1-minute timer</Button>
-                </div>
-            )}
-            {step === 2 && spark.card && (
+            {step === A_STEP.timer && spark.card && (
                 <SparkTimer
                     frame={(spark.card.frame as SparkFrame) ?? "calm"}
                     onDone={(completion) => {
                         track({ event_type: "timer_finished", completion });
-                        setStep(3);
+                        setStep(A_STEP.feedback);
                     }}
                 />
             )}
-            {step === 3 && (
+            {step === A_STEP.feedback && (
                 <>
                     <FeedbackStep state={feedback} onChange={setFeedback} />
                     <Button
@@ -252,14 +261,14 @@ function ConditionA({
                                     tweak: feedback.tweak,
                                 });
                             }
-                            setStep(4);
+                            setStep(A_STEP.cue);
                         }}
                     >
                         Next
                     </Button>
                 </>
             )}
-            {step === 4 && (
+            {step === A_STEP.cue && (
                 <>
                     <CueStep
                         profile={emptyProfile()}
@@ -283,14 +292,14 @@ function ConditionA({
                                     confidence,
                                 });
                             }
-                            setStep(5);
+                            setStep(A_STEP.reflect);
                         }}
                     >
                         Next
                     </Button>
                 </>
             )}
-            {step === 5 && (
+            {step === A_STEP.reflect && (
                 <ReflectStep
                     condition="A"
                     rating={rating}
@@ -321,6 +330,10 @@ function ConditionA({
 // straight away, so the first thing a participant sees is the intervention
 // rather than five adjectives they have to gamble on.
 // ---------------------------------------------------------------------------
+/** Condition B's linear flow. Mirrors {@link A_STEP} with the sampler in front. */
+const B_STEP = { sampler: 0, card: 1, timer: 2, feedback: 3, cue: 4, reflect: 5 } as const;
+const B_TOTAL = Object.keys(B_STEP).length;
+
 function ConditionB({
     onExit,
     onGoto,
@@ -330,26 +343,22 @@ function ConditionB({
     onGoto: (c: SparkCondition) => void;
     getIdentity: SparkIdentityProvider;
 }) {
-    const [step, setStep] = useState(0);
+    const [step, setStep] = useState<number>(B_STEP.sampler);
     const [flowId] = useState(createSparkClientId);
     const track = useSparkEventTracker({ condition: "B", flowId, getIdentity });
-    const [spark, actions] = useSparkRemix({ flowId, getIdentity });
+    // Same shape as condition A: the sampler is fetched on entry, so the
+    // intervention is the first thing shown rather than something unlocked by
+    // a tap that asks nothing.
+    const [spark, actions] = useSparkRemix({
+        flowId,
+        getIdentity,
+        autoGenerate: { condition: "B" },
+    });
     const [feedback, setFeedback] = useState<FeedbackState>({ tried: null, reason: null, tweak: "" });
     const [cue, setCue] = useState<string | null>(null);
     const [reminder, setReminder] = useState<string | null>(null);
     const [confidence, setConfidence] = useState<number | null>(null);
     const [rating, setRating] = useState<RatingState>({ fit: null, clarity: null, willing: null });
-
-    // Load the five-vibe sampler once, on entry: the intervention is the first
-    // thing shown, not something unlocked by answering a question about it.
-    // The ref guard keeps StrictMode's double effect to a single request.
-    const { generate } = actions;
-    const requested = useRef(false);
-    useEffect(() => {
-        if (requested.current) return;
-        requested.current = true;
-        void generate({ condition: "B" });
-    }, [generate]);
 
     function back() {
         if (step === 0) { onExit(); return; }
@@ -358,8 +367,8 @@ function ConditionB({
 
     return (
         <div>
-            <FlowProgress step={step} total={6} accent={conditionAccent("B")} onBack={back} />
-            {step === 0 && (
+            <FlowProgress step={step} total={B_TOTAL} accent={conditionAccent("B")} onBack={back} />
+            {step === B_STEP.sampler && (
                 <div className="space-y-4">
                     {spark.error && <Alert variant="error" data-testid="spark-error">{spark.error}</Alert>}
                     {spark.cards.length > 0 ? (
@@ -370,7 +379,7 @@ function ConditionB({
                                 track({ event_type: "frame_selected", frame: card.frame as SparkFrame });
                                 track({ event_type: "card_selected", rank });
                                 actions.selectCard(card);
-                                setStep(1);
+                                setStep(B_STEP.card);
                             }}
                         />
                     ) : spark.loading ? (
@@ -379,32 +388,32 @@ function ConditionB({
                         <Button
                             size="lg"
                             className="w-full mt-5"
-                            onClick={() => void generate({ condition: "B" })}
+                            onClick={() => void actions.generate({ condition: "B" })}
                         >
-                            Show me five Sparks
+                            Try again
                         </Button>
                     )}
                 </div>
             )}
-            {step === 1 && spark.card && (
+            {step === B_STEP.card && spark.card && (
                 <div className="space-y-2">
                     <p className="eyebrow text-text-subtle">Your Spark</p>
                     <SparkCard card={spark.card} data-testid="spark-card" />
                     {/* Control group: choice happens at the sampler; no post-pick remix. */}
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
-                    <Button size="lg" className="w-full mt-5" onClick={() => setStep(2)}>Start 1-minute timer</Button>
+                    <Button size="lg" className="w-full mt-5" onClick={() => setStep(B_STEP.timer)}>Start 1-minute timer</Button>
                 </div>
             )}
-            {step === 2 && spark.card && (
+            {step === B_STEP.timer && spark.card && (
                 <SparkTimer
                     frame={(spark.card.frame as SparkFrame) ?? "calm"}
                     onDone={(completion) => {
                         track({ event_type: "timer_finished", completion });
-                        setStep(3);
+                        setStep(B_STEP.feedback);
                     }}
                 />
             )}
-            {step === 3 && (
+            {step === B_STEP.feedback && (
                 <>
                     <FeedbackStep state={feedback} onChange={setFeedback} />
                     <Button
@@ -420,14 +429,14 @@ function ConditionB({
                                     tweak: feedback.tweak,
                                 });
                             }
-                            setStep(4);
+                            setStep(B_STEP.cue);
                         }}
                     >
                         Next
                     </Button>
                 </>
             )}
-            {step === 4 && (
+            {step === B_STEP.cue && (
                 <>
                     <CueStep
                         profile={emptyProfile()}
@@ -451,14 +460,14 @@ function ConditionB({
                                     confidence,
                                 });
                             }
-                            setStep(5);
+                            setStep(B_STEP.reflect);
                         }}
                     >
                         Next
                     </Button>
                 </>
             )}
-            {step === 5 && (
+            {step === B_STEP.reflect && (
                 <ReflectStep
                     condition="B"
                     rating={rating}
