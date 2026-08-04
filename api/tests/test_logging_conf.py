@@ -115,3 +115,43 @@ class TestConfigureLogging:
         ]
         # Exactly one console StreamHandler — dictConfig replaced, not appended.
         assert len(console_handlers) >= 1
+
+
+class TestRequestIdFilter:
+    """Every record carries a correlation id, so lines can be tied to a request."""
+
+    def _record(self) -> logging.LogRecord:
+        return logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="hello",
+            args=(),
+            exc_info=None,
+        )
+
+    def test_stamps_the_current_request_id(self) -> None:
+        token = logging_conf.request_id_var.set("ray-abc123")
+        try:
+            record = self._record()
+            assert logging_conf.RequestIdFilter().filter(record) is True
+            assert record.request_id == "ray-abc123"
+        finally:
+            logging_conf.request_id_var.reset(token)
+
+    def test_falls_back_outside_a_request(self) -> None:
+        """Startup and worker lines have no request; they must still format."""
+        record = self._record()
+        logging_conf.RequestIdFilter().filter(record)
+        assert record.request_id == "-"
+
+    def test_every_handler_is_filtered(self) -> None:
+        """A handler without the filter would raise KeyError on the format string."""
+        cfg = logging_conf.build_logging_config(log_level="INFO")
+        assert "request_id" in cfg["filters"]
+        for handler in cfg["handlers"].values():
+            assert "request_id" in handler["filters"]
+
+    def test_format_carries_the_id(self) -> None:
+        assert "%(request_id)s" in logging_conf.LOG_FORMAT
