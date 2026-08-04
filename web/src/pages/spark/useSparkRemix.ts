@@ -62,6 +62,28 @@ interface SparkRemixResearchContext {
     getIdentity: SparkIdentityProvider;
 }
 
+const GENERIC_ERROR = "Spark generation failed";
+
+/** Surface the API's own explanation instead of a blanket failure string.
+ *
+ *  Every non-2xx used to collapse into one message, so a missing API key (503),
+ *  a bad model payload (502), a timeout (504) and a rejected request (422) were
+ *  indistinguishable on screen — and in any bug report. FastAPI sends `detail`
+ *  as a string for handled errors and as a list of objects for validation
+ *  failures; anything else falls back to the generic message.
+ */
+function describeApiError(error: unknown): string {
+    const detail = (error as { detail?: unknown } | null | undefined)?.detail;
+    if (typeof detail === "string" && detail.length > 0) return detail;
+    if (Array.isArray(detail)) {
+        const messages = detail
+            .map((item) => (item as { msg?: unknown }).msg)
+            .filter((msg): msg is string => typeof msg === "string");
+        if (messages.length > 0) return messages.join("; ");
+    }
+    return GENERIC_ERROR;
+}
+
 function initialState(): SparkRemixState {
     return {
         card: null,
@@ -102,7 +124,7 @@ export function useSparkRemix(
                         count: opts.count ?? (opts.condition === "D" ? D_CATALOG_SIZE : 1),
                     },
                 });
-                if (apiError || !data) throw new Error("Spark generation failed");
+                if (apiError || !data) throw new Error(describeApiError(apiError));
                 const result = data as SparkGenerateResponse;
                 const cards = result.cards ?? [];
                 setState((s) => ({
@@ -116,7 +138,7 @@ export function useSparkRemix(
                 setState((s) => ({
                     ...s,
                     loading: false,
-                    error: err instanceof Error ? err.message : "Spark generation failed",
+                    error: err instanceof Error ? err.message : GENERIC_ERROR,
                 }));
             }
         },

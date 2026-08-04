@@ -231,6 +231,33 @@ describe("Spark page", () => {
         expect(screen.getByText("Your pick")).toBeInTheDocument();
     });
 
+    it("shows the API's own reason for a failure, not a blanket message", async () => {
+        // A missing key (503), a bad model payload (502) and a timeout (504) all
+        // used to render identically, which made the UI useless for diagnosis.
+        mockPost.mockResolvedValue({
+            data: undefined,
+            error: { detail: "OpenAI API key not configured" },
+        });
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-B"));
+
+        expect(await screen.findByTestId("spark-error")).toHaveTextContent(
+            "OpenAI API key not configured",
+        );
+    });
+
+    it("falls back to a generic message when the API gives no usable detail", async () => {
+        mockPost.mockResolvedValue({ data: undefined, error: { detail: [] } });
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-B"));
+
+        expect(await screen.findByTestId("spark-error")).toHaveTextContent(
+            "Spark generation failed",
+        );
+    });
+
     it("leaves a condition through the back affordance on its first step", async () => {
         mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
 
