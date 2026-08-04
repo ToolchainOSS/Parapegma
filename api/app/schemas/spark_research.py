@@ -37,7 +37,10 @@ class SparkIntakeAnsweredEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     event_type: Literal["intake_answered"]
-    field: Literal["anchor", "action", "frame", "time"]
+    # No "frame": the intake never asks participants to name a vibe up front.
+    # A chosen vibe is reported by SparkFrameSelectedEvent once they have seen
+    # actual Sparks, so the two events can no longer disagree.
+    field: Literal["anchor", "action", "time"]
     value: str = Field(min_length=1, max_length=120)
 
 
@@ -52,6 +55,10 @@ class SparkCardSelectedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     event_type: Literal["card_selected"]
+    # Position within the list the participant chose from: 1-5 among condition B's
+    # one-per-vibe sampler, or 1-5 within the chosen vibe's column in condition D.
+    # It is never a position in D's full 25-card catalog — pair it with the
+    # accompanying frame_selected event to locate the card exactly.
     rank: int = Field(ge=1, le=5)
 
 

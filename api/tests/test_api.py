@@ -1412,7 +1412,9 @@ def test_spark_build_user_prompt_is_json() -> None:
         adjustment_history=["quieter", "seated"],
         count=4,
     )
-    payload = json.loads(spark_routes._build_user_prompt(body))
+    payload = json.loads(
+        spark_routes._build_user_prompt(body, body.frame_preference, body.count)
+    )
     assert payload == {
         "condition": "D",
         "frame_preference": "science",
@@ -1420,6 +1422,12 @@ def test_spark_build_user_prompt_is_json() -> None:
         "adjustment_history": ["quieter", "seated"],
         "count": 4,
     }
+
+    # The catalog overrides both, one vibe per call, without mutating the body.
+    pinned = json.loads(spark_routes._build_user_prompt(body, "calm", 5))
+    assert pinned["frame_preference"] == "calm"
+    assert pinned["count"] == 5
+    assert body.frame_preference == "science"
 
 
 def test_spark_build_user_prompt_includes_base_card() -> None:
@@ -1440,7 +1448,9 @@ def test_spark_build_user_prompt_includes_base_card() -> None:
         adjustment_history=["make it easier", "seated please"],
         count=1,
     )
-    payload = json.loads(spark_routes._build_user_prompt(body))
+    payload = json.loads(
+        spark_routes._build_user_prompt(body, body.frame_preference, body.count)
+    )
     assert payload["base_card"]["title"] == "Desk Reset"
     assert payload["adjustment_history"] == ["make it easier", "seated please"]
     assert "adjustment" not in payload
@@ -1462,33 +1472,34 @@ def test_spark_history_is_capped_at_twenty() -> None:
     assert body.adjustment_history[-1] == "adjustment 29"
 
 
-@pytest.mark.asyncio
-async def test_spark_generate_sorts_condition_d_cards(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _fake_catalog_llm(monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
+    """Stub the model so every call echoes back the vibe it was asked for."""
     from app.routes import spark as spark_routes
 
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
-    clear_config_cache()
-
     class _FakeResponse:
-        content = [
-            {
-                "text": json.dumps(
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class _FakeChatLLM:
+        async def ainvoke(self, prompt: Any) -> _FakeResponse:
+            asked = json.loads(prompt[-1].content)
+            frame = asked["frame_preference"] or "calm"
+            calls.append(frame)
+            return _FakeResponse(
+                json.dumps(
                     {
                         "cards": [
                             {
-                                "title": "Low Fit",
-                                "frame": "science",
+                                "title": f"{frame} low",
+                                "frame": frame,
                                 "action": "Do one stretch.",
                                 "reward": "Feel looser.",
                                 "why": "One option.",
                                 "fit_score": 40,
                             },
                             {
-                                "title": "High Fit",
-                                "frame": "science",
+                                "title": f"{frame} high",
+                                "frame": frame,
                                 "action": "Do one march.",
                                 "reward": "Feel alert.",
                                 "why": "Better fit.",
@@ -1497,26 +1508,125 @@ async def test_spark_generate_sorts_condition_d_cards(
                         ]
                     }
                 )
-            }
-        ]
+            )
 
-    class _FakeChatLLM:
-        async def ainvoke(self, _prompt: Any) -> _FakeResponse:
-            return _FakeResponse()
+    monkeypatch.setattr(spark_routes, "make_chat_llm", lambda **_kwargs: _FakeChatLLM())
 
-    monkeypatch.setattr(
-        spark_routes,
-        "make_chat_llm",
-        lambda **_kwargs: _FakeChatLLM(),
-    )
+
+@pytest.mark.asyncio
+async def test_spark_generate_condition_d_builds_a_catalog_across_every_vibe(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D's first generate fans out one call per vibe and ranks within each vibe."""
+    from app.services.spark_library import ALL_FRAMES
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    calls: list[str] = []
+    _fake_catalog_llm(monkeypatch, calls)
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="D", count=4),
+        json=_spark_request(condition="D", count=5),
     )
     assert resp.status_code == 200
     cards = resp.json()["cards"]
-    assert [card["title"] for card in cards] == ["High Fit", "Low Fit"]
+
+    # One call per vibe, each pinned to exactly one frame.
+    assert sorted(calls) == sorted(ALL_FRAMES)
+    # Cards arrive grouped in canonical vibe order, best fit first inside a vibe.
+    assert [card["title"] for card in cards] == [
+        title for frame in ALL_FRAMES for title in (f"{frame} high", f"{frame} low")
+    ]
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_condition_d_remix_does_not_fan_out(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A remix carries a base_card, so it is one call — not another 25-card catalog."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    calls: list[str] = []
+    _fake_catalog_llm(monkeypatch, calls)
+
+    resp = await client.post(
+        "/spark/generate",
+        json=_spark_request(
+            condition="D",
+            frame_preference="science",
+            base_card={
+                "title": "Desk Reset",
+                "frame": "science",
+                "action": "Roll shoulders.",
+                "reward": "Feel lighter.",
+                "why": "Desk-friendly.",
+            },
+            adjustment_history=["make it easier"],
+            count=2,
+        ),
+    )
+    assert resp.status_code == 200
+    assert calls == ["science"]
+    cards = resp.json()["cards"]
+    assert [card["title"] for card in cards] == ["science high", "science low"]
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_condition_d_catalog_fails_whole_if_one_vibe_fails(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A partial catalog would silently confound the study, so it is all-or-nothing."""
+    from app.routes import spark as spark_routes
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
+    clear_config_cache()
+
+    completed: list[str] = []
+
+    class _FakeResponse:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class _FakeChatLLM:
+        async def ainvoke(self, prompt: Any) -> _FakeResponse:
+            frame = json.loads(prompt[-1].content)["frame_preference"]
+            if frame == "silly":
+                return _FakeResponse("not json at all")
+            completed.append(frame)
+            return _FakeResponse(
+                json.dumps(
+                    {
+                        "cards": [
+                            {
+                                "title": f"{frame} card",
+                                "frame": frame,
+                                "action": "Do one stretch.",
+                                "reward": "Feel looser.",
+                                "why": "One option.",
+                                "fit_score": 80,
+                            }
+                        ]
+                    }
+                )
+            )
+
+    monkeypatch.setattr(spark_routes, "make_chat_llm", lambda **_kwargs: _FakeChatLLM())
+
+    resp = await client.post(
+        "/spark/generate",
+        json=_spark_request(condition="D", count=5),
+    )
+    assert resp.status_code == 502
+    # Siblings still settled rather than being left running against the provider.
+    assert len(completed) == 4
     clear_config_cache()
 
 
@@ -1600,12 +1710,16 @@ async def test_spark_generate_reports_google_sheets_library_source(
 
 
 @pytest.mark.asyncio
-async def test_spark_generate_condition_b_filters_by_frame_preference(
+async def test_spark_generate_condition_b_returns_one_spark_per_vibe(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Condition B is also static; every returned card must match the vibe
-    the user picked, and the LLM must never be called."""
+    """Condition B is static and vibe-complete: five cards, one per vibe.
+
+    B no longer asks for a vibe first, so the participant sees a concrete Spark
+    from each one and the LLM is still never called.
+    """
     from app.routes import spark as spark_routes
+    from app.services.spark_library import ALL_FRAMES
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("H4CKATH0N_OPENAI_API_KEY", raising=False)
@@ -1621,22 +1735,24 @@ async def test_spark_generate_condition_b_filters_by_frame_preference(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="B", frame_preference="silly", count=3),
+        json=_spark_request(condition="B"),
     )
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["condition"] == "B"
-    assert len(payload["cards"]) >= 1
-    assert all(card["frame"] == "silly" for card in payload["cards"])
+    assert tuple(card["frame"] for card in payload["cards"]) == ALL_FRAMES
     assert payload["model"] == "static-library"
     clear_config_cache()
     clear_library_cache()
 
 
 @pytest.mark.asyncio
-async def test_spark_generate_condition_b_requires_frame_preference(
+async def test_spark_generate_condition_b_ignores_a_frame_preference(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A stray frame_preference no longer narrows (or 422s) condition B."""
+    from app.services.spark_library import ALL_FRAMES
+
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
@@ -1645,9 +1761,10 @@ async def test_spark_generate_condition_b_requires_frame_preference(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="B", count=3),
+        json=_spark_request(condition="B", frame_preference="silly", count=3),
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 200
+    assert tuple(card["frame"] for card in resp.json()["cards"]) == ALL_FRAMES
     clear_config_cache()
     clear_library_cache()
 

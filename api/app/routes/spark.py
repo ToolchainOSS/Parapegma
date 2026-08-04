@@ -5,11 +5,21 @@ registration. The client carries remix state as before. Each request also
 contains a browser-local pseudonymous identifier and optional ThumbmarkJS
 fingerprint; raw values are immediately keyed-hashed and never persisted or logged.
 
-Conditions A ("Random Spark") and B ("pick a vibe") are non-adaptive control
+Conditions A ("Random Spark") and B ("Spark Wheel") are non-adaptive control
 groups: they are served entirely from a researcher-curated static library
 (``app.services.spark_library``) and never call the LLM. Conditions C and D
 are the adaptive, intake-informed conditions and proxy validated requests to
 the configured LLM, returning structured Spark card payloads.
+
+Choice model (why no condition asks for a vibe up front)
+---------------------------------------------------------
+Participants generally cannot name the vibe they want before seeing a Spark, so
+no condition takes ``frame_preference`` as a *user* input any more. B serves one
+random Spark per vibe (five concrete cards); D fans out one LLM call per vibe and
+returns ``5 x 5`` ranked options. In both, the chosen vibe is derived from the
+card the participant actually picks. ``frame_preference`` survives only as an
+internal request field: the D catalog uses it to pin each fan-out call to one
+vibe, and C/D remixes use it to carry an explicit "switch to X vibe" adjustment.
 
 Remix model (conditions C/D only)
 ----------------------------------
@@ -33,6 +43,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +53,13 @@ from app.db import get_db
 from app.llm import make_chat_llm
 from app.prompt_loader import prompt_version
 from app.schemas.spark_research import SparkClientIdentity, SparkEventRequest
-from app.services.spark_library import SparkFrame, library_version, pick_static_sparks
+from app.services.spark_library import (
+    ALL_FRAMES,
+    SparkFrame,
+    library_version,
+    pick_one_spark_per_frame,
+    pick_random_sparks,
+)
 from app.services.spark_research import (
     ResolvedSparkParticipant,
     SparkResearchConfigurationError,
@@ -57,6 +74,12 @@ router = APIRouter()
 
 PROMPT_NAME = "spark_proxy_system"
 _MAX_HISTORY = 20
+# Condition D catalog: one fan-out LLM call per vibe, this many options each.
+_D_OPTIONS_PER_FRAME = 5
+# Widest response any condition can produce (the D catalog).
+_MAX_RESPONSE_CARDS = len(ALL_FRAMES) * _D_OPTIONS_PER_FRAME
+# Cards a single LLM round-trip may return.
+_MAX_CARDS_PER_CALL = 5
 
 
 class SparkCard(BaseModel):
@@ -93,13 +116,13 @@ class SparkGenerateRequest(BaseModel):
 
 class SparkGenerateResponse(BaseModel):
     condition: Literal["A", "B", "C", "D"]
-    cards: list[SparkCard] = Field(min_length=1, max_length=5)
+    cards: list[SparkCard] = Field(min_length=1, max_length=_MAX_RESPONSE_CARDS)
     model: str
     prompt_version: dict[str, str]
 
 
 class _SparkModelPayload(BaseModel):
-    cards: list[SparkCard] = Field(min_length=1, max_length=5)
+    cards: list[SparkCard] = Field(min_length=1, max_length=_MAX_CARDS_PER_CALL)
 
 
 def _content_to_text(content: object) -> str:
@@ -134,13 +157,23 @@ def _extract_json_object(text: str) -> dict[str, object]:
     return loaded
 
 
-def _build_user_prompt(body: SparkGenerateRequest) -> str:
+def _build_user_prompt(
+    body: SparkGenerateRequest,
+    frame_preference: SparkFrame | None,
+    count: int,
+) -> str:
+    """Serialize one model request.
+
+    ``frame_preference`` and ``count`` are passed explicitly rather than read off
+    ``body`` because the condition D catalog issues one call per vibe, each
+    overriding both.
+    """
     payload: dict[str, object] = {
         "condition": body.condition,
-        "frame_preference": body.frame_preference,
+        "frame_preference": frame_preference,
         "context": body.context,
         "adjustment_history": body.adjustment_history,
-        "count": body.count,
+        "count": count,
     }
     if body.base_card is not None:
         payload["base_card"] = body.base_card.model_dump()
@@ -205,6 +238,94 @@ async def _persist_generation_response(
     return response
 
 
+async def _invoke_spark_model(
+    llm: BaseChatModel,
+    system_prompt: str,
+    user_prompt: str,
+) -> list[SparkCard]:
+    """One bounded model round-trip → validated cards.
+
+    Every failure mode is mapped to an ``HTTPException`` here so callers — including
+    the concurrent condition D catalog — never have to re-classify provider errors.
+    """
+    try:
+        response = await asyncio.wait_for(
+            llm.ainvoke(
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt),
+                ]
+            ),
+            timeout=25,
+        )
+        text = _content_to_text(response.content)
+        parsed = _extract_json_object(text)
+        return _SparkModelPayload.model_validate(parsed).cards
+    except ValidationError as exc:
+        logger.warning("Spark payload validation failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Spark model produced invalid response shape",
+        ) from exc
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("Spark response JSON parse failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Spark model did not return valid JSON",
+        ) from exc
+    except TimeoutError as exc:
+        logger.warning("Spark LLM timeout")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Spark model request timed out",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - network/provider dependent
+        logger.exception("Spark model request failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Spark generation request failed",
+        ) from exc
+
+
+async def _generate_frame_catalog(
+    llm: BaseChatModel,
+    system_prompt: str,
+    body: SparkGenerateRequest,
+) -> list[SparkCard]:
+    """Condition D first generate — ``_D_OPTIONS_PER_FRAME`` options for every vibe.
+
+    The five calls are independent, so they are issued concurrently (applicative,
+    not sequential). ``return_exceptions=True`` lets every call settle before the
+    first failure is re-raised — ``gather`` would otherwise leave the siblings
+    running detached against the provider. Failure is all-or-nothing on purpose:
+    a participant seeing three of five vibes would be a silent confound.
+
+    Each call is pinned to one vibe and the returned cards are forced to it, so
+    the five categories are structurally guaranteed rather than model-trusted.
+    """
+    results = await asyncio.gather(
+        *(
+            _invoke_spark_model(
+                llm,
+                system_prompt,
+                _build_user_prompt(body, frame, _D_OPTIONS_PER_FRAME),
+            )
+            for frame in ALL_FRAMES
+        ),
+        return_exceptions=True,
+    )
+
+    catalog: list[SparkCard] = []
+    for frame, result in zip(ALL_FRAMES, results, strict=True):
+        if isinstance(result, BaseException):
+            raise result
+        ranked = sorted(result, key=lambda card: card.fit_score or 0, reverse=True)
+        catalog.extend(card.model_copy(update={"frame": frame}) for card in ranked)
+    return catalog
+
+
 @router.post("/spark/generate", tags=["spark"])
 async def spark_generate(
     body: SparkGenerateRequest,
@@ -244,17 +365,15 @@ async def spark_generate(
         return response
 
     if body.condition in ("A", "B"):
+        # A is exactly one random Spark; B is exactly one Spark per vibe. Both
+        # selectors are total on a valid library, so the only failure left here
+        # is the library itself being unavailable.
         try:
-            resolved = await pick_static_sparks(
-                condition=body.condition,
-                frame_preference=body.frame_preference,
-                count=body.count,
+            resolved = (
+                await pick_random_sparks(1)
+                if body.condition == "A"
+                else await pick_one_spark_per_frame()
             )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=str(exc),
-            ) from exc
         except Exception as exc:
             logger.warning("Spark A/B library error: %s", exc)
             raise HTTPException(
@@ -272,8 +391,6 @@ async def spark_generate(
             )
             for entry in resolved
         ]
-        if body.condition == "A":
-            cards = cards[:1]
 
         return await _persist_generation_response(
             db,
@@ -294,60 +411,41 @@ async def spark_generate(
             detail="OpenAI API key not configured",
         )
 
-    model_name = get_llm_model()
-    llm = make_chat_llm(
-        model=model_name,
-        api_key=llm_key,
-        temperature=0.6,
-        max_tokens=800,
-    )
+    from app.prompt_loader import load_prompt
 
     try:
-        from app.prompt_loader import load_prompt
-
         system_prompt = load_prompt(PROMPT_NAME)
-        response = await asyncio.wait_for(
-            llm.ainvoke(
-                [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=_build_user_prompt(body)),
-                ]
-            ),
-            timeout=25,
-        )
-        text = _content_to_text(response.content)
-        parsed = _extract_json_object(text)
-        payload = _SparkModelPayload.model_validate(parsed)
-    except ValidationError as exc:
-        logger.warning("Spark payload validation failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Spark model produced invalid response shape",
-        ) from exc
-    except (json.JSONDecodeError, ValueError) as exc:
-        logger.warning("Spark response JSON parse failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Spark model did not return valid JSON",
-        ) from exc
-    except TimeoutError as exc:
-        logger.warning("Spark LLM timeout")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Spark model request timed out",
-        ) from exc
-    except Exception as exc:  # pragma: no cover - network/provider dependent
-        logger.exception("Spark model request failed")
+    except Exception as exc:  # pragma: no cover - packaging/deployment defect
+        logger.exception("Spark system prompt failed to load")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Spark generation request failed",
         ) from exc
 
-    cards = payload.cards
-    if body.condition == "C":
-        cards = cards[:1]
-    elif body.condition == "D":
-        cards = sorted(cards, key=lambda card: card.fit_score or 0, reverse=True)
+    model_name = get_llm_model()
+
+    # A D catalog call returns five full cards, so it needs a wider budget than
+    # the single-card C generate or a remix.
+    is_catalog = body.condition == "D" and body.base_card is None
+    llm = make_chat_llm(
+        model=model_name,
+        api_key=llm_key,
+        temperature=0.6,
+        max_tokens=1600 if is_catalog else 800,
+    )
+
+    if is_catalog:
+        cards = await _generate_frame_catalog(llm, system_prompt, body)
+    else:
+        cards = await _invoke_spark_model(
+            llm,
+            system_prompt,
+            _build_user_prompt(body, body.frame_preference, body.count),
+        )
+        if body.condition == "C":
+            cards = cards[:1]
+        elif body.condition == "D":
+            cards = sorted(cards, key=lambda card: card.fit_score or 0, reverse=True)
 
     if not cards:
         raise HTTPException(

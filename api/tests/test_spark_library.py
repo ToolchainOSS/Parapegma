@@ -20,7 +20,8 @@ from app.services.spark_library import (
     _load_from_file,
     clear_library_cache,
     library_version,
-    pick_static_sparks,
+    pick_one_spark_per_frame,
+    pick_random_sparks,
 )
 from app.services.spark_sheets_source import (
     RowDiagnostic,
@@ -167,7 +168,7 @@ async def test_library_version_reflects_cache_after_load(
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
 
-    await pick_static_sparks(condition="A", frame_preference=None, count=1)
+    await pick_random_sparks(1)
     version = library_version()
     assert version["prompt_file"] == "spark_library"
     assert len(version["prompt_sha256"]) == 64
@@ -592,12 +593,12 @@ def test_parse_rows_total_rows_matches_data_rows() -> None:
 
 
 # ---------------------------------------------------------------------------
-# pick_static_sparks (async)
+# Spark selection (async)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_pick_static_sparks_condition_a_ignores_frame_preference(
+async def test_pick_random_sparks_resolves_each_entry_to_its_own_tag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.config import clear_config_cache
@@ -606,7 +607,7 @@ async def test_pick_static_sparks_condition_a_ignores_frame_preference(
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
 
-    resolved = await pick_static_sparks(condition="A", frame_preference="calm", count=1)
+    resolved = await pick_random_sparks(1)
     assert len(resolved) == 1
     assert resolved[0].frame in ALL_FRAMES
 
@@ -614,55 +615,92 @@ async def test_pick_static_sparks_condition_a_ignores_frame_preference(
 
 
 @pytest.mark.asyncio
-async def test_pick_static_sparks_condition_b_matches_requested_frame(
+async def test_pick_random_sparks_caps_count_to_library_size(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Asking for more Sparks than exist yields the whole library, not an error."""
     from app.config import clear_config_cache
 
     monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
 
-    resolved = await pick_static_sparks(
-        condition="B", frame_preference="science", count=5
-    )
-    assert len(resolved) >= 1
-    assert all(entry.frame == "science" for entry in resolved)
+    everything = await pick_random_sparks(10_000)
+    assert len(everything) == len(_load_from_file())
+    assert len({entry.id for entry in everything}) == len(everything)
 
     clear_config_cache()
 
 
 @pytest.mark.asyncio
-async def test_pick_static_sparks_condition_b_requires_frame_preference(
+async def test_pick_one_spark_per_frame_covers_every_frame_in_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Condition B's sampler is total and structurally one card per vibe."""
     from app.config import clear_config_cache
 
     monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
 
-    with pytest.raises(ValueError, match="frame_preference is required"):
-        await pick_static_sparks(condition="B", frame_preference=None, count=3)
+    resolved = await pick_one_spark_per_frame()
+    assert tuple(entry.frame for entry in resolved) == ALL_FRAMES
+    # Each card carries its own vibe's rationale, not a neighbour's.
+    assert all(entry.why for entry in resolved)
 
     clear_config_cache()
 
 
 @pytest.mark.asyncio
-async def test_pick_static_sparks_caps_count_to_pool_size(
+async def test_pick_one_spark_per_frame_avoids_repeating_a_multi_tag_entry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A Spark tagged with several vibes must not fill two columns at once.
+
+    Repeated because the draw is random: a single pass could pass by luck.
+    """
     from app.config import clear_config_cache
 
     monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
 
-    # "challenge" only has 2 entries in the curated library
-    resolved = await pick_static_sparks(
-        condition="B", frame_preference="challenge", count=5
+    for _ in range(25):
+        resolved = await pick_one_spark_per_frame()
+        assert len({entry.id for entry in resolved}) == len(ALL_FRAMES)
+
+    clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_pick_one_spark_per_frame_reuses_when_a_pool_is_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Total, not partial: an over-shared library still yields all five vibes."""
+    from app.config import clear_config_cache
+
+    clear_config_cache()
+
+    # Two entries, each tagged with every frame: distinctness is impossible, so
+    # the selector must fall back to reuse rather than fail or return fewer.
+    shared = tuple(
+        SparkLibraryEntry(
+            id=f"shared-{i}",
+            tags=ALL_FRAMES,
+            title=f"Shared {i}",
+            action="act",
+            reward="rew",
+        )
+        for i in range(2)
     )
-    assert 1 <= len(resolved) <= 2
+
+    async def _fake_library() -> tuple[SparkLibraryEntry, ...]:
+        return shared
+
+    monkeypatch.setattr("app.services.spark_library._get_library", _fake_library)
+
+    resolved = await pick_one_spark_per_frame()
+    assert tuple(entry.frame for entry in resolved) == ALL_FRAMES
 
     clear_config_cache()
 
@@ -683,7 +721,7 @@ async def test_get_library_uses_file_when_sheets_not_configured(
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
 
-    await pick_static_sparks(condition="A", frame_preference=None, count=1)
+    await pick_random_sparks(1)
 
     assert spark_library._cache is not None
     assert spark_library._cache.source == "file"
@@ -710,7 +748,7 @@ async def test_get_library_uses_sheets_when_configured(
             MagicMock(return_value=fake_result),
         ),
     ):
-        await pick_static_sparks(condition="A", frame_preference=None, count=1)
+        await pick_random_sparks(1)
 
     assert spark_library._cache is not None
     assert spark_library._cache.source == "sheets"
@@ -783,9 +821,7 @@ async def test_first_request_awaits_sheets_startup_warmup(
     assert warmup_task is not None
     await refresh_started.wait()
 
-    request_task = asyncio.create_task(
-        pick_static_sparks(condition="A", frame_preference=None, count=1)
-    )
+    request_task = asyncio.create_task(pick_random_sparks(1))
     await asyncio.sleep(0)
     assert not request_task.done()
     assert refresh_count == 1
@@ -821,12 +857,7 @@ async def test_concurrent_cold_requests_share_one_refresh(
         )
 
     monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
-    requests = [
-        asyncio.create_task(
-            pick_static_sparks(condition="A", frame_preference=None, count=1)
-        )
-        for _ in range(8)
-    ]
+    requests = [asyncio.create_task(pick_random_sparks(1)) for _ in range(8)]
     await refresh_started.wait()
 
     assert refresh_count == 1
@@ -860,12 +891,8 @@ async def test_cancelled_cold_request_does_not_cancel_shared_refresh(
         )
 
     monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
-    disconnected_request = asyncio.create_task(
-        pick_static_sparks(condition="A", frame_preference=None, count=1)
-    )
-    surviving_request = asyncio.create_task(
-        pick_static_sparks(condition="A", frame_preference=None, count=1)
-    )
+    disconnected_request = asyncio.create_task(pick_random_sparks(1))
+    surviving_request = asyncio.create_task(pick_random_sparks(1))
     await refresh_started.wait()
 
     disconnected_request.cancel()
@@ -917,12 +944,7 @@ async def test_concurrent_stale_requests_share_one_background_refresh(
     )
     monkeypatch.setattr(spark_library, "_do_refresh", delayed_refresh)
 
-    resolved = await asyncio.gather(
-        *(
-            pick_static_sparks(condition="A", frame_preference=None, count=1)
-            for _ in range(8)
-        )
-    )
+    resolved = await asyncio.gather(*(pick_random_sparks(1) for _ in range(8)))
     await refresh_started.wait()
 
     assert refresh_count == 1
@@ -982,7 +1004,7 @@ async def test_get_library_uses_sheets_credential_file_when_configured(
         "app.services.spark_sheets_source.fetch_entries_from_sheets",
         MagicMock(return_value=fake_result),
     ) as fetch_entries:
-        await pick_static_sparks(condition="A", frame_preference=None, count=1)
+        await pick_random_sparks(1)
 
     fetch_entries.assert_called_once_with(
         "",
@@ -1013,9 +1035,7 @@ async def test_do_refresh_falls_back_to_file_on_sheets_error(
         "app.services.spark_sheets_source.fetch_entries_from_sheets",
         MagicMock(side_effect=RuntimeError("connection refused")),
     ):
-        resolved = await pick_static_sparks(
-            condition="A", frame_preference=None, count=1
-        )
+        resolved = await pick_random_sparks(1)
 
     assert len(resolved) == 1
     assert spark_library._cache is not None
@@ -1077,7 +1097,7 @@ async def test_stale_cache_served_immediately_and_refresh_triggered(
     monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
     clear_config_cache()
 
-    await pick_static_sparks(condition="A", frame_preference=None, count=1)
+    await pick_random_sparks(1)
     assert spark_library._cache is not None
 
     stale_cache = _CacheState(
@@ -1088,7 +1108,7 @@ async def test_stale_cache_served_immediately_and_refresh_triggered(
     )
     spark_library._cache = stale_cache
 
-    resolved = await pick_static_sparks(condition="A", frame_preference=None, count=1)
+    resolved = await pick_random_sparks(1)
     assert len(resolved) == 1
     assert spark_library._refresh_task is not None
 
@@ -1123,7 +1143,7 @@ async def test_sheets_invariant_violation_falls_back_to_file(
         "app.services.spark_sheets_source.fetch_entries_from_sheets",
         MagicMock(return_value=bad_result),
     ):
-        await pick_static_sparks(condition="A", frame_preference=None, count=1)
+        await pick_random_sparks(1)
 
     assert spark_library._cache is not None
     assert spark_library._cache.source == "file"

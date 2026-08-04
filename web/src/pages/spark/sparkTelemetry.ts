@@ -7,10 +7,14 @@ export type SparkTelemetryEvent =
     | { event_type: "flow_started" }
     | {
           event_type: "intake_answered";
-          field: "anchor" | "action" | "frame" | "time";
+          /** No "frame" — the intake never asks a participant to name a vibe. */
+          field: "anchor" | "action" | "time";
           value: string;
       }
+    /** Revealed vibe: the frame of the card the participant actually chose. */
     | { event_type: "frame_selected"; frame: SparkFrame }
+    /** `rank` is 1-5 within the list picked from (B's sampler, or one vibe
+     *  column in D) — never an index into D's full 25-card catalog. */
     | { event_type: "card_selected"; rank: number }
     | { event_type: "timer_finished"; completion: "completed" | "skipped" }
     | {

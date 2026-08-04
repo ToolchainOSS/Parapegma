@@ -117,7 +117,7 @@ export const CONDITIONS: ConditionDef[] = [
     {
         id: "B",
         name: "Spark Wheel",
-        what: "You pick a vibe, then choose a Spark from a short menu.",
+        what: "You see one Spark from each of the five vibes and pick the one you like.",
         tags: ["Choice", "No intake"],
         letterBg: "var(--sf-challenge)",
     },
@@ -131,7 +131,7 @@ export const CONDITIONS: ConditionDef[] = [
     {
         id: "D",
         name: "AI-Ranked Choice",
-        what: "A short intake, then several Sparks ranked by predicted fit.",
+        what: "A short intake, then five Sparks in every vibe, ranked by predicted fit.",
         tags: ["Intake", "AI ranks", "Choice"],
         letterBg: "var(--sf-science)",
     },
@@ -142,53 +142,50 @@ export function conditionAccent(id: SparkCondition): string {
     return CONDITIONS.find((c) => c.id === id)?.letterBg ?? "var(--text)";
 }
 
-/** Intake question definitions for conditions C & D */
+/** Intake question definitions for conditions C & D.
+ *
+ *  The intake deliberately asks only about *circumstances* — when, what kind of
+ *  move, what daily habit to attach it to. It never asks which vibe the
+ *  participant wants: nobody can name that before seeing a Spark, and asking
+ *  turned a guess into a hard constraint on everything they were then shown.
+ *  Vibe is now revealed by which card they pick (`SparkCard.frame`).
+ */
 export interface IntakeQuestion {
-    field: "anchor" | "action" | "frame" | "time";
+    field: keyof IntakeProfile;
     question: string;
     sub: string;
-    options: { label: string; value: string }[];
+    options: readonly { label: string; value: string }[];
 }
 
-export function buildIntakeQuestions(): IntakeQuestion[] {
-    return [
-        {
-            field: "anchor",
-            question: "Which of these do you do every day?",
-            sub: "We attach the move to something you already do, so it sticks.",
-            options: ANCHORS.map((a) => ({ label: a.label, value: a.k })),
-        },
-        {
-            field: "action",
-            question: "Pick a move you'd actually try.",
-            sub: "No wrong answer — we can tweak it later.",
-            options: [
-                { label: "Reach & Roll", value: "reach" },
-                { label: "Quick March", value: "march" },
-                { label: "Desk Unwind", value: "neck" },
-                { label: "Steady Tree", value: "tree" },
-                { label: "Calf Lifts", value: "calf" },
-                { label: "Shake It Out", value: "shake" },
-                { label: "Surprise me", value: "any" },
-            ],
-        },
-        {
-            field: "frame",
-            question: "What would help most right now?",
-            sub: "This sets the vibe and the 'why'.",
-            options: FRAME_ORDER.map((k) => ({
-                label: `${FRAMINGS[k].emoji} ${FRAMINGS[k].label}`,
-                value: k,
-            })),
-        },
-        {
-            field: "time",
-            question: "When should we remind you?",
-            sub: "Just a rough window is fine.",
-            options: TIMES.map((t) => ({ label: t, value: t })),
-        },
-    ];
-}
+/** Fixed question list — a constant, not a per-render rebuild. */
+export const INTAKE_QUESTIONS: readonly IntakeQuestion[] = [
+    {
+        field: "anchor",
+        question: "Which of these do you do every day?",
+        sub: "We attach the move to something you already do, so it sticks.",
+        options: ANCHORS.map((a) => ({ label: a.label, value: a.k })),
+    },
+    {
+        field: "action",
+        question: "Pick a move you'd actually try.",
+        sub: "No wrong answer — we can tweak it later.",
+        options: [
+            { label: "Reach & Roll", value: "reach" },
+            { label: "Quick March", value: "march" },
+            { label: "Desk Unwind", value: "neck" },
+            { label: "Steady Tree", value: "tree" },
+            { label: "Calf Lifts", value: "calf" },
+            { label: "Shake It Out", value: "shake" },
+            { label: "Surprise me", value: "any" },
+        ],
+    },
+    {
+        field: "time",
+        question: "When should we remind you?",
+        sub: "Just a rough window is fine.",
+        options: TIMES.map((t) => ({ label: t, value: t })),
+    },
+];
 
 /** Build a context string from the intake profile to send to the LLM */
 export function buildContextFromProfile(profile: IntakeProfile): string {
@@ -198,18 +195,33 @@ export function buildContextFromProfile(profile: IntakeProfile): string {
         if (anchor) parts.push(`anchor: ${anchor.cue}`);
     }
     if (profile.action && profile.action !== "any") parts.push(`preferred move: ${profile.action}`);
-    if (profile.frame) parts.push(`vibe: ${profile.frame}`);
     if (profile.time) parts.push(`time: ${profile.time}`);
     return parts.join("; ");
 }
 
+/** Answers to {@link INTAKE_QUESTIONS}. No `frame`: the intake cannot state a
+ *  vibe, so "profile claims a vibe the participant never saw" is unrepresentable. */
 export interface IntakeProfile {
     anchor: string | null;
     action: string | null;
-    frame: SparkFrame | null;
     time: string | null;
 }
 
 export function emptyProfile(): IntakeProfile {
-    return { anchor: null, action: null, frame: null, time: null };
+    return { anchor: null, action: null, time: null };
+}
+
+/** Options per vibe in condition D's catalog — mirrors `_D_OPTIONS_PER_FRAME`
+ *  in `api/app/routes/spark.py`, which is what actually enforces it. */
+export const D_OPTIONS_PER_FRAME = 5;
+
+/** Partition cards into the five vibe columns, in {@link FRAME_ORDER}.
+ *  Vibes with no card are dropped, so a partial catalog still renders. */
+export function groupCardsByFrame<T extends { frame: string }>(
+    cards: readonly T[],
+): { frame: SparkFrame; cards: T[] }[] {
+    return FRAME_ORDER.map((frame) => ({
+        frame,
+        cards: cards.filter((card) => card.frame === frame),
+    })).filter((group) => group.cards.length > 0);
 }

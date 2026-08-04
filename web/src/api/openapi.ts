@@ -1695,7 +1695,7 @@ export interface components {
              * Field
              * @enum {string}
              */
-            field: "anchor" | "action" | "frame" | "time";
+            field: "anchor" | "action" | "time";
             /** Value */
             value: string;
         };

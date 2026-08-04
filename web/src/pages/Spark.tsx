@@ -9,7 +9,7 @@
  * Visual design: scoped `.spark-zone` exception; framing palette + timer/mic
  * animation live in spark/spark.css; global tokens untouched.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Alert } from "../components/Alert";
 import { AdjustPanel } from "./spark/AdjustPanel";
@@ -19,9 +19,9 @@ import { IntakeStep } from "./spark/IntakeStep";
 import { RankedList } from "./spark/RankedList";
 import { ReflectStep, type RatingState } from "./spark/ReflectStep";
 import { SparkCard } from "./spark/SparkCard";
+import { SparkSampler } from "./spark/SparkSampler";
 import { SparkThinking } from "./spark/SparkThinking";
 import { SparkTimer } from "./spark/SparkTimer";
-import { VibeWheel } from "./spark/VibeWheel";
 import { useSparkRemix } from "./spark/useSparkRemix";
 import {
     createSparkClientId,
@@ -31,8 +31,9 @@ import {
 import { useSparkEventTracker } from "./spark/sparkTelemetry";
 import {
     CONDITIONS,
+    D_OPTIONS_PER_FRAME,
     FRAME_ORDER,
-    FRAMINGS,
+    INTAKE_QUESTIONS,
     buildContextFromProfile,
     conditionAccent,
     emptyProfile,
@@ -333,7 +334,11 @@ function ConditionA({
 
 // ---------------------------------------------------------------------------
 // Condition B — Spark Wheel
-// steps: 0 wheel | 1 pick spark (mini-menu) | 2 card+adjust | 3 timer | 4 feedback | 5 cue | 6 reflect
+// steps: 0 sampler | 1 card | 2 timer | 3 feedback | 4 cue | 5 reflect
+//
+// The vibe-first wheel is gone. Step 0 loads five real Sparks (one per vibe)
+// straight away, so the first thing a participant sees is the intervention
+// rather than five adjectives they have to gamble on.
 // ---------------------------------------------------------------------------
 function ConditionB({
     onExit,
@@ -345,7 +350,6 @@ function ConditionB({
     getIdentity: SparkIdentityProvider;
 }) {
     const [step, setStep] = useState(0);
-    const [chosenFrame, setChosenFrame] = useState<SparkFrame | null>(null);
     const [flowId] = useState(createSparkClientId);
     const track = useSparkEventTracker({ condition: "B", flowId, getIdentity });
     const [spark, actions] = useSparkRemix({ flowId, getIdentity });
@@ -355,6 +359,17 @@ function ConditionB({
     const [confidence, setConfidence] = useState<number | null>(null);
     const [rating, setRating] = useState<RatingState>({ fit: null, clarity: null, willing: null });
 
+    // Load the five-vibe sampler once, on entry: the intervention is the first
+    // thing shown, not something unlocked by answering a question about it.
+    // The ref guard keeps StrictMode's double effect to a single request.
+    const { generate } = actions;
+    const requested = useRef(false);
+    useEffect(() => {
+        if (requested.current) return;
+        requested.current = true;
+        void generate({ condition: "B" });
+    }, [generate]);
+
     function back() {
         if (step === 0) { onExit(); return; }
         setStep((s) => s - 1);
@@ -362,90 +377,50 @@ function ConditionB({
 
     return (
         <div>
-            <FlowProgress step={step} total={7} accent={conditionAccent("B")} onBack={back} />
+            <FlowProgress step={step} total={6} accent={conditionAccent("B")} onBack={back} />
             {step === 0 && (
-                <VibeWheel
-                    onPick={(f) => {
-                        // Clear any options/card cached from a previous topic pick — otherwise
-                        // re-entering the wheel and picking again (same or different vibe)
-                        // would show stale cards from the prior frame.
-                        actions.reset();
-                        track({ event_type: "frame_selected", frame: f });
-                        setChosenFrame(f);
-                        setStep(1);
-                    }}
-                />
-            )}
-            {step === 1 && chosenFrame && (
                 <div className="space-y-4">
-                    <div>
-                        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                            {FRAMINGS[chosenFrame].emoji} {FRAMINGS[chosenFrame].label} · Choose a Spark
-                        </p>
-                        <h2 className="text-2xl font-bold text-text mt-1">Which one fits right now?</h2>
-                    </div>
-                    {spark.error && <Alert variant="error">{spark.error}</Alert>}
-                    {/* Show 3 options from LLM */}
+                    {spark.error && <Alert variant="error" data-testid="spark-error">{spark.error}</Alert>}
                     {spark.cards.length > 0 ? (
-                        <div className="flex flex-col gap-3">
-                            {spark.cards.slice(0, 3).map((card, i) => {
-                                const f = FRAMINGS[chosenFrame];
-                                return (
-                                    <button
-                                        key={i}
-                                        type="button"
-                                        className="text-left rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-4 flex gap-3 transition-[transform,border-color] hover:-translate-y-0.5 hover:border-text-subtle"
-                                        onClick={() => {
-                                            track({ event_type: "card_selected", rank: i + 1 });
-                                            actions.selectCard(card);
-                                            setStep(2);
-                                        }}
-                                    >
-                                        <div className="w-7 h-7 rounded-lg grid place-items-center flex-none text-lg" style={{ background: f.tintVar }} aria-hidden="true">
-                                            {f.emoji}
-                                        </div>
-                                        <div>
-                                            <div className="font-bold text-text">{card.title}</div>
-                                            <p className="text-sm text-text-muted mt-0.5 line-clamp-2">{card.action}</p>
-                                        </div>
-                                    </button>
-                                );
-                            })}
-                        </div>
+                        <SparkSampler
+                            cards={spark.cards}
+                            onPick={(card, rank) => {
+                                // The vibe is revealed by the pick, not declared before it.
+                                track({ event_type: "frame_selected", frame: card.frame as SparkFrame });
+                                track({ event_type: "card_selected", rank });
+                                actions.selectCard(card);
+                                setStep(1);
+                            }}
+                        />
+                    ) : spark.loading ? (
+                        <SparkThinking />
                     ) : (
-                        spark.loading ? (
-                            <SparkThinking frame={chosenFrame} />
-                        ) : (
-                            <ContinueBtn
-                                label="Load options"
-                                disabled={spark.loading}
-                                onClick={() => {
-                                    void actions.generate({ condition: "B", frame: chosenFrame, count: 3 });
-                                }}
-                            />
-                        )
+                        <ContinueBtn
+                            label="Show me five Sparks"
+                            onClick={() => void generate({ condition: "B" })}
+                        />
                     )}
                 </div>
             )}
-            {step === 2 && spark.card && (
+            {step === 1 && spark.card && (
                 <div className="space-y-2">
                     <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your Spark</p>
                     <SparkCard card={spark.card} data-testid="spark-card" />
-                    {/* Control group: choice happens at the menu; no post-pick remix. */}
+                    {/* Control group: choice happens at the sampler; no post-pick remix. */}
                     {spark.error && <Alert variant="error">{spark.error}</Alert>}
-                    <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(3)} />
+                    <ContinueBtn label="Start 1-minute timer" onClick={() => setStep(2)} />
                 </div>
             )}
-            {step === 3 && spark.card && (
+            {step === 2 && spark.card && (
                 <SparkTimer
                     frame={(spark.card.frame as SparkFrame) ?? "calm"}
                     onDone={(completion) => {
                         track({ event_type: "timer_finished", completion });
-                        setStep(4);
+                        setStep(3);
                     }}
                 />
             )}
-            {step === 4 && (
+            {step === 3 && (
                 <>
                     <FeedbackStep state={feedback} onChange={setFeedback} />
                     <ContinueBtn
@@ -460,12 +435,12 @@ function ConditionB({
                                     tweak: feedback.tweak,
                                 });
                             }
-                            setStep(5);
+                            setStep(4);
                         }}
                     />
                 </>
             )}
-            {step === 5 && (
+            {step === 4 && (
                 <>
                     <CueStep
                         profile={emptyProfile()}
@@ -488,12 +463,12 @@ function ConditionB({
                                     confidence,
                                 });
                             }
-                            setStep(6);
+                            setStep(5);
                         }}
                     />
                 </>
             )}
-            {step === 6 && (
+            {step === 5 && (
                 <ReflectStep
                     condition="B"
                     rating={rating}
@@ -530,14 +505,19 @@ function ConditionAdaptive({
     onGoto: (c: SparkCondition) => void;
     getIdentity: SparkIdentityProvider;
 }) {
-    // Steps: 0-3 intake | 4 generation/selection | 5 card+adjust (D only) | timer | feedback | cue | reflect
-    const intakeSteps = 4;
+    // Steps: intake questions | generation/selection | card+adjust (D only) |
+    //        timer | feedback | cue | reflect.
+    // Every index is derived from the question list, so adding or removing an
+    // intake question can never desynchronise the later steps.
+    const intakeSteps  = INTAKE_QUESTIONS.length;
     const hasSelection = condition === "D";
-    const timerStep   = hasSelection ? 6 : 5;
-    const fbStep      = timerStep + 1;
-    const cueStep     = fbStep + 1;
-    const reflectStep = cueStep + 1;
-    const totalSteps  = reflectStep + 1;
+    const selectStep   = intakeSteps;
+    const previewStep  = selectStep + 1; // D only
+    const timerStep    = hasSelection ? previewStep + 1 : selectStep + 1;
+    const fbStep       = timerStep + 1;
+    const cueStep      = fbStep + 1;
+    const reflectStep  = cueStep + 1;
+    const totalSteps   = reflectStep + 1;
 
     const [step, setStep] = useState(0);
     const [profile, setProfile] = useState<IntakeProfile>(emptyProfile());
@@ -569,13 +549,14 @@ function ConditionAdaptive({
             // Last intake question answered — advance to the generation step
             // immediately so the thinking/loading animation is visible while the
             // (up-to-5s) LLM call is in flight, then fire the request.
-            setStep(intakeSteps);
+            setStep(selectStep);
             const ctx = buildContextFromProfile(next);
+            // No `frame`: the intake states no vibe. C lets the model choose one;
+            // D asks the server for this many options in *every* vibe.
             void actions.generate({
                 condition,
-                frame: next.frame,
                 context: ctx || undefined,
-                count: condition === "D" ? 4 : 1,
+                count: condition === "D" ? D_OPTIONS_PER_FRAME : 1,
             });
         }
     }
@@ -586,25 +567,24 @@ function ConditionAdaptive({
         <div>
             <FlowProgress step={step} total={totalSteps} accent={conditionAccent(condition)} onBack={back} />
 
-            {/* Intake steps 0–3 */}
+            {/* Intake questions */}
             {step < intakeSteps && (
                 <IntakeStep stepIndex={step} profile={profile} onAnswer={handleIntakeAnswer} />
             )}
 
             {/* Generation / selection step */}
-            {step === intakeSteps && (
+            {step === selectStep && (
                 <div className="space-y-4">
                     {/* Full-page loader only for the INITIAL generation (no card/list
                         yet). Remixes keep the card mounted and use the compact
                         in-AdjustPanel loader, matching condition D. */}
                     {spark.loading && !spark.card && spark.cards.length === 0 && (
                         <SparkThinking
-                            frame={profile.frame ?? undefined}
                             phrases={
                                 condition === "D"
                                     ? [
                                           "Lining up your best matches…",
-                                          "Ranking a few contenders…",
+                                          "Ranking contenders in every vibe…",
                                           "Weighing what fits your day…",
                                           "Sorting Sparks by good-fit energy…",
                                           "Reading your intake like tea leaves…",
@@ -643,10 +623,12 @@ function ConditionAdaptive({
                         <div className="space-y-2">
                             <RankedList
                                 cards={spark.cards}
-                                onPick={(card, rank) => {
+                                onPick={(card, rank, frame) => {
+                                    // Revealed vibe + rank within that vibe's column.
+                                    track({ event_type: "frame_selected", frame });
                                     track({ event_type: "card_selected", rank });
                                     actions.selectCard(card);
-                                    setStep(5); // card+adjust preview step
+                                    setStep(previewStep);
                                 }}
                             />
                         </div>
@@ -655,7 +637,7 @@ function ConditionAdaptive({
             )}
 
             {/* D only: card+adjust preview after selection */}
-            {hasSelection && step === 5 && spark.card && (
+            {hasSelection && step === previewStep && spark.card && (
                 <div className="space-y-2">
                     <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your pick</p>
                     <SparkCard card={spark.card} showWhy tuned data-testid="spark-card" />
@@ -700,7 +682,7 @@ function ConditionAdaptive({
                                 // Remix from feedback
                                 if (feedback.tweak) actions.adjust(feedback.tweak);
                                 else actions.adjust(feedback.reason ?? "different");
-                                setStep(intakeSteps);
+                                setStep(selectStep);
                             }}
                         >
                             ↻ Adapt Spark from feedback

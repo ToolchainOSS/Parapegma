@@ -1,8 +1,8 @@
 """Static, researcher-curated Spark library for conditions A and B.
 
-Conditions A ("Random Spark") and B ("pick a vibe, no intake") are Spark's
-non-adaptive control groups: they never personalize to the user, so unlike
-C/D they need no LLM call at all.
+Conditions A ("Random Spark") and B ("choose from one Spark per vibe, no
+intake") are Spark's non-adaptive control groups: they never personalize to the
+user, so unlike C/D they need no LLM call at all.
 
 Data source (in priority order)
 --------------------------------
@@ -22,13 +22,19 @@ Cache strategy (stale-while-revalidate)
 * Sheets-failed-after-success: the last-good Sheets snapshot is served
   indefinitely until a refresh succeeds.
 
-Selection logic (unchanged)
-----------------------------
-  Condition A: pick uniformly at random from the *entire* library, ignoring
-               any ``frame_preference`` (true random, no choice).
-  Condition B: the user has already picked one of the five Spark vibes
-               (``frame_preference``) via the vibe wheel; pick uniformly at
-               random among entries tagged with it.
+Selection logic
+----------------
+  Condition A (:func:`pick_random_sparks`): pick uniformly at random from the
+               *entire* library (true random, no choice).
+  Condition B (:func:`pick_one_spark_per_frame`): return exactly one randomly
+               chosen Spark *per vibe* — five concrete cards the participant
+               chooses between. B no longer asks for a vibe up front: the vibe
+               is a projection of whichever card the participant picks, so the
+               "declared a vibe but has seen no Spark" state cannot occur.
+
+Both selectors are total: :func:`_validate_entries` guarantees every frame has
+at least two entries, so no pool is ever empty and neither function can fail on
+a valid library.
 """
 
 from __future__ import annotations
@@ -442,45 +448,51 @@ def clear_library_cache() -> None:
         _refresh_lock_loop = None
 
 
-async def pick_static_sparks(
-    condition: Literal["A", "B"],
-    frame_preference: SparkFrame | None,
-    count: int,
-) -> list[ResolvedSpark]:
-    """Select up to ``count`` static Sparks (fewer if the matching pool is smaller).
+def _resolve(entry: SparkLibraryEntry, frame: SparkFrame) -> ResolvedSpark:
+    """Project a multi-tag library entry onto the single frame it is served as."""
+    return ResolvedSpark(
+        id=entry.id,
+        frame=frame,
+        title=entry.title,
+        action=entry.action,
+        reward=entry.reward,
+        why=_WHY_BY_FRAME[frame],
+    )
 
-    Condition A ignores ``frame_preference`` and draws from the whole library,
-    resolving each entry's frame to one of its own tags.  Condition B requires
-    ``frame_preference`` and draws only from entries tagged with it, resolving
-    every card to that exact preference.
 
-    Raises ``ValueError`` if condition B is missing a ``frame_preference``;
-    callers should turn that into an HTTP 422.
+async def pick_random_sparks(count: int) -> list[ResolvedSpark]:
+    """Condition A — up to ``count`` uniformly random Sparks from the whole library.
+
+    Fewer than ``count`` are returned only when the library itself is smaller.
+    Each entry is resolved to one of its *own* tags, so the served frame is
+    always one the researcher actually assigned to that Spark.
     """
     library = await _get_library()
+    chosen = random.sample(library, k=min(count, len(library)))
+    return [_resolve(entry, random.choice(entry.tags)) for entry in chosen]
 
-    if condition == "A":
-        pool = library
-    else:
-        if frame_preference is None:
-            raise ValueError("frame_preference is required for condition B")
-        pool = tuple(entry for entry in library if frame_preference in entry.tags)
 
-    k = min(count, len(pool))
-    chosen = random.sample(pool, k=k)
+async def pick_one_spark_per_frame() -> list[ResolvedSpark]:
+    """Condition B — exactly one random Spark per vibe, in :data:`ALL_FRAMES` order.
 
-    resolved: list[ResolvedSpark] = []
-    for entry in chosen:
-        frame = frame_preference if condition == "B" else random.choice(entry.tags)
-        assert frame is not None  # narrowed above when condition == "B"
-        resolved.append(
-            ResolvedSpark(
-                id=entry.id,
-                frame=frame,
-                title=entry.title,
-                action=entry.action,
-                reward=entry.reward,
-                why=_WHY_BY_FRAME[frame],
-            )
-        )
-    return resolved
+    Entries may carry several tags, so a naive per-frame draw can serve the same
+    Spark twice. Frames are therefore filled most-constrained-first and prefer an
+    entry not already used; a frame whose whole pool is exhausted falls back to
+    reuse rather than failing, which keeps the function total.
+    """
+    library = await _get_library()
+    pools = {
+        frame: tuple(entry for entry in library if frame in entry.tags)
+        for frame in ALL_FRAMES
+    }
+
+    used: set[str] = set()
+    picked: dict[SparkFrame, SparkLibraryEntry] = {}
+    for frame in sorted(ALL_FRAMES, key=lambda f: len(pools[f])):
+        pool = pools[frame]  # non-empty: _validate_entries requires >= 2 per frame
+        unused = tuple(entry for entry in pool if entry.id not in used)
+        entry = random.choice(unused or pool)
+        used.add(entry.id)
+        picked[frame] = entry
+
+    return [_resolve(picked[frame], frame) for frame in ALL_FRAMES]

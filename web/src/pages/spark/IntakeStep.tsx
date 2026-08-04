@@ -1,22 +1,21 @@
 /** Intake step — one question at a time for conditions C & D */
 import type { IntakeProfile } from "./sparkData";
-import { buildIntakeQuestions } from "./sparkData";
+import { INTAKE_QUESTIONS } from "./sparkData";
 
 interface IntakeStepProps {
-    stepIndex: number; // 0–3
+    stepIndex: number; // 0 … INTAKE_QUESTIONS.length - 1
     profile: IntakeProfile;
     onAnswer: (field: keyof IntakeProfile, value: string) => void;
 }
 
 export function IntakeStep({ stepIndex, profile, onAnswer }: IntakeStepProps) {
-    const questions = buildIntakeQuestions();
-    const q = questions[stepIndex];
+    const q = INTAKE_QUESTIONS[stepIndex];
     if (!q) return null;
 
     return (
         <div className="space-y-4">
             <p className="text-xs font-semibold text-text-muted">
-                Intake · {stepIndex + 1} of {questions.length}
+                Intake · {stepIndex + 1} of {INTAKE_QUESTIONS.length}
             </p>
 
             <div className="rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-sm)] p-5">

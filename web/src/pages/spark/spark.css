@@ -246,17 +246,6 @@
 }
 
 /* ---- vibe wheel grid ---- */
-.spark-wheel {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-@media (max-width: 520px) {
-  .spark-wheel {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* ---- 1-minute ring timer ---- */
 .spark-timer-wrap {
   text-align: center;

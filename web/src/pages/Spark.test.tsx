@@ -45,6 +45,32 @@ const SUCCESS_RESPONSE = {
     error: undefined,
 };
 
+/** One card per vibe — the shape condition B's sampler is served. */
+const SAMPLER_CARDS = ["calm", "zoomies", "silly", "challenge", "science"].map((frame) => ({
+    ...CARD,
+    frame,
+    title: `${frame} sample`,
+}));
+
+function respondWith(condition: string, cards: unknown[]) {
+    return {
+        data: {
+            condition,
+            cards,
+            model: "static-library",
+            prompt_version: { prompt_file: "x", prompt_sha256: "y" },
+        },
+        error: undefined,
+    };
+}
+
+/** Answer the intake — it asks about circumstances only, never about a vibe. */
+async function answerIntake() {
+    fireEvent.click(await screen.findByText("Make coffee or tea"));
+    fireEvent.click(await screen.findByText("Reach & Roll"));
+    fireEvent.click(await screen.findByText("Morning"));
+}
+
 describe("Spark page", () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -117,12 +143,9 @@ describe("Spark page", () => {
 
         render(<Spark />);
 
-        // Enter condition C (adaptive) and answer the 4 intake questions
+        // Enter condition C (adaptive) and answer the intake questions
         fireEvent.click(screen.getByTestId("spark-cond-C"));
-        fireEvent.click(await screen.findByText("Make coffee or tea"));
-        fireEvent.click(await screen.findByText("Reach & Roll"));
-        fireEvent.click(await screen.findByText("🌿 Calm me"));
-        fireEvent.click(await screen.findByText("Morning"));
+        await answerIntake();
 
         // First (intake) generate fires with no base_card + empty history
         await waitFor(() => {
@@ -132,6 +155,8 @@ describe("Spark page", () => {
         expect(firstBody?.condition).toBe("C");
         expect(firstBody?.base_card).toBeUndefined();
         expect(firstBody?.adjustment_history).toEqual([]);
+        // The intake states no vibe — the model picks one.
+        expect(firstBody?.frame_preference).toBeUndefined();
 
         // Adapted card appears, with the adjust panel (C/D keep remix)
         await screen.findByText("Desk Reset");
@@ -150,55 +175,76 @@ describe("Spark page", () => {
         expect(remixCall?.adjustment_history).toEqual(["make it easier"]);
     });
 
-    it("condition B: re-picking a vibe after going back clears stale options instead of reusing the cache", async () => {
-        const CALM_CARD = { ...CARD, title: "Calm Card" };
-        const ZOOMIES_CARD = { ...CARD, title: "Zoomies Card", frame: "zoomies" };
-        mockPost.mockResolvedValueOnce({
-            data: { condition: "B", cards: [CALM_CARD], model: "gpt-test-model", prompt_version: { prompt_file: "x", prompt_sha256: "y" } },
-            error: undefined,
-        });
-        mockPost.mockResolvedValueOnce({
-            data: { condition: "B", cards: [ZOOMIES_CARD], model: "gpt-test-model", prompt_version: { prompt_file: "x", prompt_sha256: "y" } },
-            error: undefined,
-        });
+    it("condition B: shows one real Spark per vibe on entry instead of asking for a vibe", async () => {
+        mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
 
         render(<Spark />);
         fireEvent.click(screen.getByTestId("spark-tab-B"));
 
-        // Pick "calm" and load its options
-        fireEvent.click(screen.getByText("Calm me"));
-        fireEvent.click(screen.getByText("Load options"));
-        await screen.findByText("Calm Card");
-
+        // The sampler loads itself — no vibe question stands between the
+        // participant and the intervention.
+        await screen.findByTestId("spark-sample-calm");
         expect(mockPost).toHaveBeenCalledTimes(1);
-        expect((mockPost.mock.calls[0]?.[1] as { body: Record<string, unknown> }).body.frame_preference).toBe("calm");
+        const body = (mockPost.mock.calls[0]?.[1] as { body: Record<string, unknown> }).body;
+        expect(body.condition).toBe("B");
+        expect(body.frame_preference).toBeUndefined();
 
-        // Go back to the wheel and pick a different vibe
-        fireEvent.click(screen.getByLabelText("Previous step"));
-        expect(screen.getByText("Pick a vibe")).toBeInTheDocument();
-        fireEvent.click(screen.getByText("Give me zoomies"));
+        // Every vibe is represented by a concrete Spark.
+        for (const frame of ["calm", "zoomies", "silly", "challenge", "science"]) {
+            expect(screen.getByTestId(`spark-sample-${frame}`)).toBeInTheDocument();
+        }
 
-        // The stale "calm" card must NOT still be showing, and a fresh fetch is required
-        expect(screen.queryByText("Calm Card")).not.toBeInTheDocument();
-        expect(screen.getByText("Load options")).toBeInTheDocument();
-
-        fireEvent.click(screen.getByText("Load options"));
-        await screen.findByText("Zoomies Card");
-
-        expect(mockPost).toHaveBeenCalledTimes(2);
-        expect((mockPost.mock.calls[1]?.[1] as { body: Record<string, unknown> }).body.frame_preference).toBe("zoomies");
+        // Picking one carries that card straight through — no extra fetch.
+        fireEvent.click(screen.getByTestId("spark-sample-silly"));
+        expect(await screen.findByTestId("spark-card")).toBeInTheDocument();
+        expect(screen.getByText("silly sample")).toBeInTheDocument();
+        expect(mockPost).toHaveBeenCalledTimes(1);
     });
 
-    it("condition tabs switch between conditions and home", () => {
+    it("condition D: browses a ranked catalog covering every vibe", async () => {
+        const catalog = ["calm", "zoomies", "silly", "challenge", "science"].flatMap((frame) =>
+            [90, 80].map((fit_score) => ({
+                ...CARD,
+                frame,
+                fit_score,
+                title: `${frame} ${fit_score}`,
+            })),
+        );
+        mockPost.mockResolvedValue(respondWith("D", catalog));
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-D"));
+        await answerIntake();
+
+        await waitFor(() => {
+            expect(mockPost).toHaveBeenCalledTimes(1);
+        });
+        const body = (mockPost.mock.calls[0]?.[1] as { body: Record<string, unknown> }).body;
+        // `count` is options per vibe; the server fans out across all five.
+        expect(body).toMatchObject({ condition: "D", count: 5 });
+        expect(body.frame_preference).toBeUndefined();
+
+        // Every vibe gets its own column of options.
+        expect(await screen.findByText("calm 90")).toBeInTheDocument();
+        expect(screen.getByText("science 80")).toBeInTheDocument();
+
+        // Picking lands on the preview step, whose index is derived from the
+        // intake length — not a hardcoded one that drifts when questions change.
+        fireEvent.click(screen.getByText("challenge 90"));
+        expect(await screen.findByTestId("spark-card")).toBeInTheDocument();
+        expect(screen.getByText("Your pick")).toBeInTheDocument();
+    });
+
+    it("condition tabs switch between conditions and home", async () => {
+        mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
+
         render(<Spark />);
         // Navigate to condition B
         fireEvent.click(screen.getByTestId("spark-tab-B"));
-        // Vibe wheel heading should appear
-        expect(screen.getByText("Pick a vibe")).toBeInTheDocument();
+        expect(await screen.findByText("Which one would you actually do?")).toBeInTheDocument();
 
         // Navigate back home
         fireEvent.click(screen.getByText("Home"));
         expect(screen.getByTestId("spark-cond-A")).toBeInTheDocument();
     });
 });
-
