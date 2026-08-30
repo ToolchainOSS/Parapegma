@@ -11,8 +11,6 @@ change from quietly interacting with another: there is only ever one logging
 system, not the application's and uvicorn's competing for the root logger.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import logging.config
