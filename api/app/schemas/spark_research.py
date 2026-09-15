@@ -107,7 +107,10 @@ class SparkCueSelectedEvent(BaseModel):
 
     event_type: Literal["cue_selected"]
     cue: str = Field(min_length=1, max_length=120)
-    reminder: Literal["calendar", "email", "skip"] | None = None
+    # No "reminder". Spark offered "add to calendar" and "email me" and did
+    # neither: there is no calendar export, no mail path, and -- Spark being
+    # account-free by design -- no address to mail. The cue is the stated
+    # intention; it was never a delivery instruction.
     confidence: int | None = Field(default=None, ge=1, le=5)
 
 

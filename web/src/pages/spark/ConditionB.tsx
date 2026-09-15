@@ -145,10 +145,8 @@ export function ConditionB({ onExit, onGoto, getIdentity }: ConditionProps) {
                     <CueStep
                         profile={emptyProfile()}
                         cue={tail.cue}
-                        reminder={tail.reminder}
                         confidence={tail.confidence}
                         onCue={tail.setCue}
-                        onReminder={tail.setReminder}
                         onConfidence={tail.setConfidence}
                     />
                     <Button

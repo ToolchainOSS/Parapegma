@@ -32,12 +32,8 @@ export type SparkTelemetryEvent =
           reason: string | null;
           tweak: string;
       }
-    | {
-          event_type: "cue_selected";
-          cue: string;
-          reminder: "calendar" | "email" | "skip" | null;
-          confidence: number | null;
-      }
+    /** No `reminder`: Spark never sent one. The cue is the stated intention. */
+    | { event_type: "cue_selected"; cue: string; confidence: number | null }
     | { event_type: "condition_completed"; fit: number; clarity: number; willing: number };
 
 interface SparkEventTrackerOptions {

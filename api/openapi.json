@@ -1785,22 +1785,6 @@
             "const": "cue_selected",
             "title": "Event Type",
             "type": "string"
-          },
-          "reminder": {
-            "anyOf": [
-              {
-                "enum": [
-                  "calendar",
-                  "email",
-                  "skip"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reminder"
           }
         },
         "required": [

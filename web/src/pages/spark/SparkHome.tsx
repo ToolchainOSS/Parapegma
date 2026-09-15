@@ -58,7 +58,7 @@ export function SparkHome({ onStart }: { onStart: (c: SparkCondition) => void })
                     <strong className="font-medium text-text">countdown you set</strong>, a way to{" "}
                     <strong className="font-medium text-text">adjust it</strong> by tap or voice, a place for{" "}
                     <strong className="font-medium text-text">feedback</strong>, a{" "}
-                    <strong className="font-medium text-text">cue + reminder</strong> so you can repeat it, and a
+                    <strong className="font-medium text-text">cue</strong> so you can repeat it, and a
                     short <strong className="font-medium text-text">rating</strong>.
                 </p>
 

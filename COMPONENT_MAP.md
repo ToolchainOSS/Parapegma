@@ -55,6 +55,16 @@ place via tokens), **consolidated** (folded into a canonical primitive), **new**
 | `count` decided in three places (client default, unused schema default of 3, server catalog override) | server-derived from condition + `base_card`; removed from the wire | consolidated |
 | Four-card home grid | **kept-as-is** — participants choose an option rather than being assigned one; the grid is that choice | kept-as-is |
 
+## Questions that asked for data nothing consumed
+
+| Old | New canonical | Status |
+| --- | --- | --- |
+| Intake Q3 "When should we remind you?" (Morning/Afternoon/Evening/A specific time) | deleted — nothing schedules a reminder, and the answer only reached the model as `time: Morning` in the context for a Spark done in the moment | deleted |
+| `preferred move: reach` — the stored slug sent to the model | `labelFor()` in [sparkData.ts](web/src/pages/spark/sparkData.ts) resolves the label the participant read | migrated |
+| "Send yourself a reminder?" chips (📅 calendar / ✉️ email / skip) in [CueStep.tsx](web/src/pages/spark/CueStep.tsx) | deleted — no calendar export, no mail path, and no address exists in an account-free prototype | deleted |
+| `reminder` on the `cue_selected` event | deleted — the cue is the stated intention, never a delivery instruction | deleted |
+| Cue + confidence questions | **kept-as-is** — real research measures, analysed as stated intention and its strength | kept-as-is |
+
 ## Inline badge/pill patterns → `Badge`
 
 | Old (inline) | New canonical | Status |

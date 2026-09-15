@@ -83,7 +83,11 @@ send a count.
   written before this field existed should be read as `duration_seconds = 60`,
   `duration_source = study_default`.
 - `feedback_submitted`
-- `cue_selected`
+- `cue_selected` — the cue the participant committed to, plus their
+  confidence. It carries no `reminder`: Spark offered "add to calendar" and
+  "email me" and did neither, and being account-free it has no address to mail
+  to. The cue is a stated intention, never a delivery instruction. Rows already
+  carrying `reminder` stay readable.
 - `condition_completed`
 
 This provides condition-level evidence for delivery, choice, personalization,

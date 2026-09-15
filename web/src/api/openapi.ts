@@ -1572,8 +1572,6 @@ export interface components {
              * @enum {string}
              */
             event_type: "cue_selected";
-            /** Reminder */
-            reminder?: ("calendar" | "email" | "skip") | null;
         };
         /**
          * SparkEventRequest

@@ -5,10 +5,8 @@ import { ANCHORS, type IntakeProfile } from "./sparkData";
 interface CueStepProps {
     profile: IntakeProfile;
     cue: string | null;
-    reminder: string | null;
     confidence: number | null;
     onCue: (c: string) => void;
-    onReminder: (r: string) => void;
     onConfidence: (v: number) => void;
 }
 
@@ -20,13 +18,7 @@ const DEFAULT_CUES = [
     "Mid-afternoon slump",
 ];
 
-const REMINDERS = [
-    { label: "📅 Add to calendar", k: "calendar" },
-    { label: "✉️ Email me", k: "email" },
-    { label: "Skip", k: "skip" },
-];
-
-export function CueStep({ profile, cue, reminder, confidence, onCue, onReminder, onConfidence }: CueStepProps) {
+export function CueStep({ profile, cue, confidence, onCue, onConfidence }: CueStepProps) {
     const anchorDef = profile.anchor ? ANCHORS.find((a) => a.k === profile.anchor) : null;
     const cues = anchorDef
         ? [`When I ${anchorDef.label.toLowerCase()}`, ...DEFAULT_CUES].slice(0, 5)
@@ -47,19 +39,6 @@ export function CueStep({ profile, cue, reminder, confidence, onCue, onReminder,
                         {cues.map((c) => (
                             <Chip key={c} selected={cue === c} onClick={() => onCue(c)}>
                                 {c}
-                            </Chip>
-                        ))}
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardContent className="space-y-3">
-                    <p className="text-sm font-medium text-text">Send yourself a reminder?</p>
-                    <div className="flex flex-wrap gap-2">
-                        {REMINDERS.map(({ label, k }) => (
-                            <Chip key={k} selected={reminder === k} onClick={() => onReminder(k)}>
-                                {label}
                             </Chip>
                         ))}
                     </div>

@@ -24,8 +24,6 @@ export interface FlowTail {
     readonly setFeedback: (next: FeedbackState) => void;
     readonly cue: string | null;
     readonly setCue: (next: string) => void;
-    readonly reminder: string | null;
-    readonly setReminder: (next: string) => void;
     readonly confidence: number | null;
     readonly setConfidence: (next: number) => void;
     readonly rating: RatingState;
@@ -51,7 +49,6 @@ const emptyRating: RatingState = { fit: null, clarity: null, willing: null };
 export function useFlowTail(track: Track): FlowTail {
     const [feedback, setFeedback] = useState<FeedbackState>(emptyFeedback);
     const [cue, setCue] = useState<string | null>(null);
-    const [reminder, setReminder] = useState<string | null>(null);
     const [confidence, setConfidence] = useState<number | null>(null);
     const [rating, setRating] = useState<RatingState>(emptyRating);
 
@@ -84,16 +81,11 @@ export function useFlowTail(track: Track): FlowTail {
 
     const submitCue = useCallback(() => {
         if (cue === null) return;
-        const signature = JSON.stringify([cue, reminder, confidence]);
+        const signature = JSON.stringify([cue, confidence]);
         if (sentRef.current.cue === signature) return;
         sentRef.current.cue = signature;
-        track({
-            event_type: "cue_selected",
-            cue,
-            reminder: reminder as "calendar" | "email" | "skip" | null,
-            confidence,
-        });
-    }, [confidence, cue, reminder, track]);
+        track({ event_type: "cue_selected", cue, confidence });
+    }, [confidence, cue, track]);
 
     const submitCompletion = useCallback(() => {
         const { fit, clarity, willing } = rating;
@@ -109,8 +101,6 @@ export function useFlowTail(track: Track): FlowTail {
         setFeedback,
         cue,
         setCue,
-        reminder,
-        setReminder,
         confidence,
         setConfidence,
         rating,

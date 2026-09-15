@@ -116,7 +116,6 @@ describe("submitCue", () => {
         const { track, hook } = setup();
         act(() => {
             hook.result.current.setCue("After my next coffee");
-            hook.result.current.setReminder("calendar");
             hook.result.current.setConfidence(4);
         });
         act(() => {
@@ -124,10 +123,10 @@ describe("submitCue", () => {
             hook.result.current.submitCue();
         });
         expect(track).toHaveBeenCalledTimes(1);
+        // No `reminder`: Spark never sent one, so it was never a real answer.
         expect(track).toHaveBeenCalledWith({
             event_type: "cue_selected",
             cue: "After my next coffee",
-            reminder: "calendar",
             confidence: 4,
         });
     });
