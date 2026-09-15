@@ -9,7 +9,7 @@ export type SparkTelemetryEvent =
     | {
           event_type: "intake_answered";
           /** No "frame" — the intake never asks a participant to name a vibe. */
-          field: "anchor" | "action" | "time";
+          field: "anchor" | "action";
           value: string;
       }
     /** Revealed vibe: the frame of the card the participant actually chose. */

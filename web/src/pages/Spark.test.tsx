@@ -68,7 +68,6 @@ function respondWith(condition: string, cards: unknown[]) {
 async function answerIntake() {
     fireEvent.click(await screen.findByText("Make coffee or tea"));
     fireEvent.click(await screen.findByText("Reach & Roll"));
-    fireEvent.click(await screen.findByText("Morning"));
 }
 
 describe("Spark page", () => {
@@ -325,6 +324,31 @@ describe("Spark page", () => {
         expect(screen.queryByText(/Condition A/i)).not.toBeInTheDocument();
         expect(screen.queryByText(/chosen at random/i)).not.toBeInTheDocument();
         expect(screen.queryByText(/Tests whether/i)).not.toBeInTheDocument();
+    });
+
+
+    it("asks nothing it does not use", async () => {
+        // Every intake answer has to reach the generated Spark. The time-of-day
+        // question did not: it asked when to send a reminder, nothing schedules
+        // one, and the answer only ever became "time: Morning" in the context
+        // for a move the participant does immediately.
+        mockPost.mockResolvedValue(SUCCESS_RESPONSE);
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-C"));
+        await answerIntake();
+
+        expect(screen.queryByText("Morning")).not.toBeInTheDocument();
+        expect(screen.queryByText(/when should we remind you/i)).not.toBeInTheDocument();
+
+        await waitFor(() => {
+            expect(mockPost).toHaveBeenCalledTimes(1);
+        });
+        const body = (mockPost.mock.calls[0]?.[1] as { body: Record<string, unknown> }).body;
+        // The model gets the label the participant read, not the stored slug.
+        expect(body.context).toBe(
+            "anchor: right after your coffee or tea; preferred move: Reach & Roll",
+        );
     });
 
     it("shows the API's own reason for a failure, not a blanket message", async () => {

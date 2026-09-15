@@ -59,8 +59,13 @@ send a count.
 `POST /spark/events` accepts a strict discriminated event union:
 
 - `flow_started`
-- `intake_answered` — `field` is `anchor`, `action`, or `time`. The intake does
-  **not** ask participants to name a vibe, so `frame` is not a valid field.
+- `intake_answered` — `field` is `anchor` or `action`. The intake does **not**
+  ask participants to name a vibe, so `frame` is not a valid field. It no
+  longer asks a time of day either: that question offered a reminder nothing
+  schedules, and its answer only reached the model as `time: Morning` in the
+  context for a Spark done in the moment. Rows already carrying `field: "time"`
+  remain readable — payloads are stored as JSON and the narrowed union bounds
+  new requests only.
 - `frame_selected` — emitted when a participant picks a card, carrying that
   card's vibe. It is a *revealed* preference (chosen after seeing concrete
   Sparks), never a stated one.

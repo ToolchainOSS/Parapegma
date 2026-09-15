@@ -108,8 +108,6 @@ export const ANCHORS: AnchorDef[] = [
     { k: "email", label: "Check email / Slack / Teams", cue: "before opening your inbox" },
 ];
 
-export const TIMES = ["Morning", "Afternoon", "Evening", "A specific time"] as const;
-
 /** The four study conditions */
 export type SparkCondition = "A" | "B" | "C" | "D";
 
@@ -195,23 +193,35 @@ export const INTAKE_QUESTIONS: readonly IntakeQuestion[] = [
             { label: "Surprise me", value: "any" },
         ],
     },
-    {
-        field: "time",
-        question: "When should we remind you?",
-        sub: "Just a rough window is fine.",
-        options: TIMES.map((t) => ({ label: t, value: t })),
-    },
 ];
 
-/** Build a context string from the intake profile to send to the LLM */
+/** The label a stored answer was chosen by, for one intake question.
+ *
+ *  Answers are stored as slugs, so the raw value of the move question is
+ *  `reach` or `neck`. Those went to the model verbatim as "preferred move:
+ *  reach", which is not a move anyone can name -- the label is what the
+ *  participant actually read and picked.
+ */
+function labelFor(field: keyof IntakeProfile, value: string): string | null {
+    const question = INTAKE_QUESTIONS.find((q) => q.field === field);
+    return question?.options.find((o) => o.value === value)?.label ?? null;
+}
+
+/** Build a context string from the intake profile to send to the LLM.
+ *
+ *  Only answers that bear on the Spark being generated *now* belong here. A
+ *  time-of-day preference does not: the participant is doing the move in the
+ *  moment, so "time: Morning" described a reminder that nothing ever sent.
+ */
 export function buildContextFromProfile(profile: IntakeProfile): string {
     const parts: string[] = [];
     if (profile.anchor) {
         const anchor = ANCHORS.find((a) => a.k === profile.anchor);
         if (anchor) parts.push(`anchor: ${anchor.cue}`);
     }
-    if (profile.action && profile.action !== "any") parts.push(`preferred move: ${profile.action}`);
-    if (profile.time) parts.push(`time: ${profile.time}`);
+    if (profile.action && profile.action !== "any") {
+        parts.push(`preferred move: ${labelFor("action", profile.action) ?? profile.action}`);
+    }
     return parts.join("; ");
 }
 
@@ -220,11 +230,10 @@ export function buildContextFromProfile(profile: IntakeProfile): string {
 export interface IntakeProfile {
     anchor: string | null;
     action: string | null;
-    time: string | null;
 }
 
 export function emptyProfile(): IntakeProfile {
-    return { anchor: null, action: null, time: null };
+    return { anchor: null, action: null };
 }
 
 /** Condition D's catalog: one adapted Spark per vibe, ranked against each other.

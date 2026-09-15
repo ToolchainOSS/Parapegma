@@ -45,7 +45,12 @@ class SparkIntakeAnsweredEvent(BaseModel):
     # No "frame": the intake never asks participants to name a vibe up front.
     # A chosen vibe is reported by SparkFrameSelectedEvent once they have seen
     # actual Sparks, so the two events can no longer disagree.
-    field: Literal["anchor", "action", "time"]
+    #
+    # No "time" either. That question asked when to send a reminder, nothing in
+    # Spark schedules one, and its only consumer fed "time: Morning" into a card
+    # the participant does immediately. Rows already carrying field="time" stay
+    # readable -- payloads are stored as JSON and this bound is on new requests.
+    field: Literal["anchor", "action"]
     value: str = Field(min_length=1, max_length=120)
 
 

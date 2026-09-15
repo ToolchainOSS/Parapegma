@@ -2110,8 +2110,7 @@
           "field": {
             "enum": [
               "anchor",
-              "action",
-              "time"
+              "action"
             ],
             "title": "Field",
             "type": "string"
