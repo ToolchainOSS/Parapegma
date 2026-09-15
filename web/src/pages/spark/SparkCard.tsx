@@ -1,8 +1,12 @@
 import type { SparkCard as SparkCardData } from "../../api/types";
 import { FramingChip, framingOf } from "./FramingChip";
+import type { SparkDuration } from "./sparkDuration";
+import { formatDuration } from "./sparkDuration";
 
 interface SparkCardProps {
     card: SparkCardData;
+    /** The countdown this card will be done against, as the participant set it. */
+    duration: SparkDuration;
     showWhy?: boolean;
     /** Show a warm "tuned to you" badge (conditions C & D). */
     tuned?: boolean;
@@ -13,6 +17,7 @@ interface SparkCardProps {
 
 export function SparkCard({
     card,
+    duration,
     showWhy = true,
     tuned = false,
     className = "",
@@ -47,7 +52,7 @@ export function SparkCard({
                 {/* meta pills */}
                 <div className="flex flex-wrap gap-2 mt-4">
                     <span className="text-xs text-text-muted border border-border rounded-md px-2.5 py-1">
-                        ⏱ 1 minute
+                        ⏱ {formatDuration(duration)}
                     </span>
                     <span className="text-xs text-text-muted border border-border rounded-md px-2.5 py-1">
                         ✓ Done when timer hits 0

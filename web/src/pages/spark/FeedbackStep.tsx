@@ -69,7 +69,7 @@ export function FeedbackStep({ state, onChange, rich = false }: FeedbackStepProp
                     </p>
                     <VoiceControl
                         placeholder="Type or speak…"
-                        hint="Type or tap the mic to say what to tweak, then Send — this is captured as feedback."
+                        hint="Type or tap the mic to say what to tweak, then Send."
                         onText={(t) => {
                             onChange({ ...state, tweak: t });
                             setTweakSaved(true);
@@ -82,8 +82,7 @@ export function FeedbackStep({ state, onChange, rich = false }: FeedbackStepProp
                     )}
                     {rich && (
                         <p className="text-xs text-text-muted border border-dashed border-border rounded-md p-2 mt-1">
-                            In conditions C &amp; D this feedback updates your profile, so the next
-                            Spark adapts.
+                            What you say here shapes the next Spark.
                         </p>
                     )}
                 </CardContent>

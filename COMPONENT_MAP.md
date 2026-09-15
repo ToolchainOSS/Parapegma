@@ -36,6 +36,25 @@ place via tokens), **consolidated** (folded into a canonical primitive), **new**
 | `requested` ref + mount effect in `ConditionB` | `useSparkRemix({ autoGenerate })` owns the once-only guard | consolidated |
 | Bare step indices in `ConditionA` / `ConditionB` | named `A_STEP` / `B_STEP` maps | migrated |
 
+## Configurable countdown + C/D cleanup round
+
+| Old | New canonical | Status |
+| --- | --- | --- |
+| `const TOTAL = 60` in [SparkTimer.tsx](web/src/pages/spark/SparkTimer.tsx), plus "1 minute" re-typed in card copy, 4 button labels, the home page, the static library and the system prompt | `SparkDuration` + `formatDuration()` in [sparkDuration.ts](web/src/pages/spark/sparkDuration.ts); the resolved value is the only thing that names a length | consolidated |
+| `left` + `completion` product in the timer, advanced by counting `setInterval` ticks | `TimerState` union in [sparkTimerState.ts](web/src/pages/spark/sparkTimerState.ts), elapsed measured from `performance.now()` | migrated |
+| — | `DurationControl` in [DurationControl.tsx](web/src/pages/spark/DurationControl.tsx) | **new** — participant sets the countdown; identical in all four conditions so it stays a covariate, not a second difference between arms |
+| — | `useSparkDuration` in [useSparkDuration.ts](web/src/pages/spark/useSparkDuration.ts) | **new** — remembers the pick so a configurable length is not a choice task repeated every flow |
+| `selectStep`/`previewStep`/`timerStep` arithmetic in `ConditionAdaptive` (C had `previewStep === timerStep`) | tagged step list in [adaptiveFlow.ts](web/src/pages/spark/adaptiveFlow.ts) | migrated |
+| `{card, cards, loading, error, lastAdjustment}` product in `useSparkRemix`, read through ad-hoc predicates | `SparkRemixState` discriminated union + `activeCard`/`offeredCards`/`isBusy` | migrated |
+| `void callApi(...)` inside a `setState` updater (two POSTs, two LLM calls, two research rows under StrictMode) | request fired from the handler, with a request id and `AbortSignal` | migrated |
+| 7× duplicated feedback/cue/rating state and telemetry calls across the four conditions | `useFlowTail` in [useFlowTail.ts](web/src/pages/spark/useFlowTail.ts), with per-answer-set idempotent submission | consolidated |
+| `Spark.tsx` at 817 lines carrying all four flows | split into `SparkHome` / `ConditionA` / `ConditionB` / `ConditionAdaptive` / `FlowProgress`; `Spark.tsx` is routing only (69 lines) | migrated |
+| Condition-varying copy inline across 6 files, naming conditions, the manipulation and the hypothesis | [sparkCopy.ts](web/src/pages/spark/sparkCopy.ts) — one table, de-leaked | consolidated |
+| `matchFor()` inventing `96 - rank * 7` and rendering it as an "89% match" | `MatchStrength` union — the bar renders only for a score the model actually returned | migrated |
+| `card.frame as SparkFrame` at 6 call sites, plus a dead `?? "calm"` | deleted — the generated OpenAPI type is already the literal union | deleted |
+| `count` decided in three places (client default, unused schema default of 3, server catalog override) | server-derived from condition + `base_card`; removed from the wire | consolidated |
+| Four-card home grid | **kept-as-is** — participants choose an option rather than being assigned one; the grid is that choice | kept-as-is |
+
 ## Inline badge/pill patterns → `Badge`
 
 | Old (inline) | New canonical | Status |

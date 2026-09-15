@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import AsyncGenerator, Generator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -31,6 +32,12 @@ from app.models import (
     SparkFingerprintObservation,
     SparkInteraction,
     SparkParticipant,
+)
+from app.services.spark_duration import (
+    DEFAULT_DURATION_SECONDS,
+    DURATION_CHOICES,
+    MAX_DURATION_SECONDS,
+    MIN_DURATION_SECONDS,
 )
 from app.services.spark_library import (
     ALL_FRAMES,
@@ -1227,7 +1234,7 @@ async def test_spark_generate_requires_openai_key(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="C", count=1),
+        json=_spark_request(condition="C"),
     )
     assert resp.status_code == 500
     assert resp.json()["detail"] == "OpenAI API key not configured"
@@ -1283,7 +1290,6 @@ async def test_spark_generate_isolated_from_flow_chat_state(
             frame_preference="calm",
             context="I am about to start a meeting.",
             adjustment_history=["make it subtle"],
-            count=3,
         ),
     )
     assert resp.status_code == 200
@@ -1314,7 +1320,7 @@ async def test_spark_generation_persists_pseudonymous_identity_and_is_idempotent
     clear_config_cache()
     clear_library_cache()
 
-    body = _spark_request(condition="A", count=1)
+    body = _spark_request(condition="A")
     first = await client.post("/spark/generate", json=body)
     second = await client.post("/spark/generate", json=body)
 
@@ -1413,17 +1419,17 @@ def test_spark_build_user_prompt_is_json() -> None:
         frame_preference="science",
         context="desk",
         adjustment_history=["quieter", "seated"],
-        count=4,
     )
+    derived = spark_routes._requested_card_count(body.condition, body.base_card)
     payload = json.loads(
-        spark_routes._build_user_prompt(body, body.frame_preference, body.count)
+        spark_routes._build_user_prompt(body, body.frame_preference, derived)
     )
     assert payload == {
         "condition": "D",
         "frame_preference": "science",
         "context": "desk",
         "adjustment_history": ["quieter", "seated"],
-        "count": 4,
+        "count": len(ALL_FRAMES),
     }
 
     # The catalog overrides both, one vibe per call, without mutating the body.
@@ -1449,10 +1455,13 @@ def test_spark_build_user_prompt_includes_base_card() -> None:
         condition="C",
         base_card=base,
         adjustment_history=["make it easier", "seated please"],
-        count=1,
     )
     payload = json.loads(
-        spark_routes._build_user_prompt(body, body.frame_preference, body.count)
+        spark_routes._build_user_prompt(
+            body,
+            body.frame_preference,
+            spark_routes._requested_card_count(body.condition, body.base_card),
+        )
     )
     assert payload["base_card"]["title"] == "Desk Reset"
     assert payload["adjustment_history"] == ["make it easier", "seated please"]
@@ -1467,7 +1476,6 @@ def test_spark_history_is_capped_at_twenty() -> None:
         **_SPARK_REQUEST_CONTEXT,
         condition="A",
         adjustment_history=long_history,
-        count=1,
     )
     assert len(body.adjustment_history) == 20
     # most-recent 20 kept
@@ -1524,7 +1532,7 @@ async def test_spark_generate_condition_d_ranks_one_card_per_vibe(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="D", count=1),
+        json=_spark_request(condition="D"),
     )
     assert resp.status_code == 200
     cards = resp.json()["cards"]
@@ -1573,7 +1581,7 @@ async def test_spark_generate_condition_d_serves_a_partial_catalog(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="D", count=1),
+        json=_spark_request(condition="D"),
     )
     assert resp.status_code == 200
     cards = resp.json()["cards"]
@@ -1616,7 +1624,7 @@ async def test_spark_generate_drops_only_the_malformed_cards(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="D", count=1),
+        json=_spark_request(condition="D"),
     )
     assert resp.status_code == 200
     cards = resp.json()["cards"]
@@ -1663,7 +1671,7 @@ async def test_spark_generate_trims_overlong_prose_instead_of_dropping_the_card(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="C", count=1),
+        json=_spark_request(condition="C"),
     )
     assert resp.status_code == 200
     (card,) = resp.json()["cards"]
@@ -1714,7 +1722,6 @@ async def test_spark_completion_budget_scales_with_requested_cards(
         "/spark/generate",
         json=_spark_request(
             condition="C",
-            count=1,
             client_event_id="00000000-0000-4000-8000-0000000000c1",
         ),
     )
@@ -1722,7 +1729,6 @@ async def test_spark_completion_budget_scales_with_requested_cards(
         "/spark/generate",
         json=_spark_request(
             condition="D",
-            count=1,
             client_event_id="00000000-0000-4000-8000-0000000000d1",
         ),
     )
@@ -1774,7 +1780,7 @@ async def test_spark_quota_exhaustion_reaches_the_client_with_its_reason(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="C", count=1),
+        json=_spark_request(condition="C"),
     )
 
     assert resp.status_code == 424
@@ -1787,10 +1793,14 @@ async def test_spark_quota_exhaustion_reaches_the_client_with_its_reason(
 
 
 @pytest.mark.asyncio
-async def test_spark_generate_condition_d_remix_is_not_a_catalog(
+async def test_spark_generate_condition_d_remix_is_a_single_card(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A remix carries a base_card, so it honours the client's vibe and count."""
+    """A remix carries a base_card, so it honours the vibe and returns ONE card.
+
+    A D remix used to fall through to a re-sorted list, which put a participant
+    who had adjusted a single Spark back in front of a ranked list of five.
+    """
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("LLM_MODEL", "gpt-test-model")
     clear_config_cache()
@@ -1813,15 +1823,14 @@ async def test_spark_generate_condition_d_remix_is_not_a_catalog(
                 "why": "Desk-friendly.",
             },
             adjustment_history=["make it easier"],
-            count=2,
         ),
     )
     assert resp.status_code == 200
     assert len(seen) == 1
     assert seen[0]["frame_preference"] == "science"
-    assert seen[0]["count"] == 2
-    # Still sorted by fit, but no vibe-coverage requirement applies.
-    assert [card["fit_score"] for card in resp.json()["cards"]] == [90, 60]
+    # The server, not the client, decides the count: a remix is always one card.
+    assert seen[0]["count"] == 1
+    assert [card["fit_score"] for card in resp.json()["cards"]] == [60]
     clear_config_cache()
 
 
@@ -1847,7 +1856,7 @@ async def test_spark_generate_condition_a_is_static_and_skips_llm(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="A", count=3),
+        json=_spark_request(condition="A"),
     )
     assert resp.status_code == 200
     payload = resp.json()
@@ -1857,6 +1866,62 @@ async def test_spark_generate_condition_a_is_static_and_skips_llm(
     assert payload["prompt_version"]["prompt_file"] == "spark_library"
     assert payload["prompt_version"]["source"] == "bundled-file"
     clear_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_spark_generate_serves_the_timer_policy(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every response carries the countdown policy, so no client hard-codes 60.
+
+    It rides on the generate payload rather than a second endpoint: no extra
+    round-trip, and it lands in the persisted generation event, so the policy in
+    force is recorded per flow.
+    """
+    monkeypatch.delenv("SPARK_SHEETS_SPREADSHEET_ID", raising=False)
+    monkeypatch.delenv("SPARK_SHEETS_CREDENTIALS_JSON", raising=False)
+    clear_config_cache()
+    clear_library_cache()
+
+    resp = await client.post("/spark/generate", json=_spark_request(condition="A"))
+
+    assert resp.status_code == 200
+    timer = resp.json()["timer"]
+    assert timer["default_seconds"] == DEFAULT_DURATION_SECONDS
+    assert timer["choices"] == list(DURATION_CHOICES)
+    assert timer["min_seconds"] == MIN_DURATION_SECONDS
+    assert timer["max_seconds"] == MAX_DURATION_SECONDS
+
+    async with _test_session_factory() as db:
+        interaction = await db.scalar(select(SparkInteraction))
+    assert interaction is not None
+    stored = interaction.payload_json["response"]["timer"]
+    assert stored["default_seconds"] == DEFAULT_DURATION_SECONDS
+    clear_config_cache()
+
+
+def test_spark_library_entries_never_name_a_duration() -> None:
+    """The countdown is participant-set, so card prose must not contradict it.
+
+    A card reading "for 60 seconds" under a 180-second timer is the failure this
+    guards against, and the bundled library is the one corpus we can check. The
+    researcher-maintained Sheet carries the same rule in its loader comment but
+    cannot be enforced from here.
+    """
+    from app.services.spark_library import _load_from_file
+
+    entries = _load_from_file()
+    forbidden = re.compile(
+        r"\b(\d+[- ]second|\d+[- ]minute|one[- ]minute|a minute|half a minute)\b",
+        re.IGNORECASE,
+    )
+    offenders = [
+        (entry.id, field, text)
+        for entry in entries
+        for field, text in (("action", entry.action), ("reward", entry.reward))
+        if forbidden.search(text)
+    ]
+    assert offenders == []
     clear_library_cache()
 
 
@@ -1895,7 +1960,7 @@ async def test_spark_generate_reports_google_sheets_library_source(
 
     response = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="A", count=1),
+        json=_spark_request(condition="A"),
     )
 
     assert response.status_code == 200
@@ -1956,7 +2021,7 @@ async def test_spark_generate_condition_b_ignores_a_frame_preference(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="B", frame_preference="silly", count=3),
+        json=_spark_request(condition="B", frame_preference="silly"),
     )
     assert resp.status_code == 200
     assert tuple(card["frame"] for card in resp.json()["cards"]) == ALL_FRAMES
@@ -2001,7 +2066,7 @@ async def test_spark_generate_invalid_model_payload_is_a_client_visible_4xx(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="C", count=3),
+        json=_spark_request(condition="C"),
     )
     # 4xx, not 5xx: Cloudflare replaces origin 502/504 bodies with its own error
     # page, which would strip the detail below before any client could read it.
@@ -2038,7 +2103,7 @@ async def test_spark_generate_timeout_is_a_client_visible_4xx(
 
     resp = await client.post(
         "/spark/generate",
-        json=_spark_request(condition="C", count=1),
+        json=_spark_request(condition="C"),
     )
     assert resp.status_code == 424
     assert resp.json()["detail"] == "Spark model request timed out"

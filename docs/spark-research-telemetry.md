@@ -47,7 +47,14 @@ interaction records remain intact but cannot be cryptographically linked.
 
 `POST /spark/generate` persists an idempotent `generation_succeeded` event with
 the researcher-relevant request context and response cards. It intentionally
-excludes identity inputs from the stored payload.
+excludes identity inputs from the stored payload. The response carries the
+study's `timer` policy (default length and the lengths offered), so the policy
+in force is recorded per flow without a second endpoint or an extra round-trip.
+
+The number of cards is derived server-side from the condition and whether a
+base card is present — one for A and C, one per vibe for B and a first D
+generate, and one for every remix in either adaptive condition. Clients do not
+send a count.
 
 `POST /spark/events` accepts a strict discriminated event union:
 
@@ -57,11 +64,19 @@ excludes identity inputs from the stored payload.
 - `frame_selected` — emitted when a participant picks a card, carrying that
   card's vibe. It is a *revealed* preference (chosen after seeing concrete
   Sparks), never a stated one.
-- `card_selected` — `rank` is the position within the list chosen from, 1–5.
-  Conditions B and D both offer one Spark per vibe, so rank is unordered in B
-  (the sampler is random) and meaningful in D (ranked by predicted fit). Join it
-  with the `frame_selected` event emitted at the same moment to identify the card.
-- `timer_finished`
+- `card_selected` — `rank` is the 1-based position within the flat list chosen
+  from, 1–5. Conditions B and D both offer one Spark per vibe, so rank is
+  unordered in B (the sampler is random) and meaningful in D (ranked by
+  predicted fit). Join it with the `frame_selected` event emitted at the same
+  moment to identify the card.
+- `timer_finished` — carries `completion`, plus `duration_seconds` (the length
+  the countdown was set to), `elapsed_ms` (measured from a monotonic clock, not
+  by counting ticks) and `duration_source` (`study_default` or `participant`).
+  All three are required: the countdown is participant-configurable, so a
+  completion is not comparable across participants without the length it ran
+  for, and a length is not interpretable without knowing who chose it. Rows
+  written before this field existed should be read as `duration_seconds = 60`,
+  `duration_source = study_default`.
 - `feedback_submitted`
 - `cue_selected`
 - `condition_completed`
@@ -82,3 +97,24 @@ selection, completion, perceived fit, action clarity, and willingness to try.
   conversation engine, invitations, memberships, or Web Push.
 - Retention, consent language, and export/deletion processes remain study-level
   governance decisions and must be approved before collecting participant data.
+
+## Participant-facing copy
+
+The prototype's copy must not describe the study to the person in it. The rule
+the Spark UI follows is that the *manipulation* must be perceivable while the
+*design* must not: "shaped around what you told us" stays, because a
+participant who cannot perceive personalization is not receiving the C/D
+treatment; "Condition C", the names of the outcome measures, references to other
+conditions, and any statement of what a condition is testing do not. Copy that
+varies by condition lives in one table, `web/src/pages/spark/sparkCopy.ts`, so
+it can be diffed against the protocol.
+
+Two deliberate exceptions. The home grid still shows all four options with their
+names and tags, because participants are not assigned a condition — they choose
+one, and the grid is the choice. And the research-privacy paragraph on that grid
+is disclosure rather than leakage; it must survive any future copy pass.
+
+Card prose must never name a duration. The participant sets the countdown, so
+"for 60 seconds" in a card contradicts the timer running beside it. The bundled
+library is checked for this in `tests/test_api.py`; the researcher-maintained
+Sheet carries the same rule but cannot be enforced from code.

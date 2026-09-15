@@ -12,6 +12,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.spark_duration import (
+    MAX_DURATION_SECONDS,
+    MIN_DURATION_SECONDS,
+    DurationSource,
+)
 from app.services.spark_library import SparkFrame
 
 
@@ -55,10 +60,10 @@ class SparkCardSelectedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     event_type: Literal["card_selected"]
-    # Position within the list the participant chose from: 1-5 among condition B's
-    # one-per-vibe sampler, or 1-5 within the chosen vibe's column in condition D.
-    # It is never a position in D's full 25-card catalog — pair it with the
-    # accompanying frame_selected event to locate the card exactly.
+    # 1-based position in the flat list the participant chose from: condition B's
+    # one-per-vibe sampler, or condition D's ranked catalog. Both offer at most
+    # one Spark per vibe, so the list is never longer than five. Pair it with the
+    # frame_selected event emitted at the same moment to locate the card exactly.
     rank: int = Field(ge=1, le=5)
 
 
@@ -67,6 +72,20 @@ class SparkTimerFinishedEvent(BaseModel):
 
     event_type: Literal["timer_finished"]
     completion: Literal["completed", "skipped"]
+    # The countdown is participant-configurable, so `completion` alone is not
+    # comparable across participants: "completed" at 30s and at 300s are
+    # different events. All three fields are required together -- duration
+    # without its source cannot be told apart from a changed study default, and
+    # elapsed without duration cannot be normalized.
+    duration_seconds: int = Field(
+        ge=MIN_DURATION_SECONDS,
+        le=MAX_DURATION_SECONDS,
+    )
+    # Measured from a monotonic clock, not by counting ticks, so a throttled
+    # background tab cannot under-report it. Bounded well above the maximum
+    # duration to absorb the time a participant spends before skipping.
+    elapsed_ms: int = Field(ge=0, le=3_600_000)
+    duration_source: DurationSource
 
 
 class SparkFeedbackSubmittedEvent(BaseModel):

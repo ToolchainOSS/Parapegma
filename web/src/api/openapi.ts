@@ -1655,11 +1655,6 @@ export interface components {
             /** Context */
             context?: string | null;
             /**
-             * Count
-             * @default 3
-             */
-            count: number;
-            /**
              * Flow Id
              * Format: uuid
              */
@@ -1683,6 +1678,7 @@ export interface components {
             prompt_version: {
                 [key: string]: string;
             };
+            timer?: components["schemas"]["SparkTimerPolicy"];
         };
         /** SparkIntakeAnsweredEvent */
         SparkIntakeAnsweredEvent: {
@@ -1706,11 +1702,48 @@ export interface components {
              * @enum {string}
              */
             completion: "completed" | "skipped";
+            /** Duration Seconds */
+            duration_seconds: number;
+            /**
+             * Duration Source
+             * @enum {string}
+             */
+            duration_source: "study_default" | "participant";
+            /** Elapsed Ms */
+            elapsed_ms: number;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             event_type: "timer_finished";
+        };
+        /**
+         * SparkTimerPolicy
+         * @description What the client is allowed to offer for the countdown length.
+         *
+         *     Served on every generate response rather than from a second endpoint: it is
+         *     one small object on a payload the flow already fetches, it costs no extra
+         *     round-trip, and it lands in the persisted ``generation_succeeded`` payload,
+         *     so the policy in force is recorded per flow for free.
+         */
+        SparkTimerPolicy: {
+            /** Choices */
+            choices?: number[];
+            /**
+             * Default Seconds
+             * @default 60
+             */
+            default_seconds: number;
+            /**
+             * Max Seconds
+             * @default 300
+             */
+            max_seconds: number;
+            /**
+             * Min Seconds
+             * @default 15
+             */
+            min_seconds: number;
         };
         /** TimezoneUpdateRequest */
         TimezoneUpdateRequest: {

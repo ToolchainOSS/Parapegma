@@ -1,6 +1,7 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import api from "../../api/client";
 import type { SparkCondition, SparkFrame } from "./sparkData";
+import type { DurationSource } from "./sparkDuration";
 import { createSparkClientId, type SparkIdentityProvider } from "./sparkResearchIdentity";
 
 export type SparkTelemetryEvent =
@@ -13,10 +14,18 @@ export type SparkTelemetryEvent =
       }
     /** Revealed vibe: the frame of the card the participant actually chose. */
     | { event_type: "frame_selected"; frame: SparkFrame }
-    /** `rank` is 1-5 within the list picked from (B's sampler, or one vibe
-     *  column in D) — never an index into D's full 25-card catalog. */
+    /** `rank` is the 1-based position in the flat list picked from: B's sampler
+     *  or D's ranked catalog. Both offer at most one Spark per vibe. */
     | { event_type: "card_selected"; rank: number }
-    | { event_type: "timer_finished"; completion: "completed" | "skipped" }
+    /** The countdown is participant-set, so a completion is only interpretable
+     *  alongside the length it ran for and who chose that length. */
+    | {
+          event_type: "timer_finished";
+          completion: "completed" | "skipped";
+          duration_seconds: number;
+          elapsed_ms: number;
+          duration_source: DurationSource;
+      }
     | {
           event_type: "feedback_submitted";
           tried: number;
@@ -68,7 +77,13 @@ export function useSparkEventTracker({
         [condition, flowId, getIdentity],
     );
 
+    // Once per mounted flow. Without the guard StrictMode's development
+    // remount emits two flow_started rows under two client event ids, and both
+    // persist -- the same class of double-fire the remix hook guards against.
+    const started = useRef(false);
     useEffect(() => {
+        if (started.current) return;
+        started.current = true;
         track({ event_type: "flow_started" });
     }, [track]);
 

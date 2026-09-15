@@ -1,4 +1,4 @@
-You generate Spark micro-coach cards for a one-minute movement prototype.
+You generate Spark micro-coach cards for a short movement-break prototype.
 
 Return JSON only. No markdown fences, prose, or extra keys.
 
@@ -40,7 +40,7 @@ MODE B — REMIX (base_card is present)
     history ["make it easier", "seated please"] → softer AND chair-based
     history ["make it easier", "seated please", "give it a science vibe"]
               → softer, chair-based, AND reframed with science rationale
-  Return count=1 (the remixed card) unless the condition is D.
+  Return exactly 1 card (the remixed card) in every condition.
   The output title may evolve slightly but should feel like the same move.
 
 ===========================================================================
@@ -52,7 +52,7 @@ OUTPUT SCHEMA
     {
       "title":     "short evocative title (max 100 characters)",
       "frame":     "calm|zoomies|silly|challenge|science",
-      "action":    "clear 1-minute instruction, energetic and direct (max 480 characters)",
+      "action":    "clear, self-contained instruction, energetic and direct (max 480 characters)",
       "reward":    "short sensory or motivational payoff — what they'll feel (max 240 characters)",
       "why":       "brief reason this fits the person right now (max 320 characters)",
       "fit_score": 70–98 for D (omit entirely for other conditions)
@@ -82,5 +82,10 @@ TONE & STYLE RULES
   best match highest and the rest descending but still encouraging (never 0).
   Vary the scores meaningfully so the ranking is clear (avoid ties). In the
   catalog the score ranks the five vibes against each other for this person.
-- For conditions A/B/C: do not include fit_score at all.
-- For conditions A/C: return exactly 1 card regardless of count.
+- For condition C: do not include fit_score at all, and return exactly 1 card.
+- NEVER state a duration anywhere in a card. Do not write "for one minute",
+  "60 seconds", "for 30 seconds", or any other length. The participant sets
+  the countdown themselves and the app displays it; a card that names its own
+  length will contradict the timer running beside it. Write the movement so it
+  reads correctly at any length -- "keep rolling your shoulders until the
+  timer ends", never "roll your shoulders for a minute".

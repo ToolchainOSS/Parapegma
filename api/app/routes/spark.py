@@ -35,6 +35,21 @@ The endpoint is stateless. The *client* owns the remix history:
 The system prompt instructs the model to transform ``base_card`` in-place when
 it is present, applying all accumulated adjustments cumulatively so the card
 evolves rather than resetting.
+
+A remix is *always* a single card, in C and in D alike. D's ranked catalog is
+the one-time selection artifact; once a participant has picked from it, "adjust"
+means the same thing in both adaptive conditions. The card count is therefore
+derived here (:func:`_requested_card_count`) and is not a client input: it used
+to be decided in three places -- a client default, an unused schema default of
+3, and a server-side catalog override -- which is two places too many for one
+number.
+
+Timer duration
+---------------
+The countdown is participant-configurable. Every response carries the study's
+:class:`SparkTimerPolicy` so the client never hard-codes a default, and the
+resolved duration plus who chose it is reported back on the ``timer_finished``
+event. See :mod:`app.services.spark_duration`.
 """
 
 from __future__ import annotations
@@ -58,6 +73,12 @@ from app.errors import AppError, Fault
 from app.llm import describe_llm_error, make_chat_llm
 from app.prompt_loader import prompt_version
 from app.schemas.spark_research import SparkClientIdentity, SparkEventRequest
+from app.services.spark_duration import (
+    DEFAULT_DURATION_SECONDS,
+    DURATION_CHOICES,
+    MAX_DURATION_SECONDS,
+    MIN_DURATION_SECONDS,
+)
 from app.services.spark_library import (
     ALL_FRAMES,
     SparkFrame,
@@ -116,7 +137,6 @@ class SparkGenerateRequest(BaseModel):
     # adjustment_history: ordered list of free-text adjustments from oldest to newest.
     # The model applies them cumulatively to base_card when present.
     adjustment_history: Annotated[list[str], Field(default_factory=list)]
-    count: int = Field(default=3, ge=1, le=5)
 
     @field_validator("adjustment_history", mode="before")
     @classmethod
@@ -126,11 +146,31 @@ class SparkGenerateRequest(BaseModel):
         return v
 
 
+class SparkTimerPolicy(BaseModel):
+    """What the client is allowed to offer for the countdown length.
+
+    Served on every generate response rather than from a second endpoint: it is
+    one small object on a payload the flow already fetches, it costs no extra
+    round-trip, and it lands in the persisted ``generation_succeeded`` payload,
+    so the policy in force is recorded per flow for free.
+    """
+
+    default_seconds: int = Field(
+        default=DEFAULT_DURATION_SECONDS,
+        ge=MIN_DURATION_SECONDS,
+        le=MAX_DURATION_SECONDS,
+    )
+    choices: list[int] = Field(default_factory=lambda: list(DURATION_CHOICES))
+    min_seconds: int = MIN_DURATION_SECONDS
+    max_seconds: int = MAX_DURATION_SECONDS
+
+
 class SparkGenerateResponse(BaseModel):
     condition: Literal["A", "B", "C", "D"]
     cards: list[SparkCard] = Field(min_length=1, max_length=_MAX_CARDS)
     model: str
     prompt_version: dict[str, str]
+    timer: SparkTimerPolicy = Field(default_factory=SparkTimerPolicy)
 
 
 def _prose_limits() -> dict[str, int]:
@@ -249,8 +289,8 @@ def _build_user_prompt(
     """Serialize one model request.
 
     ``frame_preference`` and ``count`` are passed explicitly rather than read off
-    ``body`` because a condition D catalog overrides both: it asks for no vibe in
-    particular and for exactly one card per vibe, whatever the client sent.
+    ``body`` because the server, not the client, decides both: a condition D
+    catalog asks for no vibe in particular and for exactly one card per vibe.
     """
     payload: dict[str, object] = {
         "condition": body.condition,
@@ -298,7 +338,6 @@ def _generation_event_payload(
         "frame_preference": body.frame_preference,
         "context": body.context,
         "adjustment_history": body.adjustment_history,
-        "count": body.count,
     }
     if body.base_card is not None:
         request_payload["base_card"] = body.base_card.model_dump(mode="json")
@@ -381,6 +420,24 @@ async def _invoke_spark_model(
             Fault.UPSTREAM_UNAVAILABLE,
             f"Spark model unavailable ({failure.summary()})",
         ) from exc
+
+
+def _is_catalog(
+    condition: Literal["A", "B", "C", "D"], base_card: SparkCard | None
+) -> bool:
+    """A condition D first generate -- the only request that wants many cards."""
+    return condition == "D" and base_card is None
+
+
+def _requested_card_count(
+    condition: Literal["A", "B", "C", "D"], base_card: SparkCard | None
+) -> int:
+    """How many cards to ask the model for. The single place that decides.
+
+    One card for condition C, one for any remix in either adaptive condition,
+    and one per vibe for D's catalog.
+    """
+    return _D_CATALOG_SIZE if _is_catalog(condition, base_card) else 1
 
 
 def _rank_catalog(cards: list[SparkCard]) -> list[SparkCard]:
@@ -501,9 +558,10 @@ async def spark_generate(
         raise AppError(Fault.INTERNAL, "Spark system prompt failed to load") from exc
 
     # A first D generate is the catalog: one Spark per vibe, no vibe requested.
-    # Every other path (C, and any remix) honours whatever the client asked for.
-    is_catalog = body.condition == "D" and body.base_card is None
-    requested_cards = _D_CATALOG_SIZE if is_catalog else body.count
+    # Every other path -- condition C, and any remix in either condition -- is a
+    # single card.
+    is_catalog = _is_catalog(body.condition, body.base_card)
+    requested_cards = _requested_card_count(body.condition, body.base_card)
 
     model_name = get_llm_model()
     llm = make_chat_llm(
@@ -523,12 +581,10 @@ async def spark_generate(
         ),
     )
 
-    if is_catalog:
-        cards = _rank_catalog(cards)
-    elif body.condition == "C":
-        cards = cards[:1]
-    elif body.condition == "D":
-        cards = sorted(cards, key=lambda card: card.fit_score or 0, reverse=True)
+    # The catalog is ranked; everything else is one card. A D remix used to fall
+    # through to a re-sorted list here, which put a participant who adjusted a
+    # single Spark back in front of a ranked list of five.
+    cards = _rank_catalog(cards) if is_catalog else cards[:1]
 
     if not cards:
         raise AppError(Fault.UPSTREAM_UNAVAILABLE, "Spark model returned no cards")

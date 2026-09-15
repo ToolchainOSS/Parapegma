@@ -17,7 +17,7 @@ export function IntakeStep({ stepIndex, profile, onAnswer }: IntakeStepProps) {
     return (
         <div className="space-y-4">
             <p className="eyebrow text-text-subtle">
-                Intake · {stepIndex + 1} of {INTAKE_QUESTIONS.length}
+                Question {stepIndex + 1} of {INTAKE_QUESTIONS.length}
             </p>
 
             <Card>

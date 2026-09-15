@@ -19,7 +19,7 @@ const PHRASES = [
     "Finding your vibe…",
     "Picking something delightfully doable…",
     "Charging up the good kind of energy…",
-    "Rummaging for the perfect one-minute move…",
+    "Rummaging for the perfect little move…",
     "Loosening up the creative hamstrings…",
 ];
 
@@ -38,7 +38,7 @@ function shuffled(n: number): number[] {
 interface SparkThinkingProps {
     frame?: SparkFrame;
     /** Override the rotating phrases. */
-    phrases?: string[];
+    phrases?: readonly string[];
     /** Compact inline variant (no orb) for use under an existing card. */
     compact?: boolean;
     className?: string;

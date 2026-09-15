@@ -74,6 +74,9 @@ async function answerIntake() {
 describe("Spark page", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        // The duration choice is remembered across flows on purpose, so each
+        // test has to start from "never chosen" to exercise the default.
+        window.localStorage.clear();
     });
 
     it("renders the Spark page and home grid", () => {
@@ -95,17 +98,21 @@ describe("Spark page", () => {
         fireEvent.click(screen.getByTestId("spark-cond-A"));
 
         await waitFor(() => {
-            expect(mockPost).toHaveBeenCalledWith("/spark/generate", {
-                body: expect.objectContaining({
-                    identity: expect.objectContaining({
-                        installation_id: "00000000-0000-4000-8000-000000000002",
-                        fingerprint: "test-thumbmark",
+            // objectContaining on the outer options too: every request now also
+            // carries an AbortSignal so an unmount cancels it in flight.
+            expect(mockPost).toHaveBeenCalledWith(
+                "/spark/generate",
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        identity: expect.objectContaining({
+                            installation_id: "00000000-0000-4000-8000-000000000002",
+                            fingerprint: "test-thumbmark",
+                        }),
+                        condition: "A",
+                        adjustment_history: [],
                     }),
-                    condition: "A",
-                    adjustment_history: [],
-                    count: 1,
                 }),
-            });
+            );
         });
 
         // base_card should NOT be present (or undefined) on first generate
@@ -229,8 +236,10 @@ describe("Spark page", () => {
             expect(mockPost).toHaveBeenCalledTimes(1);
         });
         const body = (mockPost.mock.calls[0]?.[1] as { body: Record<string, unknown> }).body;
-        // One request for the whole catalog — one card per vibe, no vibe asked for.
-        expect(body).toMatchObject({ condition: "D", count: 5 });
+        // One request for the whole catalog, no vibe asked for. The card count
+        // is the server's call now, so the client must not send one.
+        expect(body).toMatchObject({ condition: "D" });
+        expect(body.count).toBeUndefined();
         expect(body.frame_preference).toBeUndefined();
 
         // Same choice set as condition B's sampler: every vibe, exactly once.
@@ -243,6 +252,79 @@ describe("Spark page", () => {
         fireEvent.click(screen.getByTestId("spark-ranked-challenge"));
         expect(await screen.findByTestId("spark-card")).toBeInTheDocument();
         expect(screen.getByText("Your pick")).toBeInTheDocument();
+    });
+
+
+    it("runs the study default until the participant picks a length", async () => {
+        mockPost.mockResolvedValue(SUCCESS_RESPONSE);
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-A"));
+
+        await screen.findByTestId("spark-card");
+        expect(screen.getByText("⏱ 1 minute")).toBeInTheDocument();
+
+        // The control is identical in every condition, which is what keeps it a
+        // covariate rather than a second difference between the arms.
+        fireEvent.click(screen.getByText("3 minutes"));
+        expect(screen.getByText("⏱ 3 minutes")).toBeInTheDocument();
+    });
+
+    it("remembers the chosen length for the next flow", async () => {
+        mockPost.mockResolvedValue(SUCCESS_RESPONSE);
+
+        const first = render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-A"));
+        await screen.findByTestId("spark-card");
+        fireEvent.click(screen.getByText("90 seconds"));
+        expect(screen.getByText("⏱ 90 seconds")).toBeInTheDocument();
+        first.unmount();
+
+        // A configurable duration must not become a choice task repeated on
+        // every single flow.
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-A"));
+        await screen.findByTestId("spark-card");
+        expect(screen.getByText("⏱ 90 seconds")).toBeInTheDocument();
+    });
+
+    it("honours the countdown policy the server served", async () => {
+        mockPost.mockResolvedValue({
+            data: {
+                condition: "A",
+                cards: [CARD],
+                model: "static-library",
+                prompt_version: { prompt_file: "x", prompt_sha256: "y" },
+                timer: { default_seconds: 120, choices: [60, 120], min_seconds: 15, max_seconds: 300 },
+            },
+            error: undefined,
+        });
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-A"));
+
+        await screen.findByTestId("spark-card");
+        expect(screen.getByText("⏱ 2 minutes")).toBeInTheDocument();
+        // Only what the policy offered.
+        expect(screen.queryByText("5 minutes")).not.toBeInTheDocument();
+    });
+
+    it("keeps the study design out of the participant-facing copy", async () => {
+        // The flows used to name the condition on their first screen, state the
+        // hypothesis ("tests whether simply delivering a short action is
+        // enough"), and label the outcome measures with the names the analysis
+        // uses for them.
+        mockPost.mockResolvedValue(SUCCESS_RESPONSE);
+
+        render(<Spark />);
+        expect(screen.queryByText(/research prototype/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/who chooses/i)).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId("spark-cond-A"));
+        await screen.findByTestId("spark-card");
+        expect(screen.queryByText(/Condition A/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/chosen at random/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Tests whether/i)).not.toBeInTheDocument();
     });
 
     it("shows the API's own reason for a failure, not a blanket message", async () => {
@@ -281,7 +363,7 @@ describe("Spark page", () => {
 
         // With no condition switcher above the flow, back on step 0 is the only
         // way out — it must exit to home rather than be hidden.
-        fireEvent.click(screen.getByLabelText("Back to all conditions"));
+        fireEvent.click(screen.getByLabelText("Back to the start"));
         expect(screen.getByTestId("spark-cond-A")).toBeInTheDocument();
     });
 });

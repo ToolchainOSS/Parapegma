@@ -12,20 +12,18 @@ import { SectionHeader } from "../../components";
 import { FramingChip, framingOf } from "./FramingChip";
 
 interface SparkSamplerProps {
+    eyebrow: string;
+    title: string;
+    subtitle?: string;
     cards: readonly SparkCardData[];
     /** 1-based position within the sampler, for telemetry. */
     onPick: (card: SparkCardData, rank: number) => void;
 }
 
-export function SparkSampler({ cards, onPick }: SparkSamplerProps) {
+export function SparkSampler({ eyebrow, title, subtitle, cards, onPick }: SparkSamplerProps) {
     return (
         <div className="space-y-4">
-            <SectionHeader
-                size="lg"
-                eyebrow="Condition B · Spark Wheel"
-                title="Which one would you actually do?"
-                subtitle="Choice without an intake. One Spark from each of the five vibes, drawn at random — no questions, and nothing to guess at before you have seen them."
-            />
+            <SectionHeader size="lg" eyebrow={eyebrow} title={title} subtitle={subtitle} />
 
             <div className="flex flex-col gap-3">
                 {cards.map((card, i) => {

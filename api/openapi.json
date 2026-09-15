@@ -2018,13 +2018,6 @@
             ],
             "title": "Context"
           },
-          "count": {
-            "default": 3,
-            "maximum": 5.0,
-            "minimum": 1.0,
-            "title": "Count",
-            "type": "integer"
-          },
           "flow_id": {
             "format": "uuid",
             "title": "Flow Id",
@@ -2092,6 +2085,9 @@
             },
             "title": "Prompt Version",
             "type": "object"
+          },
+          "timer": {
+            "$ref": "#/components/schemas/SparkTimerPolicy"
           }
         },
         "required": [
@@ -2146,6 +2142,26 @@
             "title": "Completion",
             "type": "string"
           },
+          "duration_seconds": {
+            "maximum": 300.0,
+            "minimum": 15.0,
+            "title": "Duration Seconds",
+            "type": "integer"
+          },
+          "duration_source": {
+            "enum": [
+              "study_default",
+              "participant"
+            ],
+            "title": "Duration Source",
+            "type": "string"
+          },
+          "elapsed_ms": {
+            "maximum": 3600000.0,
+            "minimum": 0.0,
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
           "event_type": {
             "const": "timer_finished",
             "title": "Event Type",
@@ -2154,9 +2170,43 @@
         },
         "required": [
           "event_type",
-          "completion"
+          "completion",
+          "duration_seconds",
+          "elapsed_ms",
+          "duration_source"
         ],
         "title": "SparkTimerFinishedEvent",
+        "type": "object"
+      },
+      "SparkTimerPolicy": {
+        "description": "What the client is allowed to offer for the countdown length.\n\nServed on every generate response rather than from a second endpoint: it is\none small object on a payload the flow already fetches, it costs no extra\nround-trip, and it lands in the persisted ``generation_succeeded`` payload,\nso the policy in force is recorded per flow for free.",
+        "properties": {
+          "choices": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "default_seconds": {
+            "default": 60,
+            "maximum": 300.0,
+            "minimum": 15.0,
+            "title": "Default Seconds",
+            "type": "integer"
+          },
+          "max_seconds": {
+            "default": 300,
+            "title": "Max Seconds",
+            "type": "integer"
+          },
+          "min_seconds": {
+            "default": 15,
+            "title": "Min Seconds",
+            "type": "integer"
+          }
+        },
+        "title": "SparkTimerPolicy",
         "type": "object"
       },
       "TimezoneUpdateRequest": {

@@ -68,7 +68,7 @@ export const FRAMINGS: Record<SparkFrame, FramingDef> = {
         accentBorder: "border-frame-challenge",
         tintBg: "bg-frame-challenge-tint",
         desc: "Push the pace and make it count.",
-        reward: "Make it count — keep it crisp and see if you hold the pace all 60 seconds.",
+        reward: "Make it count — keep it crisp and see if you hold the pace the whole way.",
     },
     science: {
         key: "science",
