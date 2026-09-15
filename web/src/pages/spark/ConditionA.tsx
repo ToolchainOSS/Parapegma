@@ -48,17 +48,21 @@ export function ConditionA({ onExit, onGoto, getIdentity }: ConditionProps) {
     const copy = CONDITION_COPY.A;
     const card = activeCard(state);
 
-    function back() {
-        if (step === 0) {
-            onExit();
-            return;
-        }
-        setStep((s) => s - 1);
-    }
-
     return (
         <div>
-            <FlowProgress step={step} total={A_TOTAL} accent={conditionAccent("A")} onBack={back} />
+            <FlowProgress
+                step={step}
+                total={A_TOTAL}
+                accent={conditionAccent("A")}
+                onBack={
+                    step > 0
+                        ? () => {
+                              setStep((s) => s - 1);
+                          }
+                        : null
+                }
+                onHome={onExit}
+            />
 
             {step === A_STEP.card && (
                 <div className="space-y-4">

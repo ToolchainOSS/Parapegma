@@ -76,11 +76,11 @@ export function indexOfTag(flow: AdaptiveFlow, tag: AdaptiveStep["tag"]): number
 /**
  * Where "back" goes.
  *
- * `null` means "leave the condition" -- the caller exits rather than clamping
- * at step 0. Backing out of the generate step returns to the home grid rather
- * than to the last intake question: re-answering that question re-fires a paid
- * model call and discards the whole remix chain, which is a rejected transition
- * dressed up as navigation.
+ * `null` means there is no previous step, and the caller renders its back
+ * control disabled -- leaving is a separate, explicit control. The generate
+ * step returns `null` on purpose: re-answering the last intake question
+ * re-fires a paid model call and discards the whole remix chain, which is a
+ * rejected transition rather than navigation.
  */
 export function backFrom(flow: AdaptiveFlow, index: number): number | null {
     if (index <= 0) return null;

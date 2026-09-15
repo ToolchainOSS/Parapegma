@@ -65,6 +65,13 @@ place via tokens), **consolidated** (folded into a canonical primitive), **new**
 | `reminder` on the `cue_selected` event | deleted — the cue is the stated intention, never a delivery instruction | deleted |
 | Cue + confidence questions | **kept-as-is** — real research measures, analysed as stated intention and its strength | kept-as-is |
 
+## Step bar — one control doing two jobs
+
+| Old | New canonical | Status |
+| --- | --- | --- |
+| Single `IconButton` in [FlowProgress.tsx](web/src/pages/spark/FlowProgress.tsx) that stepped back mid-flow and silently exited to the home grid at step 0 | two controls: **Previous step** (disabled when there is no previous step) and **Back to the start** | migrated |
+| `backFrom() === null` read by callers as "exit the condition" | read as "no previous step"; leaving is its own control | migrated |
+
 ## Inline badge/pill patterns → `Badge`
 
 | Old (inline) | New canonical | Status |

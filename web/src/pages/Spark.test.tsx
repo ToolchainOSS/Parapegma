@@ -378,15 +378,57 @@ describe("Spark page", () => {
         );
     });
 
-    it("leaves a condition through the back affordance on its first step", async () => {
+    it("leaves a condition through the home control", async () => {
         mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
 
         render(<Spark />);
         fireEvent.click(screen.getByTestId("spark-cond-B"));
         expect(await screen.findByText("Which one would you actually do?")).toBeInTheDocument();
 
-        // With no condition switcher above the flow, back on step 0 is the only
-        // way out — it must exit to home rather than be hidden.
+        // Leaving is its own control, always available and always deliberate.
+        fireEvent.click(screen.getByLabelText("Back to the start"));
+        expect(screen.getByTestId("spark-cond-A")).toBeInTheDocument();
+    });
+
+    it("disables back on the first step instead of making it exit", async () => {
+        mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-B"));
+        await screen.findByText("Which one would you actually do?");
+
+        // One control doing two jobs is how "back" used to become "leave"
+        // without saying so.
+        expect(screen.getByLabelText("Previous step")).toBeDisabled();
+        expect(screen.getByLabelText("Back to the start")).toBeEnabled();
+    });
+
+    it("steps back through a flow without leaving it", async () => {
+        mockPost.mockResolvedValue(respondWith("B", SAMPLER_CARDS));
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-B"));
+        fireEvent.click(await screen.findByTestId("spark-sample-calm"));
+        expect(await screen.findByTestId("spark-card")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByLabelText("Previous step"));
+        expect(await screen.findByText("Which one would you actually do?")).toBeInTheDocument();
+        // Still inside the condition, not back on the home grid.
+        expect(screen.queryByTestId("spark-cond-A")).not.toBeInTheDocument();
+    });
+
+    it("disables back on the generate step rather than silently exiting", async () => {
+        // This was the surprising one: stepping back from a generated Spark
+        // would re-fire a paid model call, so the shared control exited to the
+        // home grid instead — with no indication that it would.
+        mockPost.mockResolvedValue(SUCCESS_RESPONSE);
+
+        render(<Spark />);
+        fireEvent.click(screen.getByTestId("spark-cond-C"));
+        await answerIntake();
+        await screen.findByTestId("spark-card");
+
+        expect(screen.getByLabelText("Previous step")).toBeDisabled();
         fireEvent.click(screen.getByLabelText("Back to the start"));
         expect(screen.getByTestId("spark-cond-A")).toBeInTheDocument();
     });

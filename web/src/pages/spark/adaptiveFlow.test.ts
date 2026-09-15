@@ -60,12 +60,12 @@ describe("stepAt", () => {
 });
 
 describe("backFrom", () => {
-    it("exits the condition from the first step", () => {
+    it("has no previous step from the first step", () => {
         expect(backFrom(buildAdaptiveFlow("C"), 0)).toBeNull();
     });
 
     it.each(["C", "D"] as const)(
-        "exits %s rather than returning to the last question from generate",
+        "offers %s no way back to the last question from generate",
         (condition) => {
             // Re-answering the last intake question re-fires a paid model call
             // and discards the whole remix chain. That is a rejected

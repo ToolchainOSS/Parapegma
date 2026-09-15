@@ -84,11 +84,10 @@ export function ConditionAdaptive({
         if (target >= 0) setIndex(target);
     };
 
-    const back = (): void => {
-        const target = backFrom(flow, index);
-        if (target === null) onExit();
-        else setIndex(target);
-    };
+    // `null` here means there is no previous step to return to -- either this is
+    // the first one, or it is the generate step, where re-answering the last
+    // question would re-fire a paid model call and discard the remix chain.
+    const backTarget = backFrom(flow, index);
 
     const handleIntakeAnswer = (field: keyof IntakeProfile, value: string): void => {
         track({ event_type: "intake_answered", field, value });
@@ -289,7 +288,14 @@ export function ConditionAdaptive({
                 step={index}
                 total={flow.length}
                 accent={conditionAccent(condition)}
-                onBack={back}
+                onBack={
+                    backTarget === null
+                        ? null
+                        : () => {
+                              setIndex(backTarget);
+                          }
+                }
+                onHome={onExit}
             />
             {body}
         </div>
